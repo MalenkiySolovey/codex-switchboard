@@ -168,6 +168,39 @@ public sealed partial class MainViewModel : ObservableObject
             ShowInfo(_loc.ImportedTitle, _loc.ImportedMsg(adopted.DisplayName), InfoBarSeverity.Success);
     }
 
+    /// <summary>
+    /// Relê o slot ativo do Codex sob demanda e importa a conta logada se ela ainda não estiver no
+    /// cofre. Necessário porque o login pode acontecer fora do app (ex.: <c>codex login</c>) depois
+    /// que a lista já foi carregada, e nesse caso nada dispara a detecção automática.
+    /// </summary>
+    [RelayCommand]
+    private async Task DetectAccountAsync()
+    {
+        ReconciliationResult? result = null;
+        ProfileMetadata? adopted = null;
+        await RunBusy(_loc.BusyDetecting, () =>
+        {
+            result = _profiles.Load();
+            if (result is { Match: ActiveMatch.None, ActiveFingerprint: not null })
+                adopted = _profiles.AdoptActiveAccount();
+            return Task.CompletedTask;
+        });
+        RebuildList();
+
+        if (result is null) return; // RunBusy já mostrou o erro.
+
+        if (adopted is not null)
+            ShowInfo(_loc.ImportedTitle, _loc.ImportedMsg(adopted.DisplayName), InfoBarSeverity.Success);
+        else if (result.ActiveFingerprint is null)
+            ShowInfo(_loc.DetectNoneTitle, _loc.DetectNoneMsg, InfoBarSeverity.Informational);
+        else
+        {
+            var active = _profiles.Profiles.FirstOrDefault(p => p.IsActive);
+            ShowInfo(_loc.DetectKnownTitle,
+                _loc.DetectKnownMsg(active?.DisplayName ?? _loc.CodexAccount), InfoBarSeverity.Informational);
+        }
+    }
+
     [RelayCommand]
     private async Task RenameAsync(AccountItemViewModel? item)
     {

@@ -38,6 +38,10 @@ public sealed class Strings
     public string RefreshAll => S("Renovar todas", "Refresh all");
     public string RefreshAllTooltip => S("Renovar todas agora", "Refresh all now");
     public string SignInOAuth => S("Entrar com OAuth", "Sign in with OAuth");
+    public string DetectAccount => S("Detectar conta", "Detect account");
+    public string DetectAccountTooltip => S(
+        "Procurar a conta logada no Codex agora e importar se for nova",
+        "Look for the account logged into Codex now and import it if it is new");
     public string TwoFactorButton => S("2FA", "2FA");
     public string TwoFactorTooltip => S("Gerador de código 2FA", "2FA code generator");
     public string BrowserButton => S("Navegador", "Browser");
@@ -131,6 +135,7 @@ public sealed class Strings
     public string BusyRefreshingAll => S("Renovando todas as contas…", "Refreshing all accounts…");
     public string BusyWaitingLogin => S("Aguardando login…", "Waiting for login…");
     public string BusyImporting => S("Importando conta atual…", "Importing current account…");
+    public string BusyDetecting => S("Procurando conta logada no Codex…", "Looking for the account logged into Codex…");
 
     // InfoBar / resultados
     public string ErrorTitle => S("Erro", "Error");
@@ -173,6 +178,14 @@ public sealed class Strings
     public string ImportedTitle => S("Conta importada", "Account imported");
     public string ImportedMsg(string name) => S(
         $"{name} (já logada no Codex) foi adicionada.", $"{name} (already logged into Codex) was added.");
+    public string DetectNoneTitle => S("Nenhuma conta logada", "No account logged in");
+    public string DetectNoneMsg => S(
+        "Não há nenhuma conta logada no Codex neste computador agora.",
+        "There is no account logged into Codex on this computer right now.");
+    public string DetectKnownTitle => S("Nada novo para importar", "Nothing new to import");
+    public string DetectKnownMsg(string name) => S(
+        $"A conta logada no Codex ({name}) já está no cofre.",
+        $"The account logged into Codex ({name}) is already in the vault.");
 
     public string RenameTitle => S("Renomear conta", "Rename account");
     public string RenamePrompt => S("Novo apelido:", "New nickname:");

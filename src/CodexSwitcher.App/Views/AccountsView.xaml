@@ -45,6 +45,14 @@
                 <AutoSuggestBox x:Name="SearchBox" PlaceholderText="{x:Bind Loc.SearchPlaceholder}" Width="200" QueryIcon="Find"
                                 Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
                                 Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource InvBoolToVis}}" />
+                <Button Command="{x:Bind ViewModel.DetectAccountCommand}"
+                        ToolTipService.ToolTip="{x:Bind Loc.DetectAccountTooltip}"
+                        Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource InvBoolToVis}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE721;" FontSize="14" />
+                        <TextBlock Text="{x:Bind Loc.DetectAccount}" />
+                    </StackPanel>
+                </Button>
                 <Button Command="{x:Bind ViewModel.RefreshAllCommand}"
                         ToolTipService.ToolTip="{x:Bind Loc.RefreshAllTooltip}"
                         Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource InvBoolToVis}}">
