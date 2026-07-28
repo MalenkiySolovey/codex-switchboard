@@ -9,8 +9,6 @@ public enum AccountBadge
 {
     ActiveNow,
     Healthy,
-    RenewSoon,
-    Refreshing,
     NeedsReLogin,
     Error,
     Unavailable,
@@ -66,12 +64,10 @@ public sealed class AccountItemViewModel
     public bool IsMarkedUsed { get; }
 
     public bool CanSwitch => !IsActive && Badge != AccountBadge.Unavailable;
-    public bool IsRefreshing => Badge == AccountBadge.Refreshing;
-
     // Rótulos localizados usados dentro do DataTemplate do card.
     public string SwitchLabel => Loc.Switch;
     public string InUseLabel => Loc.InUse;
-    public string RefreshNowLabel => Loc.RefreshNow;
+    public string ExportLabel => Loc.Export;
     public string RenameLabel => Loc.Rename;
     public string MarkReLoginLabel => Loc.MarkNeedsReLogin;
     public string MarkUsedLabel => Loc.MarkUsed;
@@ -84,8 +80,6 @@ public sealed class AccountItemViewModel
         HealthStatus.Unknown => AccountBadge.Unavailable,
         HealthStatus.Error => AccountBadge.Error,
         HealthStatus.NeedsReLogin => AccountBadge.NeedsReLogin,
-        HealthStatus.Refreshing => AccountBadge.Refreshing,
-        HealthStatus.Stale => p.IsActive ? AccountBadge.ActiveNow : AccountBadge.RenewSoon,
         _ => p.IsActive ? AccountBadge.ActiveNow : AccountBadge.Healthy,
     };
 
@@ -93,16 +87,8 @@ public sealed class AccountItemViewModel
     {
         if (p.HealthStatus == HealthStatus.NeedsReLogin) return Loc.HealthNeedsReLogin;
         if (p.HealthStatus == HealthStatus.Error) return p.LastError?.Message ?? Loc.HealthError;
-        if (p.HealthStatus == HealthStatus.Refreshing) return Loc.HealthRefreshing;
         if (p.HealthStatus == HealthStatus.Unknown) return Loc.HealthUnavailable;
-
-        if (p.LastRefreshedAt is null) return Loc.HealthNeverRefreshed;
-
-        var days = (now - p.LastRefreshedAt.Value).TotalDays;
-        var baseText = Loc.RefreshedFormat(RelativeTime.Humanize(p.LastRefreshedAt, now, Loc.Pt));
-        if (days >= settings.StaleHardLimitDays) return baseText + Loc.SuffixCanExpire;
-        if (days >= settings.StaleWarningDays) return baseText + Loc.SuffixRenewSoon;
-        return baseText;
+        return Loc.HealthSaved;
     }
 
     private static string ComputeInitials(ProfileMetadata p)

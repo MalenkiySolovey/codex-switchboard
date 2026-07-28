@@ -6,7 +6,6 @@ using CodexSwitcher.Infra;
 using CodexSwitcher.Infra.Codex;
 using CodexSwitcher.Infra.Io;
 using CodexSwitcher.Infra.Processes;
-using CodexSwitcher.Infra.Scheduling;
 using CodexSwitcher.Infra.Security;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -58,15 +57,6 @@ public static class AppHost
             paths.Codex,
             paths.BackupsDir));
 
-        services.AddSingleton(sp => new RefreshService(
-            sp.GetRequiredService<VaultService>(),
-            sp.GetRequiredService<IFileSystem>(),
-            sp.GetRequiredService<ICodexCli>(),
-            sp.GetRequiredService<IClock>(),
-            sp.GetRequiredService<IAuditLog>(),
-            paths.TempRoot));
-
-        services.AddSingleton<RefreshScheduler>();
         services.AddSingleton<IUiInteraction, UiInteractionService>();
         services.AddTransient<MainViewModel>();
 

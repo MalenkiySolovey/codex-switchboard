@@ -25,4 +25,10 @@ public interface IUiInteraction
     /// cancelado/falhou. Ver §5.
     /// </summary>
     Task<byte[]?> RunEphemeralLoginAsync();
+
+    /// <summary>Escolhe um arquivo exportado pelo Switcher ou um auth.json do Codex e devolve seu conteúdo.</summary>
+    Task<string?> PickImportFileAsync();
+
+    /// <summary>Escolhe onde salvar um arquivo de contas e grava seu conteúdo.</summary>
+    Task<bool> SaveExportFileAsync(string suggestedFileName, string contents);
 }

@@ -1,6 +1,7 @@
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Security;
+using System.Text.Json;
 
 namespace CodexSwitcher.Core.Services;
 
@@ -116,6 +117,8 @@ public sealed class ProfileService
     {
         ArgumentNullException.ThrowIfNull(authJson);
         var (file, claims) = AuthJsonReader.Identify(authJson);
+        if (!IsRecognizableAuthFile(file))
+            throw new InvalidDataException("O arquivo selecionado não é um auth.json válido do Codex.");
 
         var existing = !string.IsNullOrEmpty(claims.Sub)
             ? Profiles.FirstOrDefault(p => p.AccountSub == claims.Sub)
@@ -150,6 +153,74 @@ public sealed class ProfileService
         _store.SaveAll(Profiles);
         _audit.Record("add", "ok", profile.DisplayName);
         return profile;
+    }
+
+    /// <summary>Exporta uma conta em um documento portátil. O resultado contém credenciais em claro.</summary>
+    public string ExportOne(Guid id)
+    {
+        var profile = Profiles.FirstOrDefault(p => p.Id == id)
+            ?? throw new InvalidOperationException("Perfil não encontrado.");
+        return SerializeTransfer([ToTransferredAccount(profile)]);
+    }
+
+    /// <summary>Exporta todas as contas do cofre em um único documento portátil.</summary>
+    public string ExportAll() => SerializeTransfer(Profiles
+        .OrderBy(p => p.SortOrder)
+        .Select(ToTransferredAccount)
+        .ToList());
+
+    /// <summary>
+    /// Importa um documento produzido pelo Switcher. Contas iguais são atualizadas, sem duplicá-las.
+    /// Retorna o número de entradas lidas do arquivo.
+    /// </summary>
+    public int Import(string document)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(document);
+
+        AccountTransferDocument? transfer;
+        try
+        {
+            transfer = JsonSerializer.Deserialize<AccountTransferDocument>(document);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException("O arquivo de importação não é válido.", ex);
+        }
+
+        if (transfer is null || transfer.Accounts.Count == 0)
+        {
+            var authJson = System.Text.Encoding.UTF8.GetBytes(document);
+            if (!IsRecognizableAuthFile(AuthJsonReader.TryRead(authJson)))
+                throw new InvalidDataException("O arquivo de importação está vazio ou usa um formato incompatível.");
+
+            AddFromAuthJson(authJson, null);
+            _audit.Record("import", "raw-auth-json");
+            return 1;
+        }
+
+        if (transfer.FormatVersion != AccountTransferDocument.CurrentFormatVersion)
+            throw new InvalidDataException("O arquivo de importação usa um formato incompatível.");
+
+        var validated = new List<(TransferredAccount Entry, byte[] AuthJson)>();
+        foreach (var entry in transfer.Accounts)
+        {
+            byte[] authJson;
+            try { authJson = Convert.FromBase64String(entry.AuthJsonBase64); }
+            catch (FormatException ex) { throw new InvalidDataException("O arquivo de importação contém uma credencial inválida.", ex); }
+            if (!IsRecognizableAuthFile(AuthJsonReader.TryRead(authJson)))
+                throw new InvalidDataException("O arquivo de importação contém um auth.json inválido.");
+            validated.Add((entry, authJson));
+        }
+
+        foreach (var (entry, authJson) in validated)
+        {
+            var profile = AddFromAuthJson(authJson, entry.Nickname);
+            profile.SortOrder = entry.SortOrder;
+        }
+
+        _store.SaveAll(Profiles);
+        _audit.Record("import", "ok", transfer.Accounts.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return transfer.Accounts.Count;
     }
 
     public void Rename(Guid id, string nickname)
@@ -220,4 +291,20 @@ public sealed class ProfileService
     }
 
     public void Save() => _store.SaveAll(Profiles);
+
+    private TransferredAccount ToTransferredAccount(ProfileMetadata profile) => new()
+    {
+        Nickname = profile.Nickname,
+        SortOrder = profile.SortOrder,
+        AuthJsonBase64 = Convert.ToBase64String(_vault.LoadBlob(profile.Id)),
+    };
+
+    private static string SerializeTransfer(IReadOnlyList<TransferredAccount> accounts) =>
+        JsonSerializer.Serialize(new AccountTransferDocument { Accounts = accounts.ToList() }, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+        });
+
+    private static bool IsRecognizableAuthFile(AuthFileInfo? file) =>
+        file is not null && (!string.IsNullOrWhiteSpace(file.AuthMode) || !string.IsNullOrWhiteSpace(file.IdToken));
 }

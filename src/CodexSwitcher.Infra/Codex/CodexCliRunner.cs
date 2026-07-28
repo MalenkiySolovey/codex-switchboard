@@ -27,25 +27,6 @@ public sealed class CodexCliRunner : ICodexCli
     public bool IsAvailable => _resolvedPath is not null;
     public string? ResolvedPath => _resolvedPath;
 
-    public Task<CodexCliResult> ExecAsync(string prompt, string codexHome, TimeSpan timeout,
-        CancellationToken cancellationToken = default) =>
-        RunAsync(["exec", "-a", "never", "-s", "read-only", prompt], codexHome, timeout, null, cancellationToken);
-
-    public Task<CodexCliResult> LoginStatusAsync(string codexHome, CancellationToken cancellationToken = default) =>
-        RunAsync(["login", "status"], codexHome, TimeSpan.FromSeconds(20), null, cancellationToken);
-
-    public void LaunchDesktopApp()
-    {
-        if (_resolvedPath is null) return;
-
-        var psi = new ProcessStartInfo { UseShellExecute = false, CreateNoWindow = true };
-        ApplyLauncher(psi);
-        psi.ArgumentList.Add("app");
-
-        try { Process.Start(psi); }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
-    }
-
     public async Task<ICodexLoginSession> StartChatGptLoginAsync(
         string codexHome, CancellationToken cancellationToken = default)
     {

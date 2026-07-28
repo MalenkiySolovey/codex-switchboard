@@ -4,6 +4,8 @@ using CodexSwitcher.Core.Models;
 using CodexSwitcher.Infra;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 
 namespace CodexSwitcher.App.Services;
 
@@ -144,6 +146,30 @@ public sealed class UiInteractionService : IUiInteraction
     {
         var login = new Views.LoginWindow(_codex, _paths);
         return await login.ShowAndWaitAsync();
+    }
+
+    public async Task<string?> PickImportFileAsync()
+    {
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".json");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(_window));
+        var file = await picker.PickSingleFileAsync();
+        return file is null ? null : await FileIO.ReadTextAsync(file);
+    }
+
+    public async Task<bool> SaveExportFileAsync(string suggestedFileName, string contents)
+    {
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = suggestedFileName,
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+        };
+        picker.FileTypeChoices.Add("Codex Switcher accounts", [".json"]);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(_window));
+        StorageFile? file = await picker.PickSaveFileAsync();
+        if (file is null) return false;
+        await FileIO.WriteTextAsync(file, contents);
+        return true;
     }
 
     private static StackPanel SectionText(string heading, string body)

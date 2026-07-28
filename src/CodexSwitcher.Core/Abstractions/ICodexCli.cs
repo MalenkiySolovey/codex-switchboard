@@ -45,27 +45,6 @@ public interface ICodexCli
     string? ResolvedPath { get; }
 
     /// <summary>
-    /// Executa <c>codex exec "&lt;prompt&gt;"</c> com CODEX_HOME isolado, disparando o refresh
-    /// se o token estiver velho. Ver §6.2.
-    /// </summary>
-    Task<CodexCliResult> ExecAsync(
-        string prompt,
-        string codexHome,
-        TimeSpan timeout,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Executa <c>codex login status</c> com CODEX_HOME dado (exit 0 = logado).</summary>
-    Task<CodexCliResult> LoginStatusAsync(
-        string codexHome,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Relança o app desktop do Codex via <c>codex app</c> (fire-and-forget). É o modo correto de
-    /// reabrir o app empacotado (o .exe fica em WindowsApps, protegido). Ver §4.5 e ponto 20.
-    /// </summary>
-    void LaunchDesktopApp();
-
-    /// <summary>
     /// Inicia um login OAuth (ChatGPT) via <c>codex app-server</c> com CODEX_HOME isolado. Faz o
     /// handshake (initialize + account/login/start) e retorna a sessão já com a URL de autorização,
     /// que o cliente deve abrir no WebView2 efêmero. O codex NÃO abre o navegador do sistema (evita

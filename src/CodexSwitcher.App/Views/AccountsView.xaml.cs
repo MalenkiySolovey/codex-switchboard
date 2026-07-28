@@ -88,9 +88,9 @@ public sealed partial class AccountsView : UserControl
         if (ItemOf(sender) is { } item) ViewModel.SwitchCommand.Execute(item);
     }
 
-    private void OnRefreshItemClick(object sender, RoutedEventArgs e)
+    private void OnExportItemClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.RefreshOneCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.ExportOneCommand.Execute(item);
     }
 
     private void OnRenameItemClick(object sender, RoutedEventArgs e)

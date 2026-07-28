@@ -67,26 +67,7 @@ public sealed class FakeCodexCli : ICodexCli
     public bool IsAvailable { get; set; } = true;
     public string? ResolvedPath { get; set; } = @"C:\npm\codex.exe";
 
-    /// <summary>Se definido, o "codex" simula a renovação escrevendo estes bytes em codexHome/auth.json.</summary>
-    public byte[]? RefreshedAuthToWrite { get; set; }
-    public CodexCliResult ExecResult { get; set; } = new(0, "OK", "");
-    public CodexCliResult StatusResult { get; set; } = new(0, "", "");
     public string? LastCodexHome { get; private set; }
-
-    public Task<CodexCliResult> ExecAsync(string prompt, string codexHome, TimeSpan timeout,
-        CancellationToken cancellationToken = default)
-    {
-        LastCodexHome = codexHome;
-        if (RefreshedAuthToWrite is not null)
-        {
-            Directory.CreateDirectory(codexHome);
-            File.WriteAllBytes(Path.Combine(codexHome, "auth.json"), RefreshedAuthToWrite);
-        }
-        return Task.FromResult(ExecResult);
-    }
-
-    public Task<CodexCliResult> LoginStatusAsync(string codexHome, CancellationToken cancellationToken = default) =>
-        Task.FromResult(StatusResult);
 
     public Task<ICodexLoginSession> StartChatGptLoginAsync(string codexHome,
         CancellationToken cancellationToken = default)
@@ -95,8 +76,6 @@ public sealed class FakeCodexCli : ICodexCli
         return Task.FromResult<ICodexLoginSession>(new FakeLoginSession());
     }
 
-    public int DesktopAppLaunchCount { get; private set; }
-    public void LaunchDesktopApp() => DesktopAppLaunchCount++;
 }
 
 public sealed class FakeLoginSession : ICodexLoginSession

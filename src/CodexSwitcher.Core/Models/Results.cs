@@ -12,15 +12,6 @@ public sealed record SwitchResult(
         Outcome is SwitchOutcome.Success or SwitchOutcome.SuccessWithReopenWarning;
 }
 
-/// <summary>Resultado de um refresh isolado de um perfil. Ver §6.3.</summary>
-public sealed record RefreshResult(
-    RefreshOutcome Outcome,
-    string Message,
-    ErrorInfo? Error = null)
-{
-    public bool Succeeded => Outcome == RefreshOutcome.Success;
-}
-
 /// <summary>
 /// Plano de um switch, exibido no popup de confirmação (§4.2). Descreve o que será
 /// fechado e reaberto ANTES de qualquer ação destrutiva.

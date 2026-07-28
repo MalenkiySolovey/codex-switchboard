@@ -253,5 +253,22 @@ public sealed class Strings
         "Feche esta janela e tente novamente. Sua sessão continua limpa e nada foi alterado.",
         "Close this window and try again. Your session stays clean and nothing was changed.");
     public string Close => S("Fechar", "Close");
+    public string ImportAccounts => S("Importar", "Import");
+    public string ImportAccountsTooltip => S("Importar contas exportadas do Codex Switcher", "Import accounts exported by Codex Switcher");
+    public string ExportAll => S("Exportar todas", "Export all");
+    public string ExportAllTooltip => S("Exportar todas as contas do cofre", "Export all vault accounts");
+    public string Export => S("Exportar", "Export");
+    public string HealthSaved => S("Credencial salva no cofre", "Credential saved in vault");
+    public string BusyExporting => S("Exportando contas...", "Exporting accounts...");
+    public string ImportedAccountsMsg(int count) => S(
+        $"{count} conta(s) foram importadas para o cofre.", $"{count} account(s) were imported into the vault.");
+    public string ExportTitle => S("Exportar credenciais", "Export credentials");
+    public string ExportWarning => S(
+        "O arquivo exportado contém tokens de acesso em texto recuperável. Guarde-o como uma senha e não o envie para outras pessoas.",
+        "The exported file contains recoverable access tokens. Store it like a password and do not send it to others.");
+    public string ExportOneWarning(string name) => S($"Exportar {name}? {ExportWarning}", $"Export {name}? {ExportWarning}");
+    public string ExportedTitle => S("Contas exportadas", "Accounts exported");
+    public string ExportedAllMsg(int count) => S($"{count} conta(s) foram exportadas.", $"{count} account(s) were exported.");
+    public string ExportedOneMsg(string name) => S($"{name} foi exportada.", $"{name} was exported.");
     public string Cancelar => Cancel;
 }

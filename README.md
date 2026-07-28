@@ -11,9 +11,7 @@
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 
 Codex Account Switcher is a fast, native **Windows desktop app** (WinUI 3 / .NET 10) that manages
-several Codex logins in an **encrypted local vault** and swaps the active one instantly. It keeps
-every account **alive in the background** by refreshing tokens before they expire, so you never have
-to sign in again just to switch.
+several Codex logins in an **encrypted local vault** and swaps the active one instantly.
 
 ![Codex Account Switcher screenshot](docs/screenshot.png)
 
@@ -54,10 +52,11 @@ treating your tokens like passwords.
   never contaminates another and no ChatGPT "device code" security setting is required.
 - **Built-in 2FA code generator**. A small tool (RFC 6238 TOTP) that turns a pasted 2FA secret key
   into a rotating 6-digit code with a live expiry countdown; the key stays in memory only.
-- **Background refresh**. A scheduled task renews each account before the ~8-day expiry window,
-  isolated through a temporary `CODEX_HOME` that never touches the real active slot.
+- **Import and export**. Move one account or the entire vault through an explicit portable export
+  file. Exports contain recoverable credentials, so the app warns you to treat them like passwords.
 - **Closes and reopens Codex apps**. Detects running Codex desktop/CLI processes, asks for
-  confirmation, closes them for the swap, and reopens the desktop app afterward.
+  confirmation, closes them for the swap, then reopens the installed Windows app directly — never
+  through the CLI installer/update flow.
 - **Automatic language**. Portuguese on Brazilian/`pt` systems, English everywhere else.
 - **Native Fluent UI**. Mica, dark/light, rounded corners, relative dates, health badges.
 
@@ -66,14 +65,14 @@ treating your tokens like passwords.
 Switching accounts = swapping the contents of `%USERPROFILE%\.codex\auth.json`. The app keeps an
 encrypted copy of each account's `auth.json` in its vault (the **source of truth**) and performs the
 swap as a reversible transaction: **confirm → close Codex apps → write-back current → backup →
-write new slot (atomic) → update metadata → reopen apps**. If any step fails, the original slot is
-restored from the backup and the apps are reopened on the original account.
+write new slot (atomic) → update metadata → reopen the installed app**. If any step fails, the
+original slot is restored from the backup and the app is reopened on the original account.
 
 ## Requirements
 
 - Windows 10 / 11 (x64)
 - [.NET SDK 10](https://dotnet.microsoft.com/download) (to build)
-- [`codex` CLI](https://www.npmjs.com/package/@openai/codex) on `PATH` (for login/refresh/reopen)
+- [`codex` CLI](https://www.npmjs.com/package/@openai/codex) on `PATH` (for login/reopen)
 - WebView2 Evergreen Runtime (bundled with modern Windows; used only during login)
 
 ## Getting started
@@ -137,19 +136,19 @@ its resource/manifest lookup to the exe's own filename, and renaming it breaks a
   kept in memory as briefly as possible.
 - DPAPI `CurrentUser` ties decryption to the same Windows user on the same machine, so the vault is
   **not portable** across machines/users (by design).
-- The only places a token exists in plaintext are the active slot required by Codex and the
-  short-lived ephemeral login/refresh folders.
+- The only places a token exists in plaintext are the active slot required by Codex, short-lived
+  login folders, and an export file while you explicitly choose to create one.
 - The app never requires administrator privileges.
 
 ## Project structure
 
 ```
 src/
-  CodexSwitcher.Core     Models, services (Vault, Switch, Refresh, Reconciliation, Profiles)
-  CodexSwitcher.Infra    DPAPI, atomic file system, config.toml, Codex CLI, process manager, scheduler
+  CodexSwitcher.Core     Models, services (Vault, Switch, Reconciliation, Profiles, transfer)
+  CodexSwitcher.Infra    DPAPI, atomic file system, config.toml, Codex CLI, process manager
   CodexSwitcher.App      WinUI 3 UI (views, view models, ephemeral login, DI, localization)
 tests/
-  CodexSwitcher.Core.Tests   xUnit: vault, atomic writes, switch/rollback, refresh, reconciliation
+  CodexSwitcher.Core.Tests   xUnit: vault, atomic writes, import/export, switch/rollback, reconciliation
 ```
 
 ## Tech stack

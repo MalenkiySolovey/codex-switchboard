@@ -10,12 +10,11 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace CodexSwitcher.App.ViewModels;
 
-/// <summary>ViewModel principal: lista de contas, switch, refresh, adicionar/adotar, renomear/remover.</summary>
+/// <summary>ViewModel principal: lista de contas, switch, importação/exportação, adicionar/adotar, renomear/remover.</summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly ProfileService _profiles;
     private readonly SwitchService _switch;
-    private readonly RefreshService _refresh;
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
     private readonly IClock _clock;
@@ -37,12 +36,11 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] public partial bool ShowAdoptPrompt { get; set; }
 
     public MainViewModel(
-        ProfileService profiles, SwitchService switchService, RefreshService refresh,
+        ProfileService profiles, SwitchService switchService,
         SettingsStore settingsStore, AppSettings settings, IClock clock, IUiInteraction ui)
     {
         _profiles = profiles;
         _switch = switchService;
-        _refresh = refresh;
         _settingsStore = settingsStore;
         _settings = settings;
         _clock = clock;
@@ -95,38 +93,6 @@ public sealed partial class MainViewModel : ObservableObject
         RebuildList();
         if (result is not null)
             ShowSwitchResult(result, item.DisplayName);
-    }
-
-    [RelayCommand]
-    private async Task RefreshOneAsync(AccountItemViewModel? item)
-    {
-        if (item is null) return;
-        RefreshResult? result = null;
-        await RunBusy(_loc.BusyRefreshingOne(item.DisplayName), async () =>
-        {
-            result = await Task.Run(() => _refresh.RefreshAsync(item.Profile, TimeSpan.FromMinutes(2)));
-            _profiles.Save();
-        });
-        RebuildList();
-        if (result is not null)
-            ShowRefreshResult(result, item.DisplayName);
-    }
-
-    [RelayCommand]
-    private async Task RefreshAllAsync()
-    {
-        if (_all.Count == 0) return;
-        await RunBusy(_loc.BusyRefreshingAll, async () =>
-        {
-            foreach (var p in _profiles.Profiles.ToList())
-            {
-                BusyText = _loc.BusyRefreshingOne(p.DisplayName);
-                await Task.Run(() => _refresh.RefreshAsync(p, TimeSpan.FromMinutes(2)));
-            }
-            _profiles.Save();
-        });
-        RebuildList();
-        ShowInfo(_loc.RefreshAllDoneTitle, _loc.RefreshAllDoneMsg, InfoBarSeverity.Success);
     }
 
     [RelayCommand]
@@ -199,6 +165,51 @@ public sealed partial class MainViewModel : ObservableObject
             ShowInfo(_loc.DetectKnownTitle,
                 _loc.DetectKnownMsg(active?.DisplayName ?? _loc.CodexAccount), InfoBarSeverity.Informational);
         }
+    }
+
+    [RelayCommand]
+    private async Task ImportAccountsAsync()
+    {
+        var document = await _ui.PickImportFileAsync();
+        if (document is null) return;
+
+        var count = 0;
+        await RunBusy(_loc.BusyImporting, () =>
+        {
+            count = _profiles.Import(document);
+            return Task.CompletedTask;
+        });
+        RebuildList();
+        if (count > 0)
+            ShowInfo(_loc.ImportedTitle, _loc.ImportedAccountsMsg(count), InfoBarSeverity.Success);
+    }
+
+    [RelayCommand]
+    private async Task ExportAllAsync()
+    {
+        if (_all.Count == 0) return;
+        if (!await _ui.ConfirmAsync(_loc.ExportTitle, _loc.ExportWarning, _loc.Export, destructive: false)) return;
+
+        var saved = false;
+        await RunBusy(_loc.BusyExporting, async () =>
+        {
+            saved = await _ui.SaveExportFileAsync("codex-switcher-accounts.codexswitcher", _profiles.ExportAll());
+        });
+        if (saved) ShowInfo(_loc.ExportedTitle, _loc.ExportedAllMsg(_all.Count), InfoBarSeverity.Success);
+    }
+
+    [RelayCommand]
+    private async Task ExportOneAsync(AccountItemViewModel? item)
+    {
+        if (item is null) return;
+        if (!await _ui.ConfirmAsync(_loc.ExportTitle, _loc.ExportOneWarning(item.DisplayName), _loc.Export, destructive: false)) return;
+
+        var saved = false;
+        await RunBusy(_loc.BusyExporting, async () =>
+        {
+            saved = await _ui.SaveExportFileAsync("codex-switcher-account.codexswitcher", _profiles.ExportOne(item.Id));
+        });
+        if (saved) ShowInfo(_loc.ExportedTitle, _loc.ExportedOneMsg(item.DisplayName), InfoBarSeverity.Success);
     }
 
     [RelayCommand]
@@ -300,17 +311,6 @@ public sealed partial class MainViewModel : ObservableObject
             SwitchOutcome.RolledBack => (_loc.SwitchRolledBackTitle, _loc.SwitchRolledBackMsg, InfoBarSeverity.Warning),
             SwitchOutcome.AbortedProcessRemnant => (_loc.SwitchAbortedTitle, _loc.SwitchAbortedMsg, InfoBarSeverity.Warning),
             _ => (_loc.SwitchFailedTitle, _loc.SwitchFailedMsg, InfoBarSeverity.Error),
-        };
-        ShowInfo(title, message, severity);
-    }
-
-    private void ShowRefreshResult(RefreshResult result, string name)
-    {
-        var (title, message, severity) = result.Outcome switch
-        {
-            RefreshOutcome.Success => (_loc.RenewedTitle, _loc.RefreshSuccessMsg(name), InfoBarSeverity.Success),
-            RefreshOutcome.NeedsReLogin => (_loc.NotRenewedTitle, _loc.RefreshNeedsReLoginMsg(name), InfoBarSeverity.Warning),
-            _ => (_loc.NotRenewedTitle, _loc.RefreshTransientMsg, InfoBarSeverity.Warning),
         };
         ShowInfo(title, message, severity);
     }

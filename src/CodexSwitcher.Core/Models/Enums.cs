@@ -9,20 +9,14 @@ public enum HealthStatus
     /// <summary>Ainda não avaliado, ou blob não decifrável (perfil de outra máquina/usuário).</summary>
     Unknown = 0,
 
-    /// <summary>Tokens presentes e dentro da janela de obsolescência.</summary>
+    /// <summary>Credencial presente no cofre.</summary>
     Valid = 1,
 
-    /// <summary>Tecnicamente válido, mas passou do limiar de alerta; deve renovar logo.</summary>
-    Stale = 2,
-
-    /// <summary>Refresh em andamento.</summary>
-    Refreshing = 3,
-
-    /// <summary>Refresh token inválido/expirado; requer novo login OAuth.</summary>
-    NeedsReLogin = 4,
+    /// <summary>Credencial inválida/expirada; requer novo login OAuth.</summary>
+    NeedsReLogin = 2,
 
     /// <summary>Falha transiente/ambiental (rede, codex ausente, permissão, timeout).</summary>
-    Error = 5,
+    Error = 3,
 }
 
 /// <summary>Categoria de erro para mensagens específicas na UI. Nunca contém tokens.</summary>
@@ -78,14 +72,6 @@ public enum SwitchOutcome
 
     /// <summary>Falha sem alteração do slot (ex.: perfil alvo não decifrável).</summary>
     Failed = 5,
-}
-
-/// <summary>Resultado de um refresh de um perfil. Ver BUSINESS_RULES.md §6.3.</summary>
-public enum RefreshOutcome
-{
-    Success = 0,
-    NeedsReLogin = 1,
-    TransientError = 2,
 }
 
 /// <summary>Como o app deve tratar o fechar/reabrir de apps do Codex no switch. Ver §4.5.</summary>

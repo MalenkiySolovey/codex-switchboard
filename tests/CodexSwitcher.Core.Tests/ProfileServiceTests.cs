@@ -131,6 +131,59 @@ public sealed class ProfileServiceTests
 
         Assert.Equal("B", env.Service.Profiles.OrderBy(p => p.SortOrder).First().Nickname);
     }
+
+    [Fact]
+    public void ExportOne_ThenImport_RestoresAccountAndNickname()
+    {
+        using var source = new Env();
+        var original = source.Service.AddFromAuthJson(Sample.AuthJson(idToken: Sample.Jwt(sub: "portable", email: "p@x.com")), "Portátil");
+        var exported = source.Service.ExportOne(original.Id);
+
+        using var destination = new Env();
+        var count = destination.Service.Import(exported);
+
+        var imported = Assert.Single(destination.Service.Profiles);
+        Assert.Equal(1, count);
+        Assert.Equal("portable", imported.AccountSub);
+        Assert.Equal("Portátil", imported.Nickname);
+    }
+
+    [Fact]
+    public void ExportAll_ThenImport_RestoresAllAccountsInOrder()
+    {
+        using var source = new Env();
+        var first = source.Service.AddFromAuthJson(Sample.AuthJson(idToken: Sample.Jwt(sub: "first")), "First");
+        var second = source.Service.AddFromAuthJson(Sample.AuthJson(idToken: Sample.Jwt(sub: "second")), "Second");
+        source.Service.Reorder([second.Id, first.Id]);
+
+        using var destination = new Env();
+        var count = destination.Service.Import(source.Service.ExportAll());
+
+        Assert.Equal(2, count);
+        Assert.Equal(["Second", "First"], destination.Service.Profiles.OrderBy(p => p.SortOrder).Select(p => p.Nickname));
+    }
+
+    [Fact]
+    public void Import_InvalidDocument_ThrowsWithoutChangingProfiles()
+    {
+        using var env = new Env();
+
+        Assert.Throws<InvalidDataException>(() => env.Service.Import("{}"));
+        Assert.Empty(env.Service.Profiles);
+    }
+
+    [Fact]
+    public void Import_RawAuthJson_AddsOneAccount()
+    {
+        using var env = new Env();
+        var authJson = System.Text.Encoding.UTF8.GetString(
+            Sample.AuthJson(idToken: Sample.Jwt(sub: "raw", email: "raw@x.com")));
+
+        var count = env.Service.Import(authJson);
+
+        Assert.Equal(1, count);
+        Assert.Equal("raw", Assert.Single(env.Service.Profiles).AccountSub);
+    }
 }
 
 public sealed class RelativeTimeTests

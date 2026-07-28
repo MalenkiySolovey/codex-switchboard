@@ -36,8 +36,6 @@ public sealed class BadgeToTextConverter : IValueConverter
         {
             AccountBadge.ActiveNow => loc.BadgeActiveNow,
             AccountBadge.Healthy => loc.BadgeHealthy,
-            AccountBadge.RenewSoon => loc.BadgeRenewSoon,
-            AccountBadge.Refreshing => loc.BadgeRefreshing,
             AccountBadge.NeedsReLogin => loc.BadgeNeedsReLogin,
             AccountBadge.Error => loc.BadgeError,
             _ => loc.BadgeUnavailable,
@@ -53,8 +51,6 @@ public sealed class BadgeToBrushConverter : IValueConverter
         {
             AccountBadge.ActiveNow => "BrandAccentBrush",
             AccountBadge.Healthy => "HealthOkBrush",
-            AccountBadge.RenewSoon => "HealthWarnBrush",
-            AccountBadge.Refreshing => "BrandAccentBrush",
             AccountBadge.NeedsReLogin => "HealthDangerBrush",
             AccountBadge.Error => "HealthDangerBrush",
             _ => "TextFillColorTertiaryBrush",
