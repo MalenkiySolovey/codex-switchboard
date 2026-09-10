@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.Core.Abstractions;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 
@@ -32,6 +33,9 @@ public sealed partial class MainWindow : Window
         VisibilityChanged += OnVisibilityChanged;
         Activated += OnWindowActivated;
 
+        if (AppHost.Services.GetService(typeof(WindowHandleProvider)) is WindowHandleProvider handleProvider)
+            handleProvider.MainWindowHandle = hwnd;
+
         if (AppHost.Services.GetService(typeof(IUiInteraction)) is UiInteractionService ui)
             ui.Attach(this);
 
@@ -51,6 +55,7 @@ public sealed partial class MainWindow : Window
         try
         {
             Root.ViewModel.HideAllRevealedTotp();
+            (AppHost.Services.GetService(typeof(ITotpRevealAuthorizationService)) as ITotpRevealAuthorizationService)?.Invalidate();
             Root.ViewModel.Cleanup();
         }
         catch { }

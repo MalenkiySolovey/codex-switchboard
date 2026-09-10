@@ -114,6 +114,41 @@
                     </StackPanel>
                 </Border>
 
+                <!-- 2FA Security Card -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="16">
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE72E;" FontSize="18" />
+                            <TextBlock Text="{x:Bind ViewModel.Loc.TotpProtectionHeader}" FontSize="16" FontWeight="SemiBold" />
+                        </StackPanel>
+
+                        <ToggleSwitch x:Name="RequireVerificationToggle"
+                                      Header="{x:Bind ViewModel.Loc.RequireWindowsVerificationLabel}"
+                                      IsOn="{x:Bind ViewModel.RequireWindowsVerificationForTotpReveal, Mode=OneWay}"
+                                      Toggled="OnVerificationToggled" />
+
+                        <StackPanel Spacing="8" Visibility="{x:Bind ViewModel.RequireWindowsVerificationForTotpReveal, Mode=OneWay}">
+                            <TextBlock Text="{x:Bind ViewModel.Loc.WindowsVerificationDurationLabel}" FontWeight="Medium" Opacity="0.85" />
+                            <ComboBox ItemsSource="{x:Bind ViewModel.DurationOptions}"
+                                      SelectedItem="{x:Bind ViewModel.SelectedDuration, Mode=TwoWay}"
+                                      DisplayMemberPath="Label"
+                                      MinWidth="160" />
+                        </StackPanel>
+
+                        <!-- Two-timer explanation notice -->
+                        <TextBlock Text="{x:Bind ViewModel.Loc.WindowsVerificationTwoTimerNotice}"
+                                   TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
+
+                        <!-- Availability status -->
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <TextBlock Grid.Column="0" Text="{x:Bind ViewModel.Loc.WindowsVerificationStatusLabel}" FontWeight="Medium" Opacity="0.7" FontSize="12" />
+                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.WindowsVerificationStatus, Mode=OneWay}" Opacity="0.85" FontSize="12" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Grid>

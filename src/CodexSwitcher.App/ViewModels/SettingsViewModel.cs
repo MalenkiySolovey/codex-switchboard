@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using CodexSwitcher.App.Localization;
+using CodexSwitcher.App.Services;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Services;
@@ -17,6 +18,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly ICodexCapabilityCache _capabilityCache;
     private readonly ILegacyMigrationService _migrationService;
     private readonly AppPaths _paths;
+    private readonly IWindowsUserVerificationService _verificationService;
+    private readonly ITotpRevealAuthorizationService _authService;
+    private readonly IUiInteraction _ui;
 
     public Strings Loc => Strings.Current;
 
@@ -127,13 +131,46 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
 
+    public sealed record DurationOption(int Minutes, string Label);
+
+    public bool RequireWindowsVerificationForTotpReveal => _settings.RequireWindowsVerificationForTotpReveal;
+
+    public IReadOnlyList<DurationOption> DurationOptions { get; }
+
+    private DurationOption _selectedDuration;
+    public DurationOption SelectedDuration
+    {
+        get => _selectedDuration;
+        set
+        {
+            if (SetField(ref _selectedDuration, value))
+            {
+                _settings.TotpWindowsVerificationDurationMinutes = value.Minutes;
+                _settingsStore.Save(_settings);
+                _authService.RecordSettingsChanged();
+            }
+        }
+    }
+
+    private string _windowsVerificationStatus = string.Empty;
+    public string WindowsVerificationStatus
+    {
+        get => _windowsVerificationStatus;
+        private set => SetField(ref _windowsVerificationStatus, value);
+    }
+
+    private WindowsVerificationAvailability _availability = WindowsVerificationAvailability.Unknown;
+
     public SettingsViewModel(
         AppSettings settings,
         SettingsStore settingsStore,
         ICodexRuntimeResolver runtimeResolver,
         ICodexCapabilityCache capabilityCache,
         ILegacyMigrationService migrationService,
-        AppPaths paths)
+        AppPaths paths,
+        IWindowsUserVerificationService verificationService,
+        ITotpRevealAuthorizationService authService,
+        IUiInteraction ui)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
@@ -141,6 +178,27 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _capabilityCache = capabilityCache ?? throw new ArgumentNullException(nameof(capabilityCache));
         _migrationService = migrationService ?? throw new ArgumentNullException(nameof(migrationService));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+        _verificationService = verificationService ?? throw new ArgumentNullException(nameof(verificationService));
+        _authService = authService ?? throw new ArgumentNullException(nameof(authService));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+
+        var currentMin = _settings.TotpWindowsVerificationDurationMinutes;
+        var options = new List<DurationOption>
+        {
+            new(1, Loc.WindowsVerificationDurationMinute(1)),
+            new(2, Loc.WindowsVerificationDurationMinute(2)),
+            new(5, Loc.WindowsVerificationDurationMinute(5)),
+            new(10, Loc.WindowsVerificationDurationMinute(10)),
+            new(15, Loc.WindowsVerificationDurationMinute(15)),
+            new(30, Loc.WindowsVerificationDurationMinute(30)),
+        };
+        if (!options.Any(o => o.Minutes == currentMin))
+        {
+            options.Add(new(currentMin, Loc.WindowsVerificationDurationMinute(currentMin)));
+            options.Sort((a, b) => a.Minutes.CompareTo(b.Minutes));
+        }
+        DurationOptions = options;
+        _selectedDuration = options.First(o => o.Minutes == currentMin);
 
         _customExecutablePath = _settings.CodexExecutablePathOverride ?? string.Empty;
         RefreshDiagnostics();
@@ -165,7 +223,98 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
 
         CanMigrateLegacy = _migrationService.CanMigrate();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _availability = await _verificationService.CheckAvailabilityAsync();
+                WindowsVerificationStatus = FormatVerificationAvailability(_availability);
+            }
+            catch
+            {
+                WindowsVerificationStatus = Loc.WindowsVerificationStatusUnsupported;
+            }
+        });
     }
+
+    public async Task<bool> SetRequireWindowsVerificationAsync(bool enable)
+    {
+        if (_settings.RequireWindowsVerificationForTotpReveal == enable)
+            return true;
+
+        if (enable)
+        {
+            _settings.RequireWindowsVerificationForTotpReveal = true;
+            _settingsStore.Save(_settings);
+            _authService.RecordSettingsChanged();
+            OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+            return true;
+        }
+
+        // Unchecking (ON -> OFF): security-sensitive!
+        if (_availability == WindowsVerificationAvailability.Available)
+        {
+            var result = await _verificationService.RequestVerificationAsync(Loc.WindowsVerificationPromptMessage);
+            if (result == WindowsVerificationResult.Verified)
+            {
+                _settings.RequireWindowsVerificationForTotpReveal = false;
+                _settingsStore.Save(_settings);
+                _authService.RecordSettingsChanged();
+                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                return true;
+            }
+            else
+            {
+                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                if (result == WindowsVerificationResult.Canceled)
+                {
+                    StatusMessage = Loc.WindowsVerificationCanceled;
+                    StatusSeverity = InfoBarSeverity.Informational;
+                }
+                else
+                {
+                    StatusMessage = Loc.WindowsVerificationFailed;
+                    StatusSeverity = InfoBarSeverity.Warning;
+                }
+                return false;
+            }
+        }
+        else
+        {
+            // Verifier unavailable: controlled confirmation escape
+            var confirmed = await _ui.ConfirmAsync(
+                Loc.WindowsVerificationDisableConfirmTitle,
+                Loc.WindowsVerificationDisableConfirmMessage,
+                Loc.WindowsVerificationDisableButton,
+                destructive: true);
+
+            if (confirmed)
+            {
+                _settings.RequireWindowsVerificationForTotpReveal = false;
+                _settingsStore.Save(_settings);
+                _authService.RecordSettingsChanged();
+                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                return true;
+            }
+            else
+            {
+                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                return false;
+            }
+        }
+    }
+
+    private string FormatVerificationAvailability(WindowsVerificationAvailability availability) => availability switch
+    {
+        WindowsVerificationAvailability.Available => Loc.WindowsVerificationStatusAvailable,
+        WindowsVerificationAvailability.DeviceNotPresent => Loc.WindowsVerificationStatusDeviceNotPresent,
+        WindowsVerificationAvailability.NotConfiguredForUser => Loc.WindowsVerificationStatusNotConfigured,
+        WindowsVerificationAvailability.DisabledByPolicy => Loc.WindowsVerificationStatusDisabledByPolicy,
+        WindowsVerificationAvailability.DeviceBusy => Loc.WindowsVerificationStatusDeviceBusy,
+        WindowsVerificationAvailability.UnsupportedOperatingSystem => Loc.WindowsVerificationStatusUnsupported,
+        _ => "Unknown"
+    };
 
     private string FormatCapability(CapabilityStatus status) => status switch
     {

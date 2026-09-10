@@ -28,4 +28,19 @@ public sealed class AppSettings
     /// Perfis não listados aqui são exibidos no modo expandido padrão.
     /// </summary>
     public HashSet<Guid> CollapsedProfileIds { get; set; } = [];
+
+    /// <summary>Exigir verificação do usuário do Windows antes de revelar códigos 2FA/TOTP.</summary>
+    public bool RequireWindowsVerificationForTotpReveal { get; set; } = true;
+
+    /// <summary>Duração em minutos da sessão de autorização de verificação do Windows (1 a 60 minutos, padrão 5).</summary>
+    public int TotpWindowsVerificationDurationMinutes
+    {
+        get => _totpWindowsVerificationDurationMinutes;
+        set => _totpWindowsVerificationDurationMinutes = Math.Clamp(value, MinTotpVerificationMinutes, MaxTotpVerificationMinutes);
+    }
+    private int _totpWindowsVerificationDurationMinutes = DefaultTotpVerificationMinutes;
+
+    public const int MinTotpVerificationMinutes = 1;
+    public const int MaxTotpVerificationMinutes = 60;
+    public const int DefaultTotpVerificationMinutes = 5;
 }

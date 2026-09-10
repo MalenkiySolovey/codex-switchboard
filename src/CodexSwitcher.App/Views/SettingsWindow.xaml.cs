@@ -1,6 +1,7 @@
 using CodexSwitcher.App.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 
@@ -76,5 +77,29 @@ public sealed partial class SettingsWindow : Window
     private async void OnMigrateLegacyClick(object sender, RoutedEventArgs e)
     {
         await ViewModel.MigrateLegacyDataAsync();
+    }
+
+    private bool _isHandlingToggle;
+
+    private async void OnVerificationToggled(object sender, RoutedEventArgs e)
+    {
+        if (_isHandlingToggle) return;
+        if (sender is ToggleSwitch toggle)
+        {
+            _isHandlingToggle = true;
+            try
+            {
+                bool desired = toggle.IsOn;
+                bool success = await ViewModel.SetRequireWindowsVerificationAsync(desired);
+                if (!success)
+                {
+                    toggle.IsOn = !desired;
+                }
+            }
+            finally
+            {
+                _isHandlingToggle = false;
+            }
+        }
     }
 }

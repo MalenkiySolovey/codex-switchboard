@@ -31,6 +31,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IUiDispatcher _dispatcher;
     private readonly IAppLifetime _appLifetime;
     private readonly ITotpCredentialStore? _totpStore;
+    private readonly ITotpRevealAuthorizationService? _authService;
     private DispatcherTimer? _totpPresentationTimer;
     private CancellationTokenSource? _startupRefreshCts;
 
@@ -57,7 +58,8 @@ public sealed partial class MainViewModel : ObservableObject
         SettingsStore settingsStore, AppSettings settings, IClock clock, IUiInteraction ui,
         IUsageService usageService, UsagePollingCoordinator pollingCoordinator,
         IUiDispatcher? dispatcher = null, IAppLifetime? appLifetime = null,
-        ITotpCredentialStore? totpStore = null)
+        ITotpCredentialStore? totpStore = null,
+        ITotpRevealAuthorizationService? authService = null)
     {
         _profiles = profiles;
         _switch = switchService;
@@ -70,6 +72,7 @@ public sealed partial class MainViewModel : ObservableObject
         _dispatcher = dispatcher ?? ImmediateUiDispatcher.Instance;
         _appLifetime = appLifetime ?? new AppLifetime();
         _totpStore = totpStore;
+        _authService = authService;
 
         _pollingCoordinator.UsageUpdated += OnUsageUpdated;
         _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
@@ -477,9 +480,9 @@ public sealed partial class MainViewModel : ObservableObject
         RebuildList();
     }
 
-    // Phase 9: Comandos e ciclo de vida do TOTP 2FA por perfil
+    // Phase 9 & 9.1: Comandos e ciclo de vida do TOTP 2FA por perfil com verificação do Windows
     [RelayCommand]
-    private void RevealTotp(AccountItemViewModel? item)
+    private async Task RevealTotpAsync(AccountItemViewModel? item)
     {
         if (item is null || !item.HasTotpConfigured || _totpStore is null) return;
 
@@ -490,6 +493,46 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Single visible code policy: hide any other currently revealed profile
+        foreach (var other in _all)
+        {
+            if (other != item && other.IsTotpRevealed)
+                other.ResetTotpPresentation();
+        }
+
+        // Hard security ordering: verification must succeed before secret decryption
+        if (_authService is not null && _authService.IsVerificationRequired())
+        {
+            var outcome = await _authService.EnsureAuthorizedAsync(_loc.WindowsVerificationPromptMessage);
+            if (!outcome.Success)
+            {
+                if (outcome.Status == WindowsVerificationResult.Canceled)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationCanceled, InfoBarSeverity.Informational);
+                }
+                else if (outcome.Status == WindowsVerificationResult.NotConfigured ||
+                         outcome.Status == WindowsVerificationResult.NotAvailable ||
+                         outcome.Status == WindowsVerificationResult.UnsupportedOperatingSystem)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationUnavailableMessage, InfoBarSeverity.Warning);
+                }
+                else
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationFailed, InfoBarSeverity.Warning);
+                }
+                return;
+            }
+        }
+
+        // Post-verification safety re-checks
+        if (_appLifetime.IsStopping) return;
+        if (!_profiles.Profiles.Any(p => p.Id == item.Id)) return;
+        if (!_totpStore.HasCredential(item.Id))
+        {
+            item.HasTotpConfigured = false;
+            return;
+        }
+
         var now = _clock.UtcNow;
         if (_totpStore.TryComputeCode(item.Id, now, out var code, out var error))
         {
@@ -497,7 +540,17 @@ public sealed partial class MainViewModel : ObservableObject
             item.TotpCodeText = code.Formatted;
             item.TotpSecondsRemaining = code.SecondsRemaining;
             item.TotpCountdownText = $"{code.SecondsRemaining}s";
-            item.RevealDeadline = now.AddSeconds(10);
+
+            // Two-timer invariant: min(10s, authSessionRemaining)
+            double maxSeconds = 10.0;
+            if (_authService is not null && _authService.IsProtectionEnabled && _authService.IsAuthorized)
+            {
+                var authRemaining = _authService.RemainingDuration.TotalSeconds;
+                if (authRemaining < maxSeconds)
+                    maxSeconds = Math.Max(0, authRemaining);
+            }
+
+            item.RevealDeadline = now.AddSeconds(maxSeconds);
             item.IsTotpCopied = false;
             EnsureTotpPresentationTimer();
         }
@@ -613,6 +666,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void OnTotpPresentationTick()
     {
+        if (_authService is not null && _authService.IsProtectionEnabled && !_authService.IsAuthorized)
+        {
+            HideAllRevealedTotp();
+            return;
+        }
+
         var now = _clock.UtcNow;
         bool anyRevealed = false;
 

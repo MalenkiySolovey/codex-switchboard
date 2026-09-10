@@ -149,6 +149,7 @@ public sealed class Strings
 
     // InfoBar / resultados
     public string ErrorTitle => S("Erro", "Error");
+    public string WarningTitle => S("Aviso", "Warning");
     public string SwitchedTitle => S("Conta trocada", "Account switched");
     public string SwitchedMsg(string name) => S($"Conta trocada para {name}.", $"Switched to {name}.");
     public string SwitchReopenWarnTitle => S("Conta trocada (com aviso)", "Switched (with warning)");
@@ -387,4 +388,26 @@ public sealed class Strings
     public string TotpManageTitle => S("Gerenciar 2FA do Perfil", "Manage Profile 2FA");
     public string TotpSaveKeyButton => S("Salvar chave", "Save key");
     public string TotpConfirmRemoveButton => S("Remover chave local", "Remove local key");
+
+    // Phase 9.1: Portão de verificação de usuário do Windows para códigos 2FA
+    public string TotpProtectionHeader => S("Proteção dos códigos 2FA", "2FA code protection");
+    public string RequireWindowsVerificationLabel => S("Exigir verificação do Windows antes de exibir códigos 2FA", "Require Windows verification before showing 2FA codes");
+    public string WindowsVerificationDurationLabel => S("Validade da verificação:", "Verification remains valid for:");
+    public string WindowsVerificationDurationMinute(int min) => S($"{min} minuto{(min > 1 ? "s" : "")}", $"{min} minute{(min > 1 ? "s" : "")}");
+    public string WindowsVerificationPromptMessage => S("Verifique sua identidade do Windows para revelar os códigos 2FA do Codex Switchboard.", "Verify your Windows identity to reveal Codex Switchboard 2FA codes.");
+    public string WindowsVerificationTwoTimerNotice => S("Cada código revelado continua sendo ocultado automaticamente após 10 segundos.", "Each revealed code is still automatically hidden after 10 seconds.");
+    public string WindowsVerificationHelpTooltip => S("O Windows gerencia a verificação. Dependendo da sua configuração, você pode ser solicitado a usar o Windows Hello, um PIN, biometria ou outro método compatível.", "Windows handles the verification. Depending on your sign-in configuration, you may be asked for Windows Hello, a PIN, biometrics, or another supported Windows verification method.");
+    public string WindowsVerificationCanceled => S("A verificação do Windows foi cancelada.", "Windows verification was canceled.");
+    public string WindowsVerificationFailed => S("Falha na verificação do Windows.", "Windows verification failed.");
+    public string WindowsVerificationUnavailableMessage => S("A verificação do Windows não está disponível ou não está configurada neste computador.", "Windows verification is not available or not configured on this computer.");
+    public string WindowsVerificationDisableConfirmTitle => S("Desativar verificação do Windows?", "Disable Windows verification?");
+    public string WindowsVerificationDisableConfirmMessage => S("A verificação do Windows não está disponível. Desativar esta opção permitirá que os códigos 2FA sejam revelados sem verificação de identidade do Windows. Deseja continuar?", "Windows verification is unavailable. Disabling this option will allow 2FA codes to be revealed without Windows identity verification. Do you want to continue?");
+    public string WindowsVerificationDisableButton => S("Desativar proteção", "Disable protection");
+    public string WindowsVerificationStatusLabel => S("Verificação do Windows:", "Windows verification:");
+    public string WindowsVerificationStatusAvailable => S("Disponível", "Available");
+    public string WindowsVerificationStatusDeviceNotPresent => S("Dispositivo de autenticação não encontrado", "Authentication device not present");
+    public string WindowsVerificationStatusNotConfigured => S("Não configurada para este usuário", "Not configured for this user");
+    public string WindowsVerificationStatusDisabledByPolicy => S("Desativada por política de segurança", "Disabled by security policy");
+    public string WindowsVerificationStatusDeviceBusy => S("Dispositivo ocupado", "Device busy");
+    public string WindowsVerificationStatusUnsupported => S("Não compatível nesta versão do Windows", "Not supported on this Windows version");
 }

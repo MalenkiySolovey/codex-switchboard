@@ -52,6 +52,14 @@ public static class AppHost
             sp.GetRequiredService<IFileSystem>(),
             paths.TotpDir,
             sp.GetRequiredService<IProfileOperationCoordinator>()));
+
+        services.AddSingleton<WindowHandleProvider>();
+        services.AddSingleton<IWindowHandleProvider>(sp => sp.GetRequiredService<WindowHandleProvider>());
+        services.AddSingleton<IWindowsUserVerificationService, WindowsUserVerificationService>();
+        services.AddSingleton<ITotpRevealAuthorizationService>(sp => new TotpRevealAuthorizationService(
+            sp.GetRequiredService<AppSettings>(),
+            sp.GetRequiredService<IWindowsUserVerificationService>()));
+
         services.AddSingleton(sp => new ProfileStore(sp.GetRequiredService<IFileSystem>(), paths.ProfilesPath));
         services.AddSingleton(sp => new ReconciliationService(sp.GetRequiredService<IFileSystem>(), paths.Codex));
         services.AddSingleton<ProfileService>();
@@ -130,13 +138,16 @@ public static class AppHost
             var lifetime = Services?.GetService<IAppLifetime>() as AppLifetime;
             lifetime?.StopApplication();
 
-            // 2. Stop usage coordinator and detach event subscribers
+            // 2. Invalidate TOTP reveal authorization session
+            Services?.GetService<ITotpRevealAuthorizationService>()?.Invalidate();
+
+            // 3. Stop usage coordinator and detach event subscribers
             if (Services?.GetService<UsagePollingCoordinator>() is { } coordinator)
             {
                 coordinator.Stop();
             }
 
-            // 3. Dispose the service provider (disposes UsageService, terminates child processes)
+            // 4. Dispose the service provider (disposes UsageService, terminates child processes)
             if (Services is IDisposable disposable)
             {
                 disposable.Dispose();
