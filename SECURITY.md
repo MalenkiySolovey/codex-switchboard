@@ -48,7 +48,20 @@ Account switching is executed as an atomic, reversible transaction:
 
 ### 1.7 Audit Trail & Secret Sanitization
 - Switching events and failures are logged to `%LOCALAPPDATA%\CodexSwitchboard\audit.log`.
-- **Sanitized Logging Policy:** Switchboard does not intentionally write authentication tokens, refresh tokens, session cookies, or API keys to its application logs or status messages.
+- **Sanitized Logging Policy:** Switchboard does not intentionally write authentication tokens, refresh tokens, session cookies, API keys, TOTP seeds, or Windows credentials to its application logs or status messages.
+
+### 1.8 Profile-Bound Encrypted TOTP / 2FA Secrets
+- **At-Rest DPAPI Protection:** Per-profile TOTP secrets (`totp\<ProfileId>.bin`) are encrypted at rest using Windows DPAPI (`DataProtectionScope.CurrentUser`).
+- **Profile Boundary:** TOTP keys are strictly bound to their respective profile IDs and are never bundled into `ProfileMetadata`, `settings.json`, or Codex `auth.json`.
+- **Export Exclusion:** TOTP secrets are strictly excluded from profile export bundles (`.codexswitchboard` / JSON).
+- **Presentation Hygiene:** Generated codes are masked by default (`••••••`), revealable only via explicit user action, and automatically hidden after a 10-second security countdown or upon window deactivation / minimization.
+
+### 1.9 Windows User Verification Gate
+- **Delegated Authentication:** Optional protection requiring Windows user authentication prior to revealing 2FA codes. Leverages Windows Hello (biometrics/PIN) when available, and native Windows password verification via Local Security Authority (`LsaConnectUntrusted` + `LsaLogonUser`) when Hello is not configured.
+- **Current-User SID Check:** Successful authentication strictly requires the token user SID to match the current process user SID (`WindowsIdentity.GetCurrent().User`), preventing another local user account from authorizing reveals.
+- **Zero Credential Persistence:** Windows passwords and serialized credential blobs are never stored, cached, or logged. In the provider-native path, credentials remain opaque to the application; any transient unmanaged buffers in fallback paths are immediately zeroed using `RtlSecureZeroMemory` and freed.
+- **Settings Protection Invariant:** Disabling "Require Windows verification before showing 2FA codes" strictly requires current-user Windows password verification. Active authorization sessions and emergency reveal fallbacks cannot bypass this verification gate.
+- **Emergency Anti-Lockout Invariant:** Technical verification infrastructure failures allow an explicit, isolated one-time 10-second TOTP reveal without creating an authorization session, ensuring legitimate users are never permanently locked out of their local 2FA codes. An incorrect password never offers emergency bypass.
 
 ---
 
@@ -58,8 +71,9 @@ Security updates are provided for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| **0.1.1** | ✅ | Current stable release |
-| **0.1.0-preview.4** | ✅ | Previous preview release |
+| **0.1.2** | ✅ | Current stable release |
+| **0.1.1** | ✅ | Supported |
+| **0.1.0-preview.4** | ❌ | Superseded preview release |
 | **Legacy CodexSwitcher** | ❌ | Discontinued upstream; users should migrate to Switchboard |
 
 ---

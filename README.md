@@ -8,25 +8,34 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
-![Tests](https://img.shields.io/badge/tests-356%20passing-3DDC84)
+![Tests](https://img.shields.io/badge/tests-458%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
-![Release](https://img.shields.io/badge/release-v0.1.1-brightgreen)
+![Release](https://img.shields.io/badge/release-v0.1.2-brightgreen)
 
 ---
 
 ## Overview
 
-**Codex Switchboard** is a native Windows desktop application built with WinUI 3 and .NET 10 that unifies multi-account credential management and real-time rate-limit quota monitoring into a single, high-performance dashboard.
+**Codex Switchboard** is a native Windows desktop application built with WinUI 3 and .NET 10 that unifies multi-account credential management, real-time rate-limit quota monitoring, and secure profile-bound 2FA management into a single, high-performance dashboard.
 
 By default, the OpenAI Codex CLI stores authentication credentials in a single local file (`%USERPROFILE%\.codex\auth.json`). Developers maintaining separate personal, work, client, or team accounts are forced to repeatedly log in through the browser, interrupting active coding workflows. Furthermore, keeping track of remaining requests, dynamic quota reset countdowns, and reset credits across multiple accounts historically required manual CLI probes or ad-hoc scripts.
 
 Codex Switchboard solves both challenges:
 1. **Instant Atomic Account Switching:** Safely swaps credentials in `%USERPROFILE%\.codex\auth.json` in milliseconds with automatic session token write-back, pre-flight decryption checks, and transactional rollback.
 2. **Real-Time Quota Telemetry:** Continuously tracks rate-limit windows (e.g. 5-hour and 7-day windows), usage percentages, remaining reset credits, and Account Activity across all saved accounts via isolated background sandboxes.
+3. **Profile-Bound 2FA / TOTP Security:** Generates time-based one-time passcodes locally with DPAPI encryption at rest, automatic 10-second re-masking, and an optional native Windows verification gate.
 
 ---
 
 ## Key Features
+
+### Profile-Bound Encrypted 2FA / TOTP Management
+- **Per-Account 2FA Secrets:** Securely associate RFC 6238 TOTP secrets with individual accounts.
+- **DPAPI Encryption at Rest:** Secrets are encrypted using Windows DPAPI (`CurrentUser` scope) and isolated in per-profile storage. Keys are never included in profile export bundles or application logs.
+- **Inline Masked Presentation:** Codes are hidden by default (`2FA ••• ••• [Reveal]`) and automatically re-masked after 10 seconds or when the window loses focus.
+- **Native Windows Verification Gate:** Optional protection requiring Windows Hello (biometrics/PIN) or native Windows account password verification before revealing codes.
+- **Current-User Enforcement:** Authentication strictly validates against the current Windows user SID, preventing unauthorized accounts from unlocking codes.
+- **Zero Plaintext Persistence:** Windows credentials are never stored, cached, or logged, and transient memory buffers are securely zeroed immediately after use.
 
 ### Instant Atomic Account Switching
 - **One-Click Switch:** Swap the active Codex credentials instantly from the account card list.
@@ -181,7 +190,7 @@ All configuration, credentials, and cache files reside strictly on your local co
 
 Pre-built Windows x64 binaries are available under [GitHub Releases](../../releases).
 
-1. Download **`CodexSwitchboard-0.1.1-win-x64.zip`** from the latest release.
+1. Download **`CodexSwitchboard-0.1.2-win-x64.zip`** from the latest release.
 2. Extract the archive to any folder.
 3. Run **`CodexSwitchboard.exe`**.
 
@@ -204,16 +213,16 @@ dotnet restore CodexSwitcher.slnx
 # Build solution in Release configuration
 dotnet build CodexSwitcher.slnx -c Release
 
-# Run the complete offline test suite (356 tests)
+# Run the complete offline test suite (458 tests)
 dotnet test CodexSwitcher.slnx -c Release --no-build
 ```
 
 ### 2. Package Local Release Candidate
 Execute the packaging script to build, test, sanitize, and produce an unpackaged release archive:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.1"
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.2"
 ```
-Output artifact: `dist/CodexSwitchboard-0.1.1-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
+Output artifact: `dist/CodexSwitchboard-0.1.2-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
 
 ---
 

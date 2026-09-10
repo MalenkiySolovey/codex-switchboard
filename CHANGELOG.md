@@ -7,22 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0-preview.6] - 2026-09-10 (Local QA Candidate)
+## [0.1.2] - 2026-09-11
 
-### Profile-Bound Encrypted TOTP / 2FA
+### Profile 2FA / TOTP
 
 #### Added
-- **Profile-Bound 2FA Secrets:** Each account profile can optionally be associated with an encrypted TOTP 2FA secret (RFC 6238).
-- **At-Rest DPAPI Security:** 2FA credentials are encrypted using Windows Data Protection API (`CurrentUser` scope) and isolated in `%LOCALAPPDATA%\CodexSwitchboard\totp\<ProfileId>.bin`. Secrets never touch `ProfileMetadata`, `settings.json`, or Codex `auth.json`.
+- **Profile-Bound 2FA Secrets:** Each account profile can optionally store an encrypted TOTP 2FA secret key (RFC 6238).
+- **At-Rest DPAPI Security:** 2FA credentials are encrypted using Windows Data Protection API (`CurrentUser` scope) and isolated in `%LOCALAPPDATA%\CodexSwitchboard\totp\<ProfileId>.bin`. Secrets never enter `ProfileMetadata`, `settings.json`, logs, or Codex `auth.json`.
 - **Protected Inline Account Card Display:**
-  - Hidden by default (`2FA ••• ••• [Reveal]`).
-  - Explicit Reveal action with automatic ~10-second security timeout countdown.
+  - Masked by default (`2FA ••• ••• [Reveal]`).
+  - Explicit Reveal action with automatic 10-second security timeout countdown before re-masking.
   - Automatic auto-hide on window deactivation (Alt+Tab), window minimize, app shutdown, or card collapse.
   - Quick 1-click clean copy with visual feedback ("Copied!").
-- **Card Action Menu Integration:** Context flyout (`...`) features contextual `Add 2FA key...` / `Manage 2FA...` dialogs with masked input, peek button, clipboard paste, and destructive removal confirmations.
-- **Export Safety Invariant:** 2FA credentials are strictly excluded by default from profile export bundles (`.codexswitchboard` / JSON).
+- **Account Action Menu Integration:** Context flyout (`...`) features contextual `Add 2FA key...` / `Manage 2FA...` dialogs with masked input, peek button, clipboard paste, and destructive removal confirmations.
+- **Export Safety Invariant:** 2FA credentials are strictly excluded from profile export bundles (`.codexswitchboard` / JSON).
 - **Offline Calculation:** TOTP code generation executes entirely offline in memory with zero network traffic and zero side effects on quota polling.
-- **Comprehensive Test Coverage:** Added RFC 6238 Appendix B test vectors (SHA-1, SHA-256, SHA-512) and 10 security-focused store tests verifying encryption at rest, profile isolation, corruption handling, atomic replacement, and lifecycle cleanup. Test suite expanded to **386 passing tests**.
+
+### Windows Verification
+
+#### Added
+- **Native Windows User Verification Gate:** Configurable protection layer requiring Windows authentication before revealing 2FA codes on account cards.
+- **Dual Authenticator Support:**
+  - Windows Hello (PIN, facial recognition, or fingerprint) fast path when available.
+  - Native Windows account password verification when Windows Hello is not configured.
+- **Configurable Verification Lifetime:** Verification remains active for a user-specified duration (default 5 minutes), allowing frictionless profile switching while preserving independent 10-second auto-masking for each revealed code.
+- **Current-User Identity Enforcement:** Verification strictly validates the authenticated Windows Security Identifier (SID) against the current process SID, preventing unauthorized accounts from unlocking codes.
+- **Provider-Native LSA Authentication:** Leverages `LsaConnectUntrusted` and `LsaLogonUser` with Credential UI serialization, preserving provider-native authentication packages (Negotiate, MSV1_0, CloudAP) without plaintext credential exposure in memory.
+- **Emergency Anti-Lockout Gate:** If Windows verification infrastructure is unavailable or fails technically, a dedicated one-time reveal flow allows viewing the code after an explicit confirmation without creating an authorization session.
+
+#### Fixed
+- **Windows 11 Password Verification:** Resolved false-negative *"Incorrect Windows password"* rejections on Windows 11 systems lacking Windows Hello PIN configurations.
+- **Smooth Credential UI Flow:** Removed the intrusive secure-desktop prompt and CTRL+ALT+DELETE requirement from the default verification path, parenting the native Windows Security dialog directly to the application window.
+- **Truthful Error Reporting:** Replaced generic credential failure messages with precise diagnostic classifications (rejected credentials, account restrictions, infrastructure unavailability).
+
+### Security
+- **Mandatory Protection Disable Re-Authentication:** Toggling off "Require Windows verification before showing 2FA codes" strictly requires current-user Windows password verification; active authorization sessions and emergency bypasses never bypass this requirement.
+- **Zero Plaintext Persistence:** Windows credentials are never cached, stored, exported, or logged; transient unmanaged buffers are immediately sanitized with `RtlSecureZeroMemory` and freed.
+
+### Validation
+- Expanded automated test suite to **458 passing tests** (0 failures, 0 warnings) covering Core, Infrastructure, and UI layers.
+- Real-machine Windows 11 hardware human QA confirmed end-to-end functionality.
 
 ---
 

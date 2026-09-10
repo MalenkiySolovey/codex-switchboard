@@ -20,10 +20,15 @@ All data managed by Codex Switchboard is stored exclusively on your local device
 This directory contains:
 - `profiles.json`: Local profile metadata (user-provided nicknames, account email addresses, and timestamps).
 - `vault\`: Account credentials encrypted using Windows DPAPI `CurrentUser`.
+- `totp\`: Profile-bound 2FA secrets encrypted using Windows DPAPI `CurrentUser`.
 - `backups\`: DPAPI-encrypted rotational backups created before account swaps.
 - `usage-cache.json`: Local cache of rate limits and activity summaries for fast startup.
 - `settings.json`: Local UI preferences and executable override paths.
-- `audit.log`: Local timestamped log of switching operations (tokens are excluded).
+- `audit.log`: Local timestamped log of switching operations (tokens and secrets are excluded).
+
+### 2.1 TOTP Secrets & Windows Verification Privacy
+- **Encrypted at Rest:** Profile TOTP secrets are encrypted with Windows DPAPI (`CurrentUser`). They are decrypted only in memory when calculating a one-time passcode.
+- **Zero Windows Credential Storage:** When Windows user verification is enabled, Windows Hello authentication and Windows password validation are performed by native Windows operating system components (UserConsentVerifier and Local Security Authority). Switchboard never stores, caches, logs, or exports Windows passwords, PINs, or biometric templates.
 
 ---
 

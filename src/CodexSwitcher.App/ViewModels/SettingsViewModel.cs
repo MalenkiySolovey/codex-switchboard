@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
@@ -27,7 +28,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public Action? OnMigrationCompleted { get; set; }
 
     public string AppName => "Codex Switchboard";
-    public string AppVersion => "0.1.1";
+    public string AppVersion =>
+        typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
+        ?? typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3)
+        ?? "0.1.2";
     public string RepositoryUrl => "https://github.com/MalenkiySolovey/codex-switchboard";
     public string LicenseNotice => "MIT License • Copyright (c) 2026";
     public string IndependenceStatement => Loc.IndependenceNotice;
