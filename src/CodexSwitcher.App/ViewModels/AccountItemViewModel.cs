@@ -1,6 +1,7 @@
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Support;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CodexSwitcher.App.ViewModels;
 
@@ -15,20 +16,21 @@ public enum AccountBadge
 }
 
 /// <summary>
-/// Snapshot de exibição de um perfil (imutável; a lista é reconstruída após cada operação).
+/// Snapshot de exibição de um perfil (a lista é reconstruída após cada operação).
 /// Formata datas relativas e o selo de saúde conforme §3.4 e §8, no idioma detectado.
 /// </summary>
-public sealed class AccountItemViewModel
+public sealed partial class AccountItemViewModel : ObservableObject
 {
     private static Strings Loc => Strings.Current;
 
-    public AccountItemViewModel(ProfileMetadata profile, DateTimeOffset now, AppSettings settings, AccountUsageViewModel? usage = null)
+    public AccountItemViewModel(ProfileMetadata profile, DateTimeOffset now, AppSettings settings, AccountUsageViewModel? usage = null, bool isCompact = false)
     {
         Profile = profile;
         Id = profile.Id;
         DisplayName = profile.DisplayName;
         IsActive = profile.IsActive;
         Usage = usage ?? new AccountUsageViewModel(profile.Id);
+        IsCompact = isCompact;
 
         Subtitle = !string.IsNullOrWhiteSpace(profile.AccountEmail)
             ? profile.AccountEmail!
@@ -51,6 +53,18 @@ public sealed class AccountItemViewModel
         SubscriptionDisplayText = SubscriptionFormatter.FormatDisplayText(profile.SubscriptionTracking, today, culture: null, pt: Loc.Pt);
         SubscriptionTooltipText = SubscriptionFormatter.FormatTooltipText(profile.SubscriptionTracking, today, culture: null, pt: Loc.Pt);
     }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsExpanded))]
+    [NotifyPropertyChangedFor(nameof(ExpandCollapseTooltip))]
+    [NotifyPropertyChangedFor(nameof(ExpandCollapseAutomationName))]
+    [NotifyPropertyChangedFor(nameof(ShowCompactResetCredits))]
+    public partial bool IsCompact { get; set; }
+
+    public bool IsExpanded => !IsCompact;
+    public bool ShowCompactResetCredits => IsCompact && Usage.HasResetCredits;
+    public string ExpandCollapseTooltip => IsCompact ? Loc.ExpandAccountDetails : Loc.CollapseAccountDetails;
+    public string ExpandCollapseAutomationName => ExpandCollapseTooltip;
 
     public ProfileMetadata Profile { get; }
     public Guid Id { get; }

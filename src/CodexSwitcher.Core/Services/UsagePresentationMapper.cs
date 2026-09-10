@@ -167,6 +167,45 @@ public static class UsagePresentationMapper
         return result;
     }
 
+    /// <summary>
+    /// Selects up to two representative windows for compact card presentation using the Phase 8 deterministic priority:
+    /// 1. Exhausted / rate-critical windows (IsExhausted)
+    /// 2. Low-quota / actionable windows (IsLowQuota)
+    /// 3. Shorter duration first (DurationMinutes)
+    /// 4. Original stable list order as tie-breaker.
+    /// The selected windows are returned ordered by duration ascending for natural display.
+    /// </summary>
+    public static IReadOnlyList<UsageWindowModel> SelectCompactWindows(
+        IReadOnlyList<UsageWindowModel> windows,
+        out int additionalCount)
+    {
+        if (windows.Count == 0)
+        {
+            additionalCount = 0;
+            return Array.Empty<UsageWindowModel>();
+        }
+
+        if (windows.Count <= 2)
+        {
+            additionalCount = 0;
+            return windows;
+        }
+
+        var indexed = windows.Select((w, idx) => (Window: w, Index: idx)).ToList();
+        var top2 = indexed
+            .OrderByDescending(x => x.Window.IsExhausted)
+            .ThenByDescending(x => x.Window.IsLowQuota)
+            .ThenBy(x => x.Window.DurationMinutes ?? int.MaxValue)
+            .ThenBy(x => x.Index)
+            .Take(2)
+            .Select(x => x.Window)
+            .OrderBy(w => w.DurationMinutes ?? int.MaxValue)
+            .ToList();
+
+        additionalCount = windows.Count - top2.Count;
+        return top2;
+    }
+
     private static (UsageVisualState State, string? Notice) ResolveVisualStateAndNotice(
         UsageStatus status,
         RateLimitsSnapshot? snapshot,

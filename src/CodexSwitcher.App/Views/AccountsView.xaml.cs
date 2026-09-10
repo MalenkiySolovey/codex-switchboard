@@ -119,6 +119,11 @@ public sealed partial class AccountsView : UserControl
         if (ItemOf(sender) is { } item) ViewModel.RefreshAccountCommand.Execute(item);
     }
 
+    private void OnToggleCollapseClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.ToggleAccountCollapseCommand.Execute(item);
+    }
+
     private void OnExportItemClick(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) ViewModel.ExportOneCommand.Execute(item);

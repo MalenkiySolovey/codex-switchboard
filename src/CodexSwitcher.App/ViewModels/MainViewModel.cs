@@ -416,8 +416,25 @@ public sealed partial class MainViewModel : ObservableObject
         _pollingCoordinator.Invalidate(item.Id);
         _usages.Remove(item.Id);
         _profiles.Remove(item.Id);
+        if (_settings.CollapsedProfileIds.Remove(item.Id))
+        {
+            _settingsStore.Save(_settings);
+        }
         RebuildList();
         ShowInfo(_loc.RemovedTitle, _loc.RemovedMsg(item.DisplayName), InfoBarSeverity.Informational);
+    }
+
+    [RelayCommand]
+    private void ToggleAccountCollapse(AccountItemViewModel? item)
+    {
+        if (item is null) return;
+        item.IsCompact = !item.IsCompact;
+        if (item.IsCompact)
+            _settings.CollapsedProfileIds.Add(item.Id);
+        else
+            _settings.CollapsedProfileIds.Remove(item.Id);
+
+        _settingsStore.Save(_settings);
     }
 
     [RelayCommand]
@@ -466,7 +483,8 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var p in ordered)
         {
             var usageVm = GetOrCreateUsageVm(p.Id);
-            _all.Add(new AccountItemViewModel(p, now, _settings, usageVm));
+            bool isCompact = _settings.CollapsedProfileIds.Contains(p.Id);
+            _all.Add(new AccountItemViewModel(p, now, _settings, usageVm, isCompact));
         }
 
         ShowEmptyState = _all.Count == 0;

@@ -41,6 +41,39 @@ public static class UsageCountdownFormatter
         return pt ? $"Reinicia em {seconds}s" : $"Resets in {seconds}s";
     }
 
+    public static string FormatCompactCountdown(DateTimeOffset? resetsAt, DateTimeOffset now, bool pt = false)
+    {
+        if (resetsAt is null)
+            return "-";
+
+        if (resetsAt.Value <= now)
+            return pt ? "Reset pendente" : "Reset due";
+
+        var diff = resetsAt.Value - now;
+        if (diff.TotalDays >= 1)
+        {
+            var days = (int)diff.TotalDays;
+            var hours = diff.Hours;
+            return $"{days}d {hours}h";
+        }
+
+        if (diff.TotalHours >= 1)
+        {
+            var hours = (int)diff.TotalHours;
+            var minutes = diff.Minutes;
+            return $"{hours}h {minutes}m";
+        }
+
+        if (diff.TotalMinutes >= 1)
+        {
+            var minutes = (int)diff.TotalMinutes;
+            return $"{minutes}m";
+        }
+
+        var seconds = Math.Max(1, (int)diff.TotalSeconds);
+        return $"{seconds}s";
+    }
+
     public static string FormatCountdownWithAbsolute(
         DateTimeOffset? resetsAt,
         DateTimeOffset now,

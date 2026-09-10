@@ -53,6 +53,18 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     public string LimitReachedLabel => Loc.Pt ? "LIMITE ATINGIDO" : "LIMIT REACHED";
 
+    public string CompactRemainingText => RemainingPercent is { } rem
+        ? Loc.CompactRemainingFormat(rem)
+        : (Loc.Pt ? "desc." : "unk.");
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CompactSummaryText))]
+    public partial string CompactResetText { get; set; } = "-";
+
+    public string CompactSummaryText => $"{DisplayLabel} · {CompactRemainingText} · {CompactResetText}";
+
+    public string CompactTooltipText => $"{DisplayLabel}: {RemainingText}, {ResetCountdownText}\n{ResetTooltipText}";
+
     public UsageWindowViewModel(UsageWindowModel model, DateTimeOffset now)
     {
         Slot = model.Slot;
@@ -71,5 +83,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     {
         ResetCountdownText = UsageCountdownFormatter.FormatCountdownWithAbsolute(ResetsAt, now, culture: null, pt: Loc.Pt);
         ResetTooltipText = UsageCountdownFormatter.FormatFullResetTooltip(ResetsAt, culture: null, pt: Loc.Pt);
+        CompactResetText = UsageCountdownFormatter.FormatCompactCountdown(ResetsAt, now, pt: Loc.Pt);
+        OnPropertyChanged(nameof(CompactRemainingText));
+        OnPropertyChanged(nameof(CompactSummaryText));
+        OnPropertyChanged(nameof(CompactTooltipText));
     }
 }

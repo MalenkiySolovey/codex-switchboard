@@ -22,4 +22,10 @@ public sealed class AppSettings
     public string? ForcedTheme { get; set; }
 
     public int SchemaVersion { get; set; } = 1;
+
+    /// <summary>
+    /// Conjunto de IDs de perfis cujos cards de conta estão no modo compacto (recolhido).
+    /// Perfis não listados aqui são exibidos no modo expandido padrão.
+    /// </summary>
+    public HashSet<Guid> CollapsedProfileIds { get; set; } = [];
 }

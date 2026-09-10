@@ -349,4 +349,13 @@ public sealed class Strings
     public string SubscriptionManageLink => S("Gerenciar assinatura oficial no ChatGPT", "Manage official subscription on ChatGPT");
     public string SubscriptionClearButton => S("Limpar rastreamento", "Clear tracking");
     public string SubscriptionEstimatedNotice => S("(data estimada mensalmente)", "(monthly estimated date)");
+
+    // Phase 8: Cards de conta compactos e expansíveis
+    public string ExpandAccountDetails => S("Expandir detalhes da conta", "Expand account details");
+    public string CollapseAccountDetails => S("Recolher detalhes da conta", "Collapse account details");
+    public string CompactRemainingFormat(double pct) => S($"{Math.Round(pct)}% disp.", $"{Math.Round(pct)}% rem.");
+    public string CompactResetCreditsFormat(int count) => S(
+        count == 1 ? "1 reinício" : $"{count} reinícios",
+        count == 1 ? "1 reset" : $"{count} resets");
+    public string AdditionalQuotaWindowsHeader => S("Janelas de cota adicionais:", "Additional quota windows:");
 }

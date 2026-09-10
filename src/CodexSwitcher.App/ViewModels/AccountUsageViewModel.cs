@@ -45,6 +45,18 @@ public sealed partial class AccountUsageViewModel : ObservableObject
     public partial DateTimeOffset? ObservedAt { get; set; }
 
     public ObservableCollection<UsageWindowViewModel> Windows { get; } = [];
+    public ObservableCollection<UsageWindowViewModel> CompactWindows { get; } = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasAdditionalWindows))]
+    [NotifyPropertyChangedFor(nameof(AdditionalWindowsBadge))]
+    public partial int AdditionalWindowsCount { get; set; }
+
+    public bool HasAdditionalWindows => AdditionalWindowsCount > 0;
+    public string AdditionalWindowsBadge => $"+{AdditionalWindowsCount}";
+
+    [ObservableProperty]
+    public partial string AdditionalWindowsTooltip { get; set; } = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasActivity))]
@@ -83,6 +95,22 @@ public sealed partial class AccountUsageViewModel : ObservableObject
         ? $"{c} {(Loc.Pt ? (c == 1 ? "crédito de reinício" : "créditos de reinício") : (c == 1 ? "reset credit" : "reset credits"))}"
         : string.Empty;
 
+    public string CompactResetCreditsText => ResetCreditsAvailable is { } c
+        ? Loc.CompactResetCreditsFormat(c)
+        : string.Empty;
+
+    public string CompactStatusText => VisualState switch
+    {
+        UsageVisualState.NeverLoaded => NeverLoadedLabel,
+        UsageVisualState.Refreshing => RefreshingBadgeLabel,
+        UsageVisualState.StaleCache => StaleBadgeLabel,
+        UsageVisualState.RateLimited => RateLimitedBadgeLabel,
+        UsageVisualState.AuthRequired => Loc.Pt ? "Reconectar" : "Auth required",
+        UsageVisualState.ProcessDown => Loc.Pt ? "Codex indisponível" : "Codex unavailable",
+        UsageVisualState.UnsupportedAccountType => Loc.Pt ? "Não suportado" : "Unsupported",
+        _ => Loc.Pt ? "Sem cota" : "No usage data",
+    };
+
     public AccountUsageViewModel(Guid profileId)
     {
         ProfileId = profileId;
@@ -107,6 +135,8 @@ public sealed partial class AccountUsageViewModel : ObservableObject
             Windows.Add(new UsageWindowViewModel(winModel, now));
         }
 
+        UpdateCompactWindows(now);
+
         DetailedCredits.Clear();
         if (state.ResetCreditsDetail?.Credits is { Count: > 0 })
         {
@@ -126,6 +156,8 @@ public sealed partial class AccountUsageViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUnreportedCredits));
         OnPropertyChanged(nameof(UnreportedCount));
         OnPropertyChanged(nameof(UnreportedCreditsText));
+        OnPropertyChanged(nameof(CompactResetCreditsText));
+        OnPropertyChanged(nameof(CompactStatusText));
     }
 
     public void UpdateCountdowns(DateTimeOffset now)
@@ -134,5 +166,56 @@ public sealed partial class AccountUsageViewModel : ObservableObject
         {
             win.UpdateCountdown(now);
         }
+
+        UpdateCompactWindows(now);
+    }
+
+    private void UpdateCompactWindows(DateTimeOffset now)
+    {
+        CompactWindows.Clear();
+        if (Windows.Count == 0)
+        {
+            AdditionalWindowsCount = 0;
+            AdditionalWindowsTooltip = string.Empty;
+            return;
+        }
+
+        if (Windows.Count <= 2)
+        {
+            foreach (var w in Windows)
+                CompactWindows.Add(w);
+            AdditionalWindowsCount = 0;
+            AdditionalWindowsTooltip = string.Empty;
+            return;
+        }
+
+        // >2 windows: deterministic selection rule
+        // 1. IsExhausted (descending)
+        // 2. IsLowQuota (descending)
+        // 3. DurationMinutes ?? int.MaxValue (ascending)
+        // 4. Index (ascending)
+        var indexed = Windows.Select((w, idx) => (Window: w, Index: idx)).ToList();
+        var top2 = indexed
+            .OrderByDescending(x => x.Window.IsExhausted)
+            .ThenByDescending(x => x.Window.IsLowQuota)
+            .ThenBy(x => x.Window.DurationMinutes ?? int.MaxValue)
+            .ThenBy(x => x.Index)
+            .Take(2)
+            .Select(x => x.Window)
+            .OrderBy(w => w.DurationMinutes ?? int.MaxValue)
+            .ToList();
+
+        foreach (var w in top2)
+            CompactWindows.Add(w);
+
+        var remaining = Windows.Except(top2).ToList();
+        AdditionalWindowsCount = remaining.Count;
+
+        var lines = new List<string> { Loc.AdditionalQuotaWindowsHeader };
+        foreach (var rw in remaining)
+        {
+            lines.Add($"• {rw.DisplayLabel}: {rw.RemainingText} · {rw.ResetCountdownText}");
+        }
+        AdditionalWindowsTooltip = string.Join(Environment.NewLine, lines);
     }
 }

@@ -196,12 +196,12 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:AccountItemViewModel">
-                            <Border CornerRadius="{StaticResource CardCornerRadius}" BorderThickness="1.5" Padding="16"
+                            <Border CornerRadius="{StaticResource CardCornerRadius}" BorderThickness="1.5" Padding="16,10"
                                     BorderBrush="{x:Bind Converter={StaticResource CardBorder}}"
                                     Background="{x:Bind IsActive, Converter={StaticResource ActiveBg}}">
                                 <StackPanel Spacing="10">
-                                    <!-- Top Row: Identity + Badges + Actions -->
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
+                                    <!-- Top Row: Identity + Badges + Compact Quota + Actions + Expand/Collapse -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
                                         <!-- Col 0: Avatar -->
                                         <Border Grid.Column="0" Width="44" Height="44"
                                                 CornerRadius="{StaticResource AvatarCornerRadius}"
@@ -215,6 +215,8 @@
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" FontSize="16"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="240"
+                                                           ToolTipService.ToolTip="{x:Bind DisplayName}"
                                                            VerticalAlignment="Center" />
                                                 <!-- Health status badge -->
                                                 <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
@@ -253,7 +255,9 @@
                                                 </Border>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="{x:Bind Subtitle}" Opacity="0.7" FontSize="13" />
+                                                <TextBlock Text="{x:Bind Subtitle}" Opacity="0.7" FontSize="13"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="240"
+                                                           ToolTipService.ToolTip="{x:Bind Subtitle}" />
                                                 <TextBlock Text="{x:Bind PlanText}" Opacity="0.5" FontSize="12"
                                                            Visibility="{x:Bind PlanText, Converter={StaticResource StringToVis}}" />
                                                 <TextBlock Text="{x:Bind SubscriptionDisplayText}" Opacity="0.5" FontSize="12"
@@ -262,15 +266,87 @@
                                             </StackPanel>
                                         </StackPanel>
 
-                                        <!-- Col 2: Per-card manual refresh button -->
-                                        <Button Grid.Column="2" VerticalAlignment="Center" Click="OnRefreshAccountClick"
+                                        <!-- Col 2: Compact Quota Summary (visible when IsCompact) -->
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2"
+                                                    Visibility="{x:Bind IsCompact, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <!-- When quota windows are available -->
+                                            <StackPanel Visibility="{x:Bind Usage.HasWindows, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="2">
+                                                <ItemsControl ItemsSource="{x:Bind Usage.CompactWindows, Mode=OneWay}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:UsageWindowViewModel">
+                                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                                                        ToolTipService.ToolTip="{x:Bind CompactTooltipText, Mode=OneWay}">
+                                                                <TextBlock Text="{x:Bind DisplayLabel}" FontWeight="SemiBold" FontSize="11" Opacity="0.9" />
+                                                                <TextBlock Text="{x:Bind CompactRemainingText, Mode=OneWay}" FontWeight="SemiBold" FontSize="11"
+                                                                           Foreground="{x:Bind Converter={StaticResource QuotaBrush}, Mode=OneWay}" />
+                                                                <TextBlock Text="·" FontSize="10" Opacity="0.4" />
+                                                                <TextBlock Text="{x:Bind CompactResetText, Mode=OneWay}" FontSize="11" Opacity="0.75" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <!-- +N additional windows badge if >2 windows -->
+                                                <Border CornerRadius="3" Padding="5,1" Background="{ThemeResource LayerFillColorAltBrush}"
+                                                        HorizontalAlignment="Left"
+                                                        ToolTipService.ToolTip="{x:Bind Usage.AdditionalWindowsTooltip, Mode=OneWay}"
+                                                        Visibility="{x:Bind Usage.HasAdditionalWindows, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{x:Bind Usage.AdditionalWindowsBadge, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Opacity="0.7" />
+                                                </Border>
+                                            </StackPanel>
+
+                                            <!-- When no quota windows: truthful status summary -->
+                                            <TextBlock Text="{x:Bind Usage.CompactStatusText, Mode=OneWay}" FontSize="11" Opacity="0.6"
+                                                       Visibility="{x:Bind Usage.HasWindows, Mode=OneWay, Converter={StaticResource InvBoolToVis}}" />
+                                        </StackPanel>
+
+                                        <!-- Col 3: Compact Reset Credits (visible when IsCompact && HasResetCredits) -->
+                                        <Button Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource SubtleButtonStyle}" Padding="6,2"
+                                                Visibility="{x:Bind ShowCompactResetCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                ToolTipService.ToolTip="{x:Bind Usage.ResetCreditsHeader, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xEC05;" FontSize="11" Foreground="{ThemeResource BrandAccentBrush}" />
+                                                <TextBlock Text="{x:Bind Usage.CompactResetCreditsText, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
+                                                <FontIcon Glyph="&#xE70D;" FontSize="8" Opacity="0.5" />
+                                            </StackPanel>
+                                            <Button.Flyout>
+                                                <Flyout Placement="Bottom">
+                                                    <StackPanel Spacing="8" MinWidth="240" MaxWidth="340">
+                                                        <TextBlock Text="{x:Bind Usage.ResetCreditsHeader, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" />
+                                                        <ItemsControl ItemsSource="{x:Bind Usage.DetailedCredits, Mode=OneWay}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:ResetCreditItemViewModel">
+                                                                    <Grid Margin="0,3">
+                                                                        <StackPanel Spacing="2">
+                                                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                                <Border Width="7" Height="7" CornerRadius="3.5" Background="{x:Bind UrgencyBrush}" VerticalAlignment="Center" />
+                                                                                <TextBlock Text="{x:Bind Title}" FontWeight="Medium" FontSize="11" />
+                                                                            </StackPanel>
+                                                                            <TextBlock Text="{x:Bind ExpiryText}" FontSize="10" Opacity="0.7" Margin="13,0,0,0" />
+                                                                        </StackPanel>
+                                                                    </Grid>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Text="{x:Bind Usage.UnreportedCreditsText, Mode=OneWay}"
+                                                                   Visibility="{x:Bind Usage.HasUnreportedCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                                   FontSize="10" Opacity="0.6" FontStyle="Italic" />
+                                                        <TextBlock Text="{x:Bind Usage.NoDetailedCreditsMessage, Mode=OneWay}"
+                                                                   Visibility="{x:Bind Usage.HasDetailedCredits, Mode=OneWay, Converter={StaticResource InvBoolToVis}}"
+                                                                   FontSize="11" Opacity="0.6" />
+                                                    </StackPanel>
+                                                </Flyout>
+                                            </Button.Flyout>
+                                        </Button>
+
+                                        <!-- Col 4: Per-card manual refresh button -->
+                                        <Button Grid.Column="4" VerticalAlignment="Center" Click="OnRefreshAccountClick"
                                                 ToolTipService.ToolTip="{x:Bind Usage.RefreshUsageTooltip, Mode=OneWay}"
                                                 Background="Transparent" BorderThickness="0" Padding="8">
                                             <FontIcon Glyph="&#xE72C;" FontSize="13" />
                                         </Button>
 
-                                        <!-- Col 3: Switch / In Use -->
-                                        <Button Grid.Column="3" VerticalAlignment="Center" Click="OnSwitchClick"
+                                        <!-- Col 5: Switch / In Use -->
+                                        <Button Grid.Column="5" VerticalAlignment="Center" Click="OnSwitchClick"
                                                 Visibility="{x:Bind CanSwitch, Converter={StaticResource BoolToVis}}"
                                                 Background="{ThemeResource BrandAccentBrush}"
                                                 Foreground="{ThemeResource BrandOnAccentBrush}">
@@ -279,7 +355,7 @@
                                                 <TextBlock Text="{x:Bind SwitchLabel}" />
                                             </StackPanel>
                                         </Button>
-                                        <Border Grid.Column="3" VerticalAlignment="Center" Padding="10,6"
+                                        <Border Grid.Column="5" VerticalAlignment="Center" Padding="10,6"
                                                 CornerRadius="{StaticResource ControlCornerRadius}"
                                                 Visibility="{x:Bind IsActive, Converter={StaticResource BoolToVis}}"
                                                 Background="{ThemeResource BrandAccentSoftBrush}">
@@ -290,8 +366,8 @@
                                             </StackPanel>
                                         </Border>
 
-                                        <!-- Col 4: More Actions Flyout -->
-                                        <Button Grid.Column="4" VerticalAlignment="Center" Background="Transparent"
+                                        <!-- Col 6: More Actions Flyout -->
+                                        <Button Grid.Column="6" VerticalAlignment="Center" Background="Transparent"
                                                 BorderThickness="0" ToolTipService.ToolTip="{x:Bind MoreActionsLabel}">
                                             <FontIcon Glyph="&#xE712;" FontSize="16" />
                                             <Button.Flyout>
@@ -323,202 +399,213 @@
                                                 </MenuFlyout>
                                             </Button.Flyout>
                                         </Button>
+
+                                        <!-- Col 7: Collapse / Expand Button -->
+                                        <Button Grid.Column="7" VerticalAlignment="Center" Background="Transparent"
+                                                BorderThickness="0" Padding="8" Click="OnToggleCollapseClick"
+                                                ToolTipService.ToolTip="{x:Bind ExpandCollapseTooltip, Mode=OneWay}"
+                                                AutomationProperties.Name="{x:Bind ExpandCollapseAutomationName, Mode=OneWay}">
+                                            <FontIcon Glyph="{x:Bind IsExpanded, Mode=OneWay, Converter={StaticResource BoolToChevron}}" FontSize="12" />
+                                        </Button>
                                     </Grid>
 
-                                    <!-- Notice Banner Row (When notice exists: AuthRequired, ProcessDown, CredentialConflict) -->
-                                    <Border Padding="10,6" CornerRadius="{StaticResource ControlCornerRadius}"
-                                            Background="{ThemeResource LayerFillColorAltBrush}" BorderThickness="1" BorderBrush="{ThemeResource HealthWarnBrush}"
-                                            Visibility="{x:Bind Usage.HasNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <FontIcon Glyph="&#xE7BA;" FontSize="13" Foreground="{ThemeResource HealthWarnBrush}" />
-                                            <TextBlock Text="{x:Bind Usage.NoticeMessage, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Opacity="0.9" />
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Quota Windows Section -->
-                                    <ItemsControl ItemsSource="{x:Bind Usage.Windows, Mode=OneWay}"
-                                                  Visibility="{x:Bind Usage.HasWindows, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:UsageWindowViewModel">
-                                                <StackPanel Spacing="3" Margin="0,2,0,6">
-                                                    <!-- Window Header: DisplayLabel + Limit Reached Badge on Left, Remaining % on Right -->
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                            <TextBlock Text="{x:Bind DisplayLabel}" FontWeight="SemiBold" FontSize="12" />
-                                                            <Border CornerRadius="3" Padding="5,1" Background="{ThemeResource HealthDangerBrush}"
-                                                                    Visibility="{x:Bind IsExhausted, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                                                <TextBlock Text="{x:Bind LimitReachedLabel}" FontSize="9" FontWeight="Bold"
-                                                                           Foreground="{ThemeResource BrandOnAccentBrush}" />
-                                                            </Border>
-                                                        </StackPanel>
-                                                        <TextBlock Grid.Column="1" Text="{x:Bind RemainingText, Mode=OneWay}"
-                                                                   FontWeight="SemiBold" FontSize="12" />
-                                                    </Grid>
-
-                                                    <!-- Progress Bar (Value = RemainingPercent, matching text) -->
-                                                    <ProgressBar Value="{x:Bind ProgressValue, Mode=OneWay}" Maximum="100" Minimum="0"
-                                                                 Height="5" CornerRadius="2.5"
-                                                                 Foreground="{x:Bind Converter={StaticResource QuotaBrush}, Mode=OneWay}" />
-
-                                                    <!-- Window Footer: Used % on Left, Relative Reset Countdown on Right -->
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <TextBlock Grid.Column="0" Text="{x:Bind UsedText, Mode=OneWay}" Opacity="0.6" FontSize="11" />
-                                                        <TextBlock Grid.Column="1" Text="{x:Bind ResetCountdownText, Mode=OneWay}"
-                                                                   ToolTipService.ToolTip="{x:Bind ResetTooltipText, Mode=OneWay}"
-                                                                   Opacity="0.75" FontSize="11" />
-                                                    </Grid>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-
-                                    <!-- Never Loaded Prompt (if no usage data has been queried yet) -->
-                                    <TextBlock Text="{x:Bind Usage.NeverLoadedLabel, Mode=OneWay}"
-                                               Visibility="{x:Bind Usage.ShowNeverLoadedText, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                               Opacity="0.5" FontSize="12" Margin="0,2,0,2" />
-
-                                    <!-- Account Activity Section (Collapsible / Compact) -->
-                                    <Border CornerRadius="{StaticResource ControlCornerRadius}"
-                                            Background="{ThemeResource LayerFillColorAltBrush}"
-                                            Padding="8,6" Margin="0,2,0,4"
-                                            Visibility="{x:Bind Usage.ShowActivitySection, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                        <StackPanel Spacing="4">
-                                            <!-- Status Notice Banner (Unsupported runtime, temporary unavailable, or cached notice) -->
-                                            <Border CornerRadius="4" Padding="8,4" Margin="2,2,2,2"
-                                                    Background="{ThemeResource LayerFillColorAltBrush}"
-                                                    BorderBrush="{ThemeResource HealthWarnBrush}" BorderThickness="1"
-                                                    Visibility="{x:Bind Usage.Activity.HasStatusNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                    <FontIcon Glyph="&#xE946;" FontSize="12" Foreground="{ThemeResource HealthWarnBrush}" />
-                                                    <TextBlock Text="{x:Bind Usage.Activity.StatusNotice, Mode=OneWay}" FontSize="11" TextWrapping="Wrap" />
-                                                </StackPanel>
-                                            </Border>
-
-                                            <!-- Collapsible Activity Data Content -->
-                                            <StackPanel Visibility="{x:Bind Usage.Activity.HasActivity, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="4">
-                                                <!-- Toggle Button Header -->
-                                                <Button Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="4,2"
-                                                        Command="{x:Bind Usage.Activity.ToggleExpandCommand, Mode=OneWay}">
-                                                    <Grid ColumnDefinitions="Auto,*,Auto">
-                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                            <FontIcon Glyph="&#xE9D9;" FontSize="12" Foreground="{ThemeResource BrandAccentBrush}" />
-                                                            <TextBlock Text="{x:Bind Usage.Activity.ActivitySectionTitle, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Opacity="0.8" />
-                                                        </StackPanel>
-                                                        <FontIcon Grid.Column="2" Glyph="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource BoolToChevron}}"
-                                                                  FontSize="10" Opacity="0.5" />
-                                                    </Grid>
-                                                </Button>
-
-                                                <!-- Collapsed Preview (single line: Lifetime & Streak) -->
-                                                <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,0"
-                                                      Visibility="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource InvBoolToVis}}">
-                                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                                        <TextBlock Text="{x:Bind Usage.Activity.LifetimeTokens, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
-                                                        <TextBlock Text="tokens" FontSize="11" Opacity="0.5" />
-                                                        <TextBlock Text="·" FontSize="11" Opacity="0.4" Margin="2,0" />
-                                                        <TextBlock Text="Peak" FontSize="11" Opacity="0.5" />
-                                                        <TextBlock Text="{x:Bind Usage.Activity.PeakDailyTokens, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
-                                                    </StackPanel>
-                                                    <TextBlock Grid.Column="1" Text="{x:Bind Usage.Activity.CurrentStreak, Mode=OneWay}" FontSize="11" Opacity="0.7" />
-                                                </Grid>
-
-                                                <!-- Expanded Activity Details -->
-                                                <StackPanel Visibility="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="6" Margin="4,2,4,2">
-                                                    <!-- Metric Tiles Grid -->
-                                                    <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,2">
-                                                        <StackPanel Grid.Column="0" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.LifetimeTokensTooltip, Mode=OneWay}">
-                                                            <TextBlock Text="{x:Bind Usage.Activity.LifetimeLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
-                                                            <TextBlock Text="{x:Bind Usage.Activity.LifetimeTokens, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
-                                                        </StackPanel>
-                                                        <StackPanel Grid.Column="1" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.PeakDailyTokensTooltip, Mode=OneWay}">
-                                                            <TextBlock Text="{x:Bind Usage.Activity.PeakDayLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
-                                                            <TextBlock Text="{x:Bind Usage.Activity.PeakDailyTokens, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
-                                                        </StackPanel>
-                                                        <StackPanel Grid.Column="2" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.LongestTurnTooltip, Mode=OneWay}">
-                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestTurnLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
-                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestTurn, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
-                                                        </StackPanel>
-                                                        <StackPanel Grid.Column="3" Spacing="1">
-                                                            <TextBlock Text="{x:Bind Usage.Activity.CurrentStreakLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
-                                                            <TextBlock Text="{x:Bind Usage.Activity.CurrentStreak, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
-                                                        </StackPanel>
-                                                        <StackPanel Grid.Column="4" Spacing="1">
-                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestStreakLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
-                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestStreak, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
-                                                        </StackPanel>
-                                                    </Grid>
-
-                                                    <!-- Daily Activity Mini Bars -->
-                                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
-                                                        <ItemsControl ItemsSource="{x:Bind Usage.Activity.Bars, Mode=OneWay}">
-                                                            <ItemsControl.ItemsPanel>
-                                                                <ItemsPanelTemplate>
-                                                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Height="50" />
-                                                                </ItemsPanelTemplate>
-                                                            </ItemsControl.ItemsPanel>
-                                                            <ItemsControl.ItemTemplate>
-                                                                <DataTemplate x:DataType="vm:ActivityBarItemViewModel">
-                                                                    <StackPanel Spacing="2" VerticalAlignment="Bottom" ToolTipService.ToolTip="{x:Bind TooltipText}">
-                                                                        <Border Width="12" Height="{x:Bind BarHeight}" Background="{ThemeResource BrandAccentBrush}"
-                                                                                CornerRadius="2" VerticalAlignment="Bottom" Opacity="0.85" />
-                                                                        <TextBlock Text="{x:Bind DisplayDate}" FontSize="8" Opacity="0.5" HorizontalAlignment="Center" />
-                                                                    </StackPanel>
-                                                                </DataTemplate>
-                                                            </ItemsControl.ItemTemplate>
-                                                        </ItemsControl>
-                                                    </ScrollViewer>
-
-                                                    <!-- Server-reported neutral disclaimer -->
-                                                    <TextBlock Text="{x:Bind Usage.Activity.DisclaimerText, Mode=OneWay}" FontSize="10" Opacity="0.4" FontStyle="Italic" />
-                                                </StackPanel>
+                                    <!-- Expanded Details Section -->
+                                    <StackPanel Spacing="10" Visibility="{x:Bind IsExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <!-- Notice Banner Row (When notice exists: AuthRequired, ProcessDown, CredentialConflict) -->
+                                        <Border Padding="10,6" CornerRadius="{StaticResource ControlCornerRadius}"
+                                                Background="{ThemeResource LayerFillColorAltBrush}" BorderThickness="1" BorderBrush="{ThemeResource HealthWarnBrush}"
+                                                Visibility="{x:Bind Usage.HasNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE7BA;" FontSize="13" Foreground="{ThemeResource HealthWarnBrush}" />
+                                                <TextBlock Text="{x:Bind Usage.NoticeMessage, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Opacity="0.9" />
                                             </StackPanel>
-                                        </StackPanel>
-                                    </Border>
+                                        </Border>
 
-                                    <!-- Card Footer Row: Health status on Left, Reset credits and Last switched on Right -->
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{x:Bind HealthText}" Opacity="0.6" FontSize="11" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                            <Button Style="{StaticResource SubtleButtonStyle}" Padding="4,1" VerticalAlignment="Center"
-                                                    Visibility="{x:Bind Usage.HasResetCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <FontIcon Glyph="&#xEC05;" FontSize="11" Opacity="0.7" />
-                                                    <TextBlock Text="{x:Bind Usage.ResetCreditsText, Mode=OneWay}" FontSize="11" Opacity="0.8" />
-                                                    <FontIcon Glyph="&#xE70D;" FontSize="8" Opacity="0.5" />
-                                                </StackPanel>
-                                                <Button.Flyout>
-                                                    <Flyout Placement="Top">
-                                                        <StackPanel Spacing="8" MinWidth="240" MaxWidth="340">
-                                                            <TextBlock Text="{x:Bind Usage.ResetCreditsHeader, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" />
-                                                            <ItemsControl ItemsSource="{x:Bind Usage.DetailedCredits, Mode=OneWay}">
+                                        <!-- Quota Windows Section -->
+                                        <ItemsControl ItemsSource="{x:Bind Usage.Windows, Mode=OneWay}"
+                                                      Visibility="{x:Bind Usage.HasWindows, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:UsageWindowViewModel">
+                                                    <StackPanel Spacing="3" Margin="0,2,0,6">
+                                                        <!-- Window Header: DisplayLabel + Limit Reached Badge on Left, Remaining % on Right -->
+                                                        <Grid ColumnDefinitions="*,Auto">
+                                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                <TextBlock Text="{x:Bind DisplayLabel}" FontWeight="SemiBold" FontSize="12" />
+                                                                <Border CornerRadius="3" Padding="5,1" Background="{ThemeResource HealthDangerBrush}"
+                                                                        Visibility="{x:Bind IsExhausted, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                                    <TextBlock Text="{x:Bind LimitReachedLabel}" FontSize="9" FontWeight="Bold"
+                                                                               Foreground="{ThemeResource BrandOnAccentBrush}" />
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" Text="{x:Bind RemainingText, Mode=OneWay}"
+                                                                       FontWeight="SemiBold" FontSize="12" />
+                                                        </Grid>
+
+                                                        <!-- Progress Bar (Value = RemainingPercent, matching text) -->
+                                                        <ProgressBar Value="{x:Bind ProgressValue, Mode=OneWay}" Maximum="100" Minimum="0"
+                                                                     Height="5" CornerRadius="2.5"
+                                                                     Foreground="{x:Bind Converter={StaticResource QuotaBrush}, Mode=OneWay}" />
+
+                                                        <!-- Window Footer: Used % on Left, Relative Reset Countdown on Right -->
+                                                        <Grid ColumnDefinitions="*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="{x:Bind UsedText, Mode=OneWay}" Opacity="0.6" FontSize="11" />
+                                                            <TextBlock Grid.Column="1" Text="{x:Bind ResetCountdownText, Mode=OneWay}"
+                                                                       ToolTipService.ToolTip="{x:Bind ResetTooltipText, Mode=OneWay}"
+                                                                       Opacity="0.75" FontSize="11" />
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <!-- Never Loaded Prompt (if no usage data has been queried yet) -->
+                                        <TextBlock Text="{x:Bind Usage.NeverLoadedLabel, Mode=OneWay}"
+                                                   Visibility="{x:Bind Usage.ShowNeverLoadedText, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                   Opacity="0.5" FontSize="12" Margin="0,2,0,2" />
+
+                                        <!-- Account Activity Section (Collapsible / Compact) -->
+                                        <Border CornerRadius="{StaticResource ControlCornerRadius}"
+                                                Background="{ThemeResource LayerFillColorAltBrush}"
+                                                Padding="8,6" Margin="0,2,0,4"
+                                                Visibility="{x:Bind Usage.ShowActivitySection, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                            <StackPanel Spacing="4">
+                                                <!-- Status Notice Banner (Unsupported runtime, temporary unavailable, or cached notice) -->
+                                                <Border CornerRadius="4" Padding="8,4" Margin="2,2,2,2"
+                                                        Background="{ThemeResource LayerFillColorAltBrush}"
+                                                        BorderBrush="{ThemeResource HealthWarnBrush}" BorderThickness="1"
+                                                        Visibility="{x:Bind Usage.Activity.HasStatusNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                        <FontIcon Glyph="&#xE946;" FontSize="12" Foreground="{ThemeResource HealthWarnBrush}" />
+                                                        <TextBlock Text="{x:Bind Usage.Activity.StatusNotice, Mode=OneWay}" FontSize="11" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- Collapsible Activity Data Content -->
+                                                <StackPanel Visibility="{x:Bind Usage.Activity.HasActivity, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="4">
+                                                    <!-- Toggle Button Header -->
+                                                    <Button Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="4,2"
+                                                            Command="{x:Bind Usage.Activity.ToggleExpandCommand, Mode=OneWay}">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                <FontIcon Glyph="&#xE9D9;" FontSize="12" Foreground="{ThemeResource BrandAccentBrush}" />
+                                                                <TextBlock Text="{x:Bind Usage.Activity.ActivitySectionTitle, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Opacity="0.8" />
+                                                            </StackPanel>
+                                                            <FontIcon Grid.Column="2" Glyph="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource BoolToChevron}}"
+                                                                      FontSize="10" Opacity="0.5" />
+                                                        </Grid>
+                                                    </Button>
+
+                                                    <!-- Collapsed Preview (single line: Lifetime & Streak) -->
+                                                    <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,0"
+                                                          Visibility="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource InvBoolToVis}}">
+                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LifetimeTokens, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
+                                                            <TextBlock Text="tokens" FontSize="11" Opacity="0.5" />
+                                                            <TextBlock Text="·" FontSize="11" Opacity="0.4" Margin="2,0" />
+                                                            <TextBlock Text="Peak" FontSize="11" Opacity="0.5" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.PeakDailyTokens, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{x:Bind Usage.Activity.CurrentStreak, Mode=OneWay}" FontSize="11" Opacity="0.7" />
+                                                    </Grid>
+
+                                                    <!-- Expanded Activity Details -->
+                                                    <StackPanel Visibility="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="6" Margin="4,2,4,2">
+                                                        <!-- Metric Tiles Grid -->
+                                                        <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,2">
+                                                            <StackPanel Grid.Column="0" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.LifetimeTokensTooltip, Mode=OneWay}">
+                                                                <TextBlock Text="{x:Bind Usage.Activity.LifetimeLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                                <TextBlock Text="{x:Bind Usage.Activity.LifetimeTokens, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="1" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.PeakDailyTokensTooltip, Mode=OneWay}">
+                                                                <TextBlock Text="{x:Bind Usage.Activity.PeakDayLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                                <TextBlock Text="{x:Bind Usage.Activity.PeakDailyTokens, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="2" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.LongestTurnTooltip, Mode=OneWay}">
+                                                                <TextBlock Text="{x:Bind Usage.Activity.LongestTurnLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                                <TextBlock Text="{x:Bind Usage.Activity.LongestTurn, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="3" Spacing="1">
+                                                                <TextBlock Text="{x:Bind Usage.Activity.CurrentStreakLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                                <TextBlock Text="{x:Bind Usage.Activity.CurrentStreak, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="4" Spacing="1">
+                                                                <TextBlock Text="{x:Bind Usage.Activity.LongestStreakLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                                <TextBlock Text="{x:Bind Usage.Activity.LongestStreak, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                            </StackPanel>
+                                                        </Grid>
+
+                                                        <!-- Daily Activity Mini Bars -->
+                                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
+                                                            <ItemsControl ItemsSource="{x:Bind Usage.Activity.Bars, Mode=OneWay}">
+                                                                <ItemsControl.ItemsPanel>
+                                                                    <ItemsPanelTemplate>
+                                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Height="50" />
+                                                                    </ItemsPanelTemplate>
+                                                                </ItemsControl.ItemsPanel>
                                                                 <ItemsControl.ItemTemplate>
-                                                                    <DataTemplate x:DataType="vm:ResetCreditItemViewModel">
-                                                                        <Grid Margin="0,3">
-                                                                            <StackPanel Spacing="2">
-                                                                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                                                    <Border Width="7" Height="7" CornerRadius="3.5" Background="{x:Bind UrgencyBrush}" VerticalAlignment="Center" />
-                                                                                    <TextBlock Text="{x:Bind Title}" FontWeight="Medium" FontSize="11" />
-                                                                                </StackPanel>
-                                                                                <TextBlock Text="{x:Bind ExpiryText}" FontSize="10" Opacity="0.7" Margin="13,0,0,0" />
-                                                                            </StackPanel>
-                                                                        </Grid>
+                                                                    <DataTemplate x:DataType="vm:ActivityBarItemViewModel">
+                                                                        <StackPanel Spacing="2" VerticalAlignment="Bottom" ToolTipService.ToolTip="{x:Bind TooltipText}">
+                                                                            <Border Width="12" Height="{x:Bind BarHeight}" Background="{ThemeResource BrandAccentBrush}"
+                                                                                    CornerRadius="2" VerticalAlignment="Bottom" Opacity="0.85" />
+                                                                            <TextBlock Text="{x:Bind DisplayDate}" FontSize="8" Opacity="0.5" HorizontalAlignment="Center" />
+                                                                        </StackPanel>
                                                                     </DataTemplate>
                                                                 </ItemsControl.ItemTemplate>
                                                             </ItemsControl>
-                                                            <TextBlock Text="{x:Bind Usage.UnreportedCreditsText, Mode=OneWay}"
-                                                                       Visibility="{x:Bind Usage.HasUnreportedCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                                                                       FontSize="10" Opacity="0.6" FontStyle="Italic" />
-                                                            <TextBlock Text="{x:Bind Usage.NoDetailedCreditsMessage, Mode=OneWay}"
-                                                                       Visibility="{x:Bind Usage.HasDetailedCredits, Mode=OneWay, Converter={StaticResource InvBoolToVis}}"
-                                                                       FontSize="11" Opacity="0.6" />
-                                                        </StackPanel>
-                                                    </Flyout>
-                                                </Button.Flyout>
-                                            </Button>
-                                            <TextBlock Text="{x:Bind LastSwitchedText}" Opacity="0.5" FontSize="11"
-                                                       ToolTipService.ToolTip="{x:Bind LastSwitchedTooltip}" />
-                                        </StackPanel>
-                                    </Grid>
+                                                        </ScrollViewer>
+
+                                                        <!-- Server-reported neutral disclaimer -->
+                                                        <TextBlock Text="{x:Bind Usage.Activity.DisclaimerText, Mode=OneWay}" FontSize="10" Opacity="0.4" FontStyle="Italic" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Card Footer Row: Health status on Left, Reset credits and Last switched on Right -->
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" Text="{x:Bind HealthText}" Opacity="0.6" FontSize="11" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                <Button Style="{StaticResource SubtleButtonStyle}" Padding="4,1" VerticalAlignment="Center"
+                                                        Visibility="{x:Bind Usage.HasResetCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <FontIcon Glyph="&#xEC05;" FontSize="11" Opacity="0.7" />
+                                                        <TextBlock Text="{x:Bind Usage.ResetCreditsText, Mode=OneWay}" FontSize="11" Opacity="0.8" />
+                                                        <FontIcon Glyph="&#xE70D;" FontSize="8" Opacity="0.5" />
+                                                    </StackPanel>
+                                                    <Button.Flyout>
+                                                        <Flyout Placement="Top">
+                                                            <StackPanel Spacing="8" MinWidth="240" MaxWidth="340">
+                                                                <TextBlock Text="{x:Bind Usage.ResetCreditsHeader, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" />
+                                                                <ItemsControl ItemsSource="{x:Bind Usage.DetailedCredits, Mode=OneWay}">
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate x:DataType="vm:ResetCreditItemViewModel">
+                                                                            <Grid Margin="0,3">
+                                                                                <StackPanel Spacing="2">
+                                                                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                                        <Border Width="7" Height="7" CornerRadius="3.5" Background="{x:Bind UrgencyBrush}" VerticalAlignment="Center" />
+                                                                                        <TextBlock Text="{x:Bind Title}" FontWeight="Medium" FontSize="11" />
+                                                                                    </StackPanel>
+                                                                                    <TextBlock Text="{x:Bind ExpiryText}" FontSize="10" Opacity="0.7" Margin="13,0,0,0" />
+                                                                                </StackPanel>
+                                                                            </Grid>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                                <TextBlock Text="{x:Bind Usage.UnreportedCreditsText, Mode=OneWay}"
+                                                                           Visibility="{x:Bind Usage.HasUnreportedCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                                           FontSize="10" Opacity="0.6" FontStyle="Italic" />
+                                                                <TextBlock Text="{x:Bind Usage.NoDetailedCreditsMessage, Mode=OneWay}"
+                                                                           Visibility="{x:Bind Usage.HasDetailedCredits, Mode=OneWay, Converter={StaticResource InvBoolToVis}}"
+                                                                           FontSize="11" Opacity="0.6" />
+                                                            </StackPanel>
+                                                        </Flyout>
+                                                    </Button.Flyout>
+                                                </Button>
+                                                <TextBlock Text="{x:Bind LastSwitchedText}" Opacity="0.5" FontSize="11"
+                                                           ToolTipService.ToolTip="{x:Bind LastSwitchedTooltip}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
