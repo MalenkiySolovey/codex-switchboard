@@ -23,10 +23,14 @@ public sealed class CodexRuntimeCapabilityTests
     [InlineData("1.0.0")]
     public void InspectCandidate_ExtractsExpectedVersion(string expectedVersion)
     {
+        using var temp = new TempDir();
+        var fakeExe = Path.Combine(temp.Root, "codex.exe");
+        File.WriteAllText(fakeExe, "dummy");
+
         var resolver = new CodexRuntimeResolver(
             probeInspector: _ => (expectedVersion, true));
 
-        var info = resolver.ResolveCurrentRuntime("C:\\fake\\codex.exe");
+        var info = resolver.ResolveCurrentRuntime(fakeExe);
 
         Assert.Equal(expectedVersion, info.Version);
     }
