@@ -45,14 +45,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ### codex-monitor
 
-- **Upstream Repository:** `https://github.com/NeMoSova19/codex-monitor.git`
-- **Original Author:** NeMoSova19
-- **Licensing & Redistribution Status:** Private / Unlicensed Upstream (`PRIVATE_UPSTREAM_PUBLICATION_RIGHTS = USER_CONFIRMATION_REQUIRED`)
+- **Original Author:** [NeMoSova19](https://github.com/NeMoSova19)
+- **Source Project:** `codex-monitor` (Private upstream: `PRIVATE_UPSTREAM_PUBLICATION_RIGHTS = USER_CONFIRMATION_REQUIRED`)
+- **Licensing & Redistribution Status:** Monitoring architecture and RPC mechanisms adapted with explicit permission of the author for redistribution in this project.
 - **Contributions to Codex Switchboard:**
   - Multi-account process isolation pattern (`ADR-0001: Separate App-Server Process per Account`).
   - Stdio JSON-RPC 2.0 app-server interaction lifecycle (`src/codex_monitor/rpc_transport.py`).
   - Quota read (`account/rateLimits/read`) and account activity telemetry parsing algorithms (`src/codex_monitor/parser.py`).
   - Remaining percentage color threshold mapping and countdown formatting (`src/codex_monitor/models.py`, `src/codex_monitor/web/dashboard.js`).
+- **Notice:** This project is not affiliated with or endorsed by NeMoSova19.
 
 ---
 

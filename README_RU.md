@@ -10,7 +10,7 @@
 ![Интерфейс](https://img.shields.io/badge/интерфейс-WinUI%203%20Fluent-2E9BFF)
 ![Тесты](https://img.shields.io/badge/тесты-334%20пройдены-3DDC84)
 ![Архитектура](https://img.shields.io/badge/архитектура-x64-blue)
-![Релиз](https://img.shields.io/badge/превью-v0.1.0--preview.1-orange)
+![Релиз](https://img.shields.io/badge/превью-v0.1.0--preview.4-orange)
 
 ---
 
@@ -178,6 +178,16 @@ Codex Switchboard построен по модульной многослойн�
 
 ---
 
+## Загрузка
+
+Готовые исполняемые сборки для Windows x64 доступны в разделе [GitHub Releases](../../releases).
+
+1. Скачайте архив **`CodexSwitchboard-0.1.0-preview.4-win-x64.zip`** из последнего релиза.
+2. Распакуйте архив в любую удобную папку.
+3. Запустите **`CodexSwitchboard.exe`**.
+
+---
+
 ## Сборка из исходного кода
 
 ### Предварительные требования
@@ -202,9 +212,9 @@ dotnet test CodexSwitcher.slnx -c Release --no-build
 ### 2. Создание локального установочного архива
 Запустите скрипт сборки и упаковки:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.0-preview.4"
 ```
-Файлы сборки: `dist/CodexSwitchboard-0.1.0-preview.1-win-x64.zip` и контрольная сумма `dist/SHA256SUMS.txt`.
+Файлы сборки: `dist/CodexSwitchboard-0.1.0-preview.4-win-x64.zip` и контрольная сумма `dist/SHA256SUMS.txt`.
 
 ---
 
@@ -214,8 +224,8 @@ Codex Switchboard создан на базе архитектурных нара
 
 - **[codex-switcher](https://github.com/unkdevv/codex-switcher)** разработчика [unkdevv](https://github.com/unkdevv) (Лицензия MIT):
   - Базовая архитектура WinUI 3 приложения, модель DPAPI-хранилища, 10-шаговая транзакция переключения и шаблоны сессий OAuth.
-- **[codex-monitor](https://github.com/NeMoSova19/codex-monitor.git)** разработчика [NeMoSova19](https://github.com/NeMoSova19):
-  - Концепция изоляции процессов с отдельным CODEX_HOME, транспорт stdio JSON-RPC 2.0, алгоритмы парсинга лимитов и пороговая визуализация квот.
+- **[codex-monitor](https://github.com/NeMoSova19)** разработчика [NeMoSova19](https://github.com/NeMoSova19):
+  - Концепция изоляции процессов с отдельным CODEX_HOME, транспорт stdio JSON-RPC 2.0, алгоритмы парсинга лимитов и пороговая визуализация квот, адаптированные с согласия автора.
 
 ---
 

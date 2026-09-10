@@ -23,8 +23,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public Action? OnMigrationCompleted { get; set; }
 
     public string AppName => "Codex Switchboard";
-    public string AppVersion => "0.1.0-preview.1";
-    public string RepositoryUrl => "https://github.com/unkdevv/codex-switchboard";
+    public string AppVersion => "0.1.0-preview.4";
+    public string RepositoryUrl => "https://github.com/MalenkiySolovey/codex-switchboard";
     public string LicenseNotice => "MIT License • Copyright (c) 2026";
     public string IndependenceStatement => Loc.IndependenceNotice;
     public string DataRootPath => _paths.Root;

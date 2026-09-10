@@ -10,7 +10,7 @@
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
 ![Tests](https://img.shields.io/badge/tests-334%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
-![Release](https://img.shields.io/badge/preview-v0.1.0--preview.1-orange)
+![Release](https://img.shields.io/badge/preview-v0.1.0--preview.4-orange)
 
 ---
 
@@ -177,6 +177,16 @@ All configuration, credentials, and cache files reside strictly on your local co
 
 ---
 
+## Download
+
+Pre-built Windows x64 binaries are available under [GitHub Releases](../../releases).
+
+1. Download **`CodexSwitchboard-0.1.0-preview.4-win-x64.zip`** from the latest release.
+2. Extract the archive to any folder.
+3. Run **`CodexSwitchboard.exe`**.
+
+---
+
 ## Building from Source
 
 ### Prerequisites
@@ -201,9 +211,9 @@ dotnet test CodexSwitcher.slnx -c Release --no-build
 ### 2. Package Local Release Candidate
 Execute the packaging script to build, test, sanitize, and produce an unpackaged release archive:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.0-preview.4"
 ```
-Output artifact: `dist/CodexSwitchboard-0.1.0-preview.1-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
+Output artifact: `dist/CodexSwitchboard-0.1.0-preview.4-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
 
 ---
 
@@ -213,8 +223,8 @@ Codex Switchboard is built upon foundations established by open-source and commu
 
 - **[codex-switcher](https://github.com/unkdevv/codex-switcher)** by [unkdevv](https://github.com/unkdevv) (MIT License):
   - Provided the foundational WinUI 3 application architecture, DPAPI vault storage model, 10-step atomic switching transaction, and OAuth session concepts.
-- **[codex-monitor](https://github.com/NeMoSova19/codex-monitor.git)** by [NeMoSova19](https://github.com/NeMoSova19):
-  - Provided foundational research into multi-account process sandboxing, stdio JSON-RPC 2.0 transport lifecycle, rate-limit quota parsing, and threshold visualization models.
+- **[codex-monitor](https://github.com/NeMoSova19)** by [NeMoSova19](https://github.com/NeMoSova19):
+  - Provided foundational research into multi-account process sandboxing, stdio JSON-RPC 2.0 transport lifecycle, rate-limit quota parsing, and threshold visualization models, adapted with permission of the author.
 
 ---
 

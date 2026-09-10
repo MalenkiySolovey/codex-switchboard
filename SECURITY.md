@@ -58,7 +58,7 @@ Security updates are provided for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| **0.1.0-preview.1** | ✅ | Current preview release candidate |
+| **0.1.0-preview.4** | ✅ | Current preview release candidate |
 | **Legacy CodexSwitcher** | ❌ | Discontinued upstream; users should migrate to Switchboard |
 
 ---
