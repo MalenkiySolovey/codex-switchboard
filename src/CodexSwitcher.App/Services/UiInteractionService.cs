@@ -508,6 +508,40 @@ public sealed class UiInteractionService : IUiInteraction
         return null;
     }
 
+    public async Task<TransientVerificationChoice> PromptTransientVerificationFallbackAsync(string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = _loc.WindowsVerificationTransientTitle,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = _loc.WindowsVerificationTryAgainButton,
+            SecondaryButtonText = _loc.WindowsVerificationShowCodeOnceButton,
+            CloseButtonText = _loc.Cancel,
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        var result = await dialog.ShowAsync();
+        return result switch
+        {
+            ContentDialogResult.Primary => TransientVerificationChoice.TryAgain,
+            ContentDialogResult.Secondary => TransientVerificationChoice.ShowCodeOnce,
+            _ => TransientVerificationChoice.Cancel
+        };
+    }
+
+    public async Task OpenWindowsSignInOptionsAsync()
+    {
+        try
+        {
+            await Windows.System.Launcher.LaunchUriAsync(new Uri("ms-settings:signinoptions"));
+        }
+        catch
+        {
+            // Fallback silencioso se o launcher do sistema não estiver disponível
+        }
+    }
+
     private static StackPanel SectionText(string heading, string body)
     {
         var panel = new StackPanel { Spacing = 2 };

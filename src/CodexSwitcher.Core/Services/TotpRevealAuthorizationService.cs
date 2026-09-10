@@ -77,17 +77,39 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
         return _settings.RequireWindowsVerificationForTotpReveal && !IsAuthorized;
     }
 
+    public async Task<EffectiveTotpProtectionState> GetEffectiveProtectionStateAsync()
+    {
+        if (!_settings.RequireWindowsVerificationForTotpReveal)
+            return EffectiveTotpProtectionState.DisabledByUser;
+
+        try
+        {
+            var availability = await _verificationService.CheckAvailabilityAsync().ConfigureAwait(false);
+            return availability switch
+            {
+                WindowsVerificationAvailability.Available => EffectiveTotpProtectionState.Ready,
+                WindowsVerificationAvailability.DeviceBusy => EffectiveTotpProtectionState.TemporarilyUnavailable,
+                WindowsVerificationAvailability.Unknown => EffectiveTotpProtectionState.TemporarilyUnavailable,
+                _ => EffectiveTotpProtectionState.DegradedUnavailable
+            };
+        }
+        catch
+        {
+            return EffectiveTotpProtectionState.TemporarilyUnavailable;
+        }
+    }
+
     public async Task<TotpAuthorizationOutcome> EnsureAuthorizedAsync(string? message = null)
     {
         if (!_settings.RequireWindowsVerificationForTotpReveal)
-            return new TotpAuthorizationOutcome(true, WindowsVerificationResult.Verified);
+            return new TotpAuthorizationOutcome(true, WindowsVerificationResult.Verified, TotpAuthorizationAction.Authorized, WindowsVerificationAvailability.Available);
 
         Task<TotpAuthorizationOutcome> taskToAwait;
         lock (_sync)
         {
             if (_isSessionActive && RemainingDuration > TimeSpan.Zero)
             {
-                return new TotpAuthorizationOutcome(true, WindowsVerificationResult.Verified);
+                return new TotpAuthorizationOutcome(true, WindowsVerificationResult.Verified, TotpAuthorizationAction.Authorized, WindowsVerificationAvailability.Available);
             }
 
             if (_inFlightVerification is not null && !_inFlightVerification.IsCompleted)
@@ -108,21 +130,75 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
     {
         try
         {
-            var result = await _verificationService.RequestVerificationAsync(prompt).ConfigureAwait(false);
-            lock (_sync)
+            // Fresh probe on reveal (Section 18: Recheck availability on reveal)
+            var availability = await _verificationService.CheckAvailabilityAsync().ConfigureAwait(false);
+
+            if (availability == WindowsVerificationAvailability.Available)
             {
-                if (result == WindowsVerificationResult.Verified)
+                var result = await _verificationService.RequestVerificationAsync(prompt).ConfigureAwait(false);
+                lock (_sync)
                 {
-                    _sessionDuration = TimeSpan.FromMinutes(_settings.TotpWindowsVerificationDurationMinutes);
-                    _authorizedAtTimestamp = _timeProvider.GetTimestamp();
-                    _isSessionActive = true;
-                    return new TotpAuthorizationOutcome(true, result);
+                    if (result == WindowsVerificationResult.Verified)
+                    {
+                        _sessionDuration = TimeSpan.FromMinutes(_settings.TotpWindowsVerificationDurationMinutes);
+                        _authorizedAtTimestamp = _timeProvider.GetTimestamp();
+                        _isSessionActive = true;
+                        return new TotpAuthorizationOutcome(true, result, TotpAuthorizationAction.Authorized, availability);
+                    }
+                    else if (result == WindowsVerificationResult.Canceled)
+                    {
+                        _isSessionActive = false;
+                        return new TotpAuthorizationOutcome(false, result, TotpAuthorizationAction.Canceled, availability);
+                    }
+                    else if (result is WindowsVerificationResult.RetriesExhausted or WindowsVerificationResult.Failed)
+                    {
+                        _isSessionActive = false;
+                        return new TotpAuthorizationOutcome(false, result, TotpAuthorizationAction.Failed, availability);
+                    }
+                    else if (result == WindowsVerificationResult.DeviceBusy)
+                    {
+                        _isSessionActive = false;
+                        return new TotpAuthorizationOutcome(false, result, TotpAuthorizationAction.TemporarilyUnavailable, WindowsVerificationAvailability.DeviceBusy);
+                    }
+                    else
+                    {
+                        // Verifier reported NotAvailable / NotConfigured / DisabledByPolicy / Unsupported during call
+                        _isSessionActive = false;
+                        return new TotpAuthorizationOutcome(true, result, TotpAuthorizationAction.DegradedFallback, availability);
+                    }
                 }
-                else
+            }
+
+            // Permanently unavailable on this PC/user: Degraded Fallback (Section 7 Case C)
+            if (availability is WindowsVerificationAvailability.DeviceNotPresent or
+                               WindowsVerificationAvailability.NotConfiguredForUser or
+                               WindowsVerificationAvailability.DisabledByPolicy or
+                               WindowsVerificationAvailability.UnsupportedOperatingSystem)
+            {
+                var mappedResult = availability switch
+                {
+                    WindowsVerificationAvailability.NotConfiguredForUser => WindowsVerificationResult.NotConfigured,
+                    WindowsVerificationAvailability.DisabledByPolicy => WindowsVerificationResult.DisabledByPolicy,
+                    WindowsVerificationAvailability.UnsupportedOperatingSystem => WindowsVerificationResult.UnsupportedOperatingSystem,
+                    _ => WindowsVerificationResult.NotAvailable
+                };
+
+                lock (_sync)
                 {
                     _isSessionActive = false;
-                    return new TotpAuthorizationOutcome(false, result);
+                    // Do NOT start authorization session!
+                    return new TotpAuthorizationOutcome(true, mappedResult, TotpAuthorizationAction.DegradedFallback, availability);
                 }
+            }
+
+            // Temporarily unavailable (DeviceBusy or Unknown) (Section 7 Case D)
+            lock (_sync)
+            {
+                _isSessionActive = false;
+                var res = availability == WindowsVerificationAvailability.DeviceBusy
+                    ? WindowsVerificationResult.DeviceBusy
+                    : WindowsVerificationResult.Failed;
+                return new TotpAuthorizationOutcome(false, res, TotpAuthorizationAction.TemporarilyUnavailable, availability);
             }
         }
         catch
@@ -131,7 +207,7 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
             {
                 _isSessionActive = false;
             }
-            return new TotpAuthorizationOutcome(false, WindowsVerificationResult.Failed);
+            return new TotpAuthorizationOutcome(false, WindowsVerificationResult.Failed, TotpAuthorizationAction.TemporarilyUnavailable, WindowsVerificationAvailability.Unknown);
         }
         finally
         {

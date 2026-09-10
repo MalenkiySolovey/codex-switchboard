@@ -161,6 +161,29 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private WindowsVerificationAvailability _availability = WindowsVerificationAvailability.Unknown;
 
+    public bool CanOpenSignInOptions => _availability != WindowsVerificationAvailability.Available;
+    public bool IsDegradedProtection => RequireWindowsVerificationForTotpReveal && _availability != WindowsVerificationAvailability.Available;
+
+    public async Task CheckAgainAsync()
+    {
+        try
+        {
+            _availability = await _verificationService.CheckAvailabilityAsync();
+            WindowsVerificationStatus = FormatVerificationAvailability(_availability);
+        }
+        catch
+        {
+            WindowsVerificationStatus = Loc.WindowsVerificationStatusUnsupported;
+        }
+        OnPropertyChanged(nameof(CanOpenSignInOptions));
+        OnPropertyChanged(nameof(IsDegradedProtection));
+    }
+
+    public async Task OpenWindowsSignInOptionsAsync()
+    {
+        await _ui.OpenWindowsSignInOptionsAsync();
+    }
+
     public SettingsViewModel(
         AppSettings settings,
         SettingsStore settingsStore,
@@ -235,6 +258,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             {
                 WindowsVerificationStatus = Loc.WindowsVerificationStatusUnsupported;
             }
+            OnPropertyChanged(nameof(CanOpenSignInOptions));
+            OnPropertyChanged(nameof(IsDegradedProtection));
         });
     }
 
@@ -249,6 +274,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             _settingsStore.Save(_settings);
             _authService.RecordSettingsChanged();
             OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+            OnPropertyChanged(nameof(IsDegradedProtection));
             return true;
         }
 
@@ -262,11 +288,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 _settingsStore.Save(_settings);
                 _authService.RecordSettingsChanged();
                 OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                OnPropertyChanged(nameof(IsDegradedProtection));
                 return true;
             }
             else
             {
                 OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                OnPropertyChanged(nameof(IsDegradedProtection));
                 if (result == WindowsVerificationResult.Canceled)
                 {
                     StatusMessage = Loc.WindowsVerificationCanceled;
@@ -295,11 +323,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 _settingsStore.Save(_settings);
                 _authService.RecordSettingsChanged();
                 OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                OnPropertyChanged(nameof(IsDegradedProtection));
                 return true;
             }
             else
             {
                 OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+                OnPropertyChanged(nameof(IsDegradedProtection));
                 return false;
             }
         }

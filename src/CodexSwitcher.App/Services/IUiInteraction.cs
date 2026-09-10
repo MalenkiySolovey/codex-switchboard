@@ -37,6 +37,19 @@ public interface IUiInteraction
 
     /// <summary>Abre o diálogo de configuração ou gerenciamento do segredo 2FA (TOTP) de um perfil.</summary>
     Task<TotpSetupResult?> PromptTotpSetupAsync(string accountName, bool isCurrentlyConfigured);
+
+    /// <summary>Pergunta ao usuário o que fazer quando a verificação do Windows estiver temporariamente indisponível.</summary>
+    Task<TransientVerificationChoice> PromptTransientVerificationFallbackAsync(string message);
+
+    /// <summary>Abre a tela de opções de entrada do Windows (ms-settings:signinoptions).</summary>
+    Task OpenWindowsSignInOptionsAsync();
+}
+
+public enum TransientVerificationChoice
+{
+    TryAgain,
+    ShowCodeOnce,
+    Cancel
 }
 
 public enum TotpSetupAction

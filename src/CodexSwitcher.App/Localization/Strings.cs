@@ -389,9 +389,11 @@ public sealed class Strings
     public string TotpSaveKeyButton => S("Salvar chave", "Save key");
     public string TotpConfirmRemoveButton => S("Remover chave local", "Remove local key");
 
-    // Phase 9.1: Portão de verificação de usuário do Windows para códigos 2FA
+    // Phase 9.1 & 9.2: Portão de verificação de usuário do Windows para códigos 2FA com fallback degradado
     public string TotpProtectionHeader => S("Proteção dos códigos 2FA", "2FA code protection");
-    public string RequireWindowsVerificationLabel => S("Exigir verificação do Windows antes de exibir códigos 2FA", "Require Windows verification before showing 2FA codes");
+    public string RequireWindowsVerificationLabel => S("Usar verificação do Windows antes de exibir códigos 2FA quando disponível", "Use Windows verification before showing 2FA codes when available");
+    public string WindowsVerificationDescription => S("Usa verificação do Windows Hello/PIN antes de revelar códigos 2FA quando o Windows oferece suporte.", "Uses Windows Hello/PIN verification before revealing 2FA codes when Windows supports it.");
+    public string WindowsVerificationFallbackNote => S("Se a verificação do Windows não estiver disponível, seus códigos 2FA salvos continuam acessíveis pela revelação normal de 10 segundos.", "If Windows verification is unavailable, your stored 2FA codes remain accessible through the normal 10-second reveal flow.");
     public string WindowsVerificationDurationLabel => S("Validade da verificação:", "Verification remains valid for:");
     public string WindowsVerificationDurationMinute(int min) => S($"{min} minuto{(min > 1 ? "s" : "")}", $"{min} minute{(min > 1 ? "s" : "")}");
     public string WindowsVerificationPromptMessage => S("Verifique sua identidade do Windows para revelar os códigos 2FA do Codex Switchboard.", "Verify your Windows identity to reveal Codex Switchboard 2FA codes.");
@@ -399,15 +401,22 @@ public sealed class Strings
     public string WindowsVerificationHelpTooltip => S("O Windows gerencia a verificação. Dependendo da sua configuração, você pode ser solicitado a usar o Windows Hello, um PIN, biometria ou outro método compatível.", "Windows handles the verification. Depending on your sign-in configuration, you may be asked for Windows Hello, a PIN, biometrics, or another supported Windows verification method.");
     public string WindowsVerificationCanceled => S("A verificação do Windows foi cancelada.", "Windows verification was canceled.");
     public string WindowsVerificationFailed => S("Falha na verificação do Windows.", "Windows verification failed.");
-    public string WindowsVerificationUnavailableMessage => S("A verificação do Windows não está disponível ou não está configurada neste computador.", "Windows verification is not available or not configured on this computer.");
+    public string WindowsVerificationDegradedNotice => S("A verificação do Windows não está disponível neste computador. O código será exibido usando a proteção padrão de 10 segundos.", "Windows verification isn't available on this PC. The code will be shown using standard 10-second protection.");
+    public string WindowsVerificationDegradedStatusMessage => S("Os códigos permanecem acessíveis usando a proteção de revelação padrão de 10 segundos.", "Codes remain accessible using standard 10-second reveal protection.");
+    public string WindowsVerificationTransientTitle => S("Verificação temporariamente indisponível", "Windows verification is temporarily unavailable");
+    public string WindowsVerificationTransientMessage => S("A verificação do Windows não pôde ser iniciada ou concluída no momento. Deseja tentar novamente ou exibir o código uma vez?", "Windows verification is temporarily unavailable. Would you like to try again or show the code once?");
+    public string WindowsVerificationTryAgainButton => S("Tentar novamente", "Try again");
+    public string WindowsVerificationShowCodeOnceButton => S("Exibir código uma vez", "Show code once");
+    public string CheckAgainButton => S("Verificar novamente", "Check again");
+    public string OpenWindowsSignInOptionsButton => S("Abrir opções de entrada do Windows", "Open Windows sign-in options");
     public string WindowsVerificationDisableConfirmTitle => S("Desativar verificação do Windows?", "Disable Windows verification?");
     public string WindowsVerificationDisableConfirmMessage => S("A verificação do Windows não está disponível. Desativar esta opção permitirá que os códigos 2FA sejam revelados sem verificação de identidade do Windows. Deseja continuar?", "Windows verification is unavailable. Disabling this option will allow 2FA codes to be revealed without Windows identity verification. Do you want to continue?");
     public string WindowsVerificationDisableButton => S("Desativar proteção", "Disable protection");
     public string WindowsVerificationStatusLabel => S("Verificação do Windows:", "Windows verification:");
     public string WindowsVerificationStatusAvailable => S("Disponível", "Available");
-    public string WindowsVerificationStatusDeviceNotPresent => S("Dispositivo de autenticação não encontrado", "Authentication device not present");
-    public string WindowsVerificationStatusNotConfigured => S("Não configurada para este usuário", "Not configured for this user");
-    public string WindowsVerificationStatusDisabledByPolicy => S("Desativada por política de segurança", "Disabled by security policy");
-    public string WindowsVerificationStatusDeviceBusy => S("Dispositivo ocupado", "Device busy");
+    public string WindowsVerificationStatusDeviceNotPresent => S("Windows Hello/PIN não está disponível no momento", "Windows Hello/PIN is not currently available");
+    public string WindowsVerificationStatusNotConfigured => S("Windows Hello/PIN não está configurado", "Windows Hello/PIN is not configured");
+    public string WindowsVerificationStatusDisabledByPolicy => S("Desativada por política do Windows", "Disabled by Windows policy");
+    public string WindowsVerificationStatusDeviceBusy => S("Temporariamente ocupado", "Temporarily busy");
     public string WindowsVerificationStatusUnsupported => S("Não compatível nesta versão do Windows", "Not supported on this Windows version");
 }

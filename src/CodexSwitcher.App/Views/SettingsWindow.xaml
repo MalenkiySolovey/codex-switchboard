@@ -129,6 +129,9 @@
                                       IsOn="{x:Bind ViewModel.RequireWindowsVerificationForTotpReveal, Mode=OneWay}"
                                       Toggled="OnVerificationToggled" />
 
+                        <TextBlock Text="{x:Bind ViewModel.Loc.WindowsVerificationDescription}"
+                                   TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
+
                         <StackPanel Spacing="8" Visibility="{x:Bind ViewModel.RequireWindowsVerificationForTotpReveal, Mode=OneWay}">
                             <TextBlock Text="{x:Bind ViewModel.Loc.WindowsVerificationDurationLabel}" FontWeight="Medium" Opacity="0.85" />
                             <ComboBox ItemsSource="{x:Bind ViewModel.DurationOptions}"
@@ -146,6 +149,23 @@
                             <TextBlock Grid.Column="0" Text="{x:Bind ViewModel.Loc.WindowsVerificationStatusLabel}" FontWeight="Medium" Opacity="0.7" FontSize="12" />
                             <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.WindowsVerificationStatus, Mode=OneWay}" Opacity="0.85" FontSize="12" />
                         </Grid>
+
+                        <!-- Degraded notice when protection preference is ON but verifier is unavailable -->
+                        <TextBlock Text="{x:Bind ViewModel.Loc.WindowsVerificationDegradedStatusMessage}"
+                                   Visibility="{x:Bind ViewModel.IsDegradedProtection, Mode=OneWay}"
+                                   Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                   TextWrapping="Wrap" FontSize="12" />
+
+                        <!-- Actions: Check again and Open Windows sign-in options -->
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="{x:Bind ViewModel.Loc.CheckAgainButton}"
+                                    Click="OnCheckAgainClick"
+                                    FontSize="12" />
+                            <Button Content="{x:Bind ViewModel.Loc.OpenWindowsSignInOptionsButton}"
+                                    Click="OnOpenSignInOptionsClick"
+                                    Visibility="{x:Bind ViewModel.CanOpenSignInOptions, Mode=OneWay}"
+                                    FontSize="12" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

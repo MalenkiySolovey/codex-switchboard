@@ -33,6 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ITotpCredentialStore? _totpStore;
     private readonly ITotpRevealAuthorizationService? _authService;
     private DispatcherTimer? _totpPresentationTimer;
+    private bool _hasShownDegradedNoticeThisSession;
     private CancellationTokenSource? _startupRefreshCts;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = [];
@@ -500,21 +501,43 @@ public sealed partial class MainViewModel : ObservableObject
                 other.ResetTotpPresentation();
         }
 
-        // Hard security ordering: verification must succeed before secret decryption
+        bool isDegradedReveal = false;
+        // Hard security ordering: verification must succeed or fallback must be authorized before secret decryption
         if (_authService is not null && _authService.IsVerificationRequired())
         {
             var outcome = await _authService.EnsureAuthorizedAsync(_loc.WindowsVerificationPromptMessage);
-            if (!outcome.Success)
+
+            if (outcome.IsDegradedFallback)
             {
-                if (outcome.Status == WindowsVerificationResult.Canceled)
+                isDegradedReveal = true;
+                if (!_hasShownDegradedNoticeThisSession)
+                {
+                    _hasShownDegradedNoticeThisSession = true;
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationDegradedNotice, InfoBarSeverity.Informational);
+                }
+            }
+            else if (outcome.IsTemporarilyUnavailable)
+            {
+                var choice = await _ui.PromptTransientVerificationFallbackAsync(_loc.WindowsVerificationTransientMessage);
+                if (choice == TransientVerificationChoice.TryAgain)
+                {
+                    await RevealTotpAsync(item);
+                    return;
+                }
+                else if (choice == TransientVerificationChoice.ShowCodeOnce)
+                {
+                    isDegradedReveal = true;
+                }
+                else
+                {
+                    return;
+                }
+            }
+            else if (!outcome.Success)
+            {
+                if (outcome.Action == TotpAuthorizationAction.Canceled || outcome.Status == WindowsVerificationResult.Canceled)
                 {
                     ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationCanceled, InfoBarSeverity.Informational);
-                }
-                else if (outcome.Status == WindowsVerificationResult.NotConfigured ||
-                         outcome.Status == WindowsVerificationResult.NotAvailable ||
-                         outcome.Status == WindowsVerificationResult.UnsupportedOperatingSystem)
-                {
-                    ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationUnavailableMessage, InfoBarSeverity.Warning);
                 }
                 else
                 {
@@ -537,13 +560,14 @@ public sealed partial class MainViewModel : ObservableObject
         if (_totpStore.TryComputeCode(item.Id, now, out var code, out var error))
         {
             item.IsTotpRevealed = true;
+            item.IsDegradedReveal = isDegradedReveal;
             item.TotpCodeText = code.Formatted;
             item.TotpSecondsRemaining = code.SecondsRemaining;
             item.TotpCountdownText = $"{code.SecondsRemaining}s";
 
             // Two-timer invariant: min(10s, authSessionRemaining)
             double maxSeconds = 10.0;
-            if (_authService is not null && _authService.IsProtectionEnabled && _authService.IsAuthorized)
+            if (!isDegradedReveal && _authService is not null && _authService.IsProtectionEnabled && _authService.IsAuthorized)
             {
                 var authRemaining = _authService.RemainingDuration.TotalSeconds;
                 if (authRemaining < maxSeconds)
@@ -666,18 +690,19 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void OnTotpPresentationTick()
     {
-        if (_authService is not null && _authService.IsProtectionEnabled && !_authService.IsAuthorized)
-        {
-            HideAllRevealedTotp();
-            return;
-        }
-
         var now = _clock.UtcNow;
         bool anyRevealed = false;
 
         foreach (var item in _all)
         {
             if (!item.IsTotpRevealed) continue;
+
+            // If revealed under an authorization session that is no longer authorized, hide immediately
+            if (!item.IsDegradedReveal && _authService is not null && _authService.IsProtectionEnabled && !_authService.IsAuthorized)
+            {
+                item.ResetTotpPresentation();
+                continue;
+            }
 
             // 1. Reveal deadline (10s auto-hide)
             if (now >= item.RevealDeadline)

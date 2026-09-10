@@ -1,4 +1,4 @@
-using CodexSwitcher.App.ViewModels;
+﻿using CodexSwitcher.App.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -101,5 +101,15 @@ public sealed partial class SettingsWindow : Window
                 _isHandlingToggle = false;
             }
         }
+    }
+
+    private async void OnCheckAgainClick(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.CheckAgainAsync();
+    }
+
+    private async void OnOpenSignInOptionsClick(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.OpenWindowsSignInOptionsAsync();
     }
 }

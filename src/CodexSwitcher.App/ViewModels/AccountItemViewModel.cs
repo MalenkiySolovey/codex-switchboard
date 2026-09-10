@@ -124,6 +124,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
     public partial bool IsTotpCopied { get; set; }
 
     public DateTimeOffset RevealDeadline { get; set; } = DateTimeOffset.MinValue;
+    public bool IsDegradedReveal { get; set; }
 
     public string TotpMenuLabel => HasTotpConfigured ? Loc.ManageTotpKey : Loc.AddTotpKey;
     public string TotpRevealButtonAutomationName => IsTotpRevealed ? Loc.HideTotpCode : Loc.RevealTotpCode;
@@ -141,6 +142,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
         TotpCountdownText = string.Empty;
         IsTotpCopied = false;
         RevealDeadline = DateTimeOffset.MinValue;
+        IsDegradedReveal = false;
     }
 
     private static AccountBadge ComputeBadge(ProfileMetadata p) => p.HealthStatus switch

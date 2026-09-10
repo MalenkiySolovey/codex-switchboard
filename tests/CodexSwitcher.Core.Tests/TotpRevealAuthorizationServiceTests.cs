@@ -25,15 +25,24 @@ public sealed class TotpRevealAuthorizationServiceTests
         public WindowsVerificationAvailability Availability { get; set; } = WindowsVerificationAvailability.Available;
         public WindowsVerificationResult NextResult { get; set; } = WindowsVerificationResult.Verified;
         public int VerificationCallCount { get; private set; }
+        public int CheckAvailabilityCallCount { get; private set; }
         public List<string> RequestedMessages { get; } = [];
         public Func<Task>? OnVerificationRequested { get; set; }
+        public bool ThrowOnCheck { get; set; }
+        public bool ThrowOnRequest { get; set; }
 
-        public Task<WindowsVerificationAvailability> CheckAvailabilityAsync() => Task.FromResult(Availability);
+        public Task<WindowsVerificationAvailability> CheckAvailabilityAsync()
+        {
+            CheckAvailabilityCallCount++;
+            if (ThrowOnCheck) throw new InvalidOperationException("Simulated WinRT COM probe failure");
+            return Task.FromResult(Availability);
+        }
 
         public async Task<WindowsVerificationResult> RequestVerificationAsync(string message)
         {
             VerificationCallCount++;
             RequestedMessages.Add(message);
+            if (ThrowOnRequest) throw new InvalidOperationException("Simulated WinRT COM prompt failure");
             if (OnVerificationRequested is not null)
             {
                 await OnVerificationRequested();
@@ -430,7 +439,9 @@ public sealed class TotpRevealAuthorizationServiceTests
             typeof(TotpAuthorizationOutcome),
             typeof(TotpRevealAuthorizationService),
             typeof(WindowsVerificationResult),
-            typeof(WindowsVerificationAvailability)
+            typeof(WindowsVerificationAvailability),
+            typeof(EffectiveTotpProtectionState),
+            typeof(TotpAuthorizationAction)
         };
 
         foreach (var type in typesToScan)
@@ -446,5 +457,189 @@ public sealed class TotpRevealAuthorizationServiceTests
                 }
             }
         }
+    }
+
+    [Fact]
+    public async Task Available_RetriesExhausted_RevealBlocked()
+    {
+        var settings = new AppSettings();
+        var fakeVerifier = new FakeWindowsUserVerificationService
+        {
+            Availability = WindowsVerificationAvailability.Available,
+            NextResult = WindowsVerificationResult.RetriesExhausted
+        };
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier);
+
+        var outcome = await authService.EnsureAuthorizedAsync("Verify");
+
+        Assert.False(outcome.Success);
+        Assert.False(outcome.CanReveal);
+        Assert.Equal(TotpAuthorizationAction.Failed, outcome.Action);
+        Assert.Equal(WindowsVerificationResult.RetriesExhausted, outcome.Status);
+        Assert.False(authService.IsAuthorized);
+    }
+
+    [Fact]
+    public async Task Available_Failed_RevealBlocked()
+    {
+        var settings = new AppSettings();
+        var fakeVerifier = new FakeWindowsUserVerificationService
+        {
+            Availability = WindowsVerificationAvailability.Available,
+            NextResult = WindowsVerificationResult.Failed
+        };
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier);
+
+        var outcome = await authService.EnsureAuthorizedAsync("Verify");
+
+        Assert.False(outcome.Success);
+        Assert.False(outcome.CanReveal);
+        Assert.Equal(TotpAuthorizationAction.Failed, outcome.Action);
+        Assert.Equal(WindowsVerificationResult.Failed, outcome.Status);
+        Assert.False(authService.IsAuthorized);
+    }
+
+    [Theory]
+    [InlineData(WindowsVerificationAvailability.DeviceNotPresent, WindowsVerificationResult.NotAvailable)]
+    [InlineData(WindowsVerificationAvailability.NotConfiguredForUser, WindowsVerificationResult.NotConfigured)]
+    [InlineData(WindowsVerificationAvailability.UnsupportedOperatingSystem, WindowsVerificationResult.UnsupportedOperatingSystem)]
+    [InlineData(WindowsVerificationAvailability.DisabledByPolicy, WindowsVerificationResult.DisabledByPolicy)]
+    public async Task VerifierPermanentlyUnavailable_DegradedFallback_AllowsReveal_DoesNotStartAuthSession(
+        WindowsVerificationAvailability availability,
+        WindowsVerificationResult expectedStatus)
+    {
+        var settings = new AppSettings { RequireWindowsVerificationForTotpReveal = true };
+        var fakeVerifier = new FakeWindowsUserVerificationService
+        {
+            Availability = availability
+        };
+        var fakeTime = new FakeTimeProvider();
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier, fakeTime);
+        var credStore = new FakeTotpCredentialStore();
+        var profileId = Guid.NewGuid();
+        credStore.Save(profileId, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
+
+        // Hard availability invariant: must NOT block reveal!
+        var outcome = await authService.EnsureAuthorizedAsync("Prompt");
+
+        Assert.True(outcome.Success);
+        Assert.True(outcome.CanReveal);
+        Assert.True(outcome.IsDegradedFallback);
+        Assert.Equal(TotpAuthorizationAction.DegradedFallback, outcome.Action);
+        Assert.Equal(expectedStatus, outcome.Status);
+        Assert.Equal(availability, outcome.Availability);
+
+        // Verification call count remains 0 because probe already proved device absent/unsupported
+        Assert.Equal(0, fakeVerifier.VerificationCallCount);
+        Assert.Equal(1, fakeVerifier.CheckAvailabilityCallCount);
+
+        // Critical: Degraded fallback does NOT start an authorization session!
+        Assert.False(authService.IsAuthorized);
+        Assert.Equal(TimeSpan.Zero, authService.RemainingDuration);
+
+        // Setting preference MUST remain enabled!
+        Assert.True(settings.RequireWindowsVerificationForTotpReveal);
+
+        // Subsequent reveal can decrypt the stored credential
+        Assert.True(credStore.TryComputeCode(profileId, DateTimeOffset.UtcNow, out var code, out _));
+        Assert.NotEmpty(code.Code);
+    }
+
+    [Fact]
+    public async Task DeviceBusy_TemporarilyUnavailable_DoesNotStartAuthSession()
+    {
+        var settings = new AppSettings();
+        var fakeVerifier = new FakeWindowsUserVerificationService
+        {
+            Availability = WindowsVerificationAvailability.DeviceBusy
+        };
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier);
+
+        var outcome = await authService.EnsureAuthorizedAsync("Prompt");
+
+        Assert.False(outcome.Success);
+        Assert.False(outcome.CanReveal);
+        Assert.True(outcome.IsTemporarilyUnavailable);
+        Assert.Equal(TotpAuthorizationAction.TemporarilyUnavailable, outcome.Action);
+        Assert.Equal(WindowsVerificationResult.DeviceBusy, outcome.Status);
+        Assert.False(authService.IsAuthorized);
+    }
+
+    [Fact]
+    public async Task UnexpectedVerifierException_TemporarilyUnavailable_DoesNotCrash()
+    {
+        var settings = new AppSettings();
+        var fakeVerifier = new FakeWindowsUserVerificationService
+        {
+            ThrowOnCheck = true
+        };
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier);
+
+        var outcome = await authService.EnsureAuthorizedAsync("Prompt");
+
+        Assert.False(outcome.Success);
+        Assert.True(outcome.IsTemporarilyUnavailable);
+        Assert.Equal(TotpAuthorizationAction.TemporarilyUnavailable, outcome.Action);
+        Assert.Equal(WindowsVerificationResult.Failed, outcome.Status);
+        Assert.False(authService.IsAuthorized);
+    }
+
+    [Fact]
+    public async Task DynamicAvailabilityChange_FromDeviceNotPresentToAvailable_AutomaticallyResumesVerificationWithoutRestart()
+    {
+        var settings = new AppSettings { RequireWindowsVerificationForTotpReveal = true };
+        var fakeVerifier = new FakeWindowsUserVerificationService
+        {
+            Availability = WindowsVerificationAvailability.DeviceNotPresent
+        };
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier);
+
+        // 1. Initial reveal while Hello/PIN is not configured: Degraded fallback
+        var outcome1 = await authService.EnsureAuthorizedAsync("Reveal 1");
+        Assert.True(outcome1.Success);
+        Assert.True(outcome1.IsDegradedFallback);
+        Assert.Equal(0, fakeVerifier.VerificationCallCount);
+        Assert.False(authService.IsAuthorized);
+
+        // 2. User configures Windows Hello PIN in Windows Settings without restarting Switchboard!
+        fakeVerifier.Availability = WindowsVerificationAvailability.Available;
+        fakeVerifier.NextResult = WindowsVerificationResult.Verified;
+
+        // 3. Next reveal immediately triggers real Windows verification!
+        var outcome2 = await authService.EnsureAuthorizedAsync("Reveal 2");
+        Assert.True(outcome2.Success);
+        Assert.False(outcome2.IsDegradedFallback);
+        Assert.Equal(TotpAuthorizationAction.Authorized, outcome2.Action);
+        Assert.Equal(1, fakeVerifier.VerificationCallCount);
+        Assert.True(authService.IsAuthorized);
+    }
+
+    [Fact]
+    public async Task EffectiveProtectionState_ReflectsDisabled_Ready_Degraded_TemporarilyUnavailable()
+    {
+        var settings = new AppSettings();
+        var fakeVerifier = new FakeWindowsUserVerificationService();
+        var authService = new TotpRevealAuthorizationService(settings, fakeVerifier);
+
+        // Case 1: Ready
+        fakeVerifier.Availability = WindowsVerificationAvailability.Available;
+        settings.RequireWindowsVerificationForTotpReveal = true;
+        Assert.Equal(EffectiveTotpProtectionState.Ready, await authService.GetEffectiveProtectionStateAsync());
+
+        // Case 2: DisabledByUser
+        settings.RequireWindowsVerificationForTotpReveal = false;
+        Assert.Equal(EffectiveTotpProtectionState.DisabledByUser, await authService.GetEffectiveProtectionStateAsync());
+
+        // Case 3: DegradedUnavailable
+        settings.RequireWindowsVerificationForTotpReveal = true;
+        fakeVerifier.Availability = WindowsVerificationAvailability.DeviceNotPresent;
+        Assert.Equal(EffectiveTotpProtectionState.DegradedUnavailable, await authService.GetEffectiveProtectionStateAsync());
+
+        fakeVerifier.Availability = WindowsVerificationAvailability.NotConfiguredForUser;
+        Assert.Equal(EffectiveTotpProtectionState.DegradedUnavailable, await authService.GetEffectiveProtectionStateAsync());
+
+        // Case 4: TemporarilyUnavailable
+        fakeVerifier.Availability = WindowsVerificationAvailability.DeviceBusy;
+        Assert.Equal(EffectiveTotpProtectionState.TemporarilyUnavailable, await authService.GetEffectiveProtectionStateAsync());
     }
 }
