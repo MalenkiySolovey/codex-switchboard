@@ -152,6 +152,20 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
 
+    private string _windowsHelloStatus = string.Empty;
+    public string WindowsHelloStatus
+    {
+        get => _windowsHelloStatus;
+        private set => SetField(ref _windowsHelloStatus, value);
+    }
+
+    private string _windowsPasswordStatus = string.Empty;
+    public string WindowsPasswordStatus
+    {
+        get => _windowsPasswordStatus;
+        private set => SetField(ref _windowsPasswordStatus, value);
+    }
+
     private string _windowsVerificationStatus = string.Empty;
     public string WindowsVerificationStatus
     {
@@ -160,21 +174,43 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     private WindowsVerificationAvailability _availability = WindowsVerificationAvailability.Unknown;
+    private bool _isPasswordSupported;
 
     public bool CanOpenSignInOptions => _availability != WindowsVerificationAvailability.Available;
-    public bool IsDegradedProtection => RequireWindowsVerificationForTotpReveal && _availability != WindowsVerificationAvailability.Available;
+    public bool IsDegradedProtection => RequireWindowsVerificationForTotpReveal && _availability != WindowsVerificationAvailability.Available && !_isPasswordSupported;
 
     public async Task CheckAgainAsync()
     {
+        await RefreshVerificationMethodsStatusAsync();
+    }
+
+    public async Task RefreshVerificationMethodsStatusAsync()
+    {
         try
         {
-            _availability = await _verificationService.CheckAvailabilityAsync();
-            WindowsVerificationStatus = FormatVerificationAvailability(_availability);
+            var status = await _authService.GetVerificationMethodsStatusAsync();
+            _availability = status.HelloAvailability;
+            _isPasswordSupported = status.IsPasswordSupported;
+
+            WindowsHelloStatus = status.HelloAvailability == WindowsVerificationAvailability.Available
+                ? Loc.WindowsHelloAvailable
+                : (status.IsPasswordSupported ? Loc.WindowsHelloNotConfiguredUsingPassword : Loc.WindowsHelloNotAvailable);
+
+            WindowsPasswordStatus = status.IsPasswordSupported
+                ? Loc.WindowsMethodReady
+                : Loc.WindowsHelloNotAvailable;
+
+            WindowsVerificationStatus = status.HelloAvailability == WindowsVerificationAvailability.Available
+                ? Loc.WindowsHelloAvailable
+                : (status.IsPasswordSupported
+                    ? Loc.WindowsVerificationStatusDeviceNotPresent
+                    : Loc.WindowsVerificationStatusUnsupported);
         }
         catch
         {
             WindowsVerificationStatus = Loc.WindowsVerificationStatusUnsupported;
         }
+
         OnPropertyChanged(nameof(CanOpenSignInOptions));
         OnPropertyChanged(nameof(IsDegradedProtection));
     }
@@ -247,20 +283,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
         CanMigrateLegacy = _migrationService.CanMigrate();
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                _availability = await _verificationService.CheckAvailabilityAsync();
-                WindowsVerificationStatus = FormatVerificationAvailability(_availability);
-            }
-            catch
-            {
-                WindowsVerificationStatus = Loc.WindowsVerificationStatusUnsupported;
-            }
-            OnPropertyChanged(nameof(CanOpenSignInOptions));
-            OnPropertyChanged(nameof(IsDegradedProtection));
-        });
+        _ = RefreshVerificationMethodsStatusAsync();
     }
 
     public async Task<bool> SetRequireWindowsVerificationAsync(bool enable)
@@ -278,60 +301,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             return true;
         }
 
-        // Unchecking (ON -> OFF): security-sensitive!
-        if (_availability == WindowsVerificationAvailability.Available)
+        // Desativação (ON -> OFF): HARD REQUIREMENT: Exige validação da senha do usuário atual do Windows!
+        var verified = await _authService.VerifyPasswordToDisableProtectionAsync(Loc.WindowsVerificationDisablePasswordPrompt);
+        if (verified)
         {
-            var result = await _verificationService.RequestVerificationAsync(Loc.WindowsVerificationPromptMessage);
-            if (result == WindowsVerificationResult.Verified)
-            {
-                _settings.RequireWindowsVerificationForTotpReveal = false;
-                _settingsStore.Save(_settings);
-                _authService.RecordSettingsChanged();
-                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
-                OnPropertyChanged(nameof(IsDegradedProtection));
-                return true;
-            }
-            else
-            {
-                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
-                OnPropertyChanged(nameof(IsDegradedProtection));
-                if (result == WindowsVerificationResult.Canceled)
-                {
-                    StatusMessage = Loc.WindowsVerificationCanceled;
-                    StatusSeverity = InfoBarSeverity.Informational;
-                }
-                else
-                {
-                    StatusMessage = Loc.WindowsVerificationFailed;
-                    StatusSeverity = InfoBarSeverity.Warning;
-                }
-                return false;
-            }
+            _settings.RequireWindowsVerificationForTotpReveal = false;
+            _settingsStore.Save(_settings);
+            _authService.RecordSettingsChanged();
+            OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+            OnPropertyChanged(nameof(IsDegradedProtection));
+            return true;
         }
         else
         {
-            // Verifier unavailable: controlled confirmation escape
-            var confirmed = await _ui.ConfirmAsync(
-                Loc.WindowsVerificationDisableConfirmTitle,
-                Loc.WindowsVerificationDisableConfirmMessage,
-                Loc.WindowsVerificationDisableButton,
-                destructive: true);
-
-            if (confirmed)
-            {
-                _settings.RequireWindowsVerificationForTotpReveal = false;
-                _settingsStore.Save(_settings);
-                _authService.RecordSettingsChanged();
-                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
-                OnPropertyChanged(nameof(IsDegradedProtection));
-                return true;
-            }
-            else
-            {
-                OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
-                OnPropertyChanged(nameof(IsDegradedProtection));
-                return false;
-            }
+            OnPropertyChanged(nameof(RequireWindowsVerificationForTotpReveal));
+            OnPropertyChanged(nameof(IsDegradedProtection));
+            StatusMessage = Loc.WindowsVerificationDisableFailed;
+            StatusSeverity = InfoBarSeverity.Warning;
+            return false;
         }
     }
 

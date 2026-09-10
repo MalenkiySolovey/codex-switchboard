@@ -535,9 +535,25 @@ public sealed partial class MainViewModel : ObservableObject
             }
             else if (!outcome.Success)
             {
-                if (outcome.Action == TotpAuthorizationAction.Canceled || outcome.Status == WindowsVerificationResult.Canceled)
+                if (outcome.Action == TotpAuthorizationAction.Canceled || outcome.Status == WindowsVerificationResult.Canceled || outcome.PasswordStatus == WindowsPasswordVerificationResult.Canceled)
                 {
                     ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationCanceled, InfoBarSeverity.Informational);
+                }
+                else if (outcome.PasswordStatus == WindowsPasswordVerificationResult.InvalidCredentials)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsPasswordIncorrect, InfoBarSeverity.Warning);
+                }
+                else if (outcome.PasswordStatus == WindowsPasswordVerificationResult.DifferentUser)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsDifferentUser, InfoBarSeverity.Warning);
+                }
+                else if (outcome.PasswordStatus == WindowsPasswordVerificationResult.AccountLocked)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsAccountLocked, InfoBarSeverity.Warning);
+                }
+                else if (outcome.PasswordStatus == WindowsPasswordVerificationResult.PasswordExpired)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsPasswordExpired, InfoBarSeverity.Warning);
                 }
                 else
                 {

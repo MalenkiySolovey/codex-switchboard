@@ -10,9 +10,11 @@ namespace CodexSwitcher.Core.Services;
 public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationService
 {
     private const string DefaultPromptMessage = "Verify your Windows identity to reveal Codex Switchboard 2FA codes.";
+    private const string DisableProtectionPromptMessage = "Enter your current Windows password to disable 2FA code protection.";
 
     private readonly AppSettings _settings;
     private readonly IWindowsUserVerificationService _verificationService;
+    private readonly IWindowsPasswordVerificationService _passwordVerificationService;
     private readonly TimeProvider _timeProvider;
     private readonly object _sync = new();
 
@@ -21,13 +23,30 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
     private bool _isSessionActive;
     private Task<TotpAuthorizationOutcome>? _inFlightVerification;
 
+    private sealed class UnsupportedPasswordVerificationService : IWindowsPasswordVerificationService
+    {
+        public bool IsSupported => false;
+        public Task<WindowsPasswordVerificationResult> VerifyCurrentUserPasswordAsync(string? message = null, string? caption = null) =>
+            Task.FromResult(WindowsPasswordVerificationResult.CredentialProviderUnavailable);
+    }
+
     public TotpRevealAuthorizationService(
         AppSettings settings,
         IWindowsUserVerificationService verificationService,
         TimeProvider? timeProvider = null)
+        : this(settings, verificationService, new UnsupportedPasswordVerificationService(), timeProvider)
+    {
+    }
+
+    public TotpRevealAuthorizationService(
+        AppSettings settings,
+        IWindowsUserVerificationService verificationService,
+        IWindowsPasswordVerificationService passwordVerificationService,
+        TimeProvider? timeProvider = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _verificationService = verificationService ?? throw new ArgumentNullException(nameof(verificationService));
+        _passwordVerificationService = passwordVerificationService ?? throw new ArgumentNullException(nameof(passwordVerificationService));
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -79,24 +98,52 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
 
     public async Task<EffectiveTotpProtectionState> GetEffectiveProtectionStateAsync()
     {
-        if (!_settings.RequireWindowsVerificationForTotpReveal)
-            return EffectiveTotpProtectionState.DisabledByUser;
+        var status = await GetVerificationMethodsStatusAsync().ConfigureAwait(false);
+        return status.ProtectionState;
+    }
 
+    public async Task<TotpVerificationMethodsStatus> GetVerificationMethodsStatusAsync()
+    {
+        if (!_settings.RequireWindowsVerificationForTotpReveal)
+        {
+            return new TotpVerificationMethodsStatus(
+                false,
+                WindowsVerificationAvailability.NotConfiguredForUser,
+                _passwordVerificationService.IsSupported,
+                EffectiveTotpProtectionState.DisabledByUser);
+        }
+
+        WindowsVerificationAvailability availability;
         try
         {
-            var availability = await _verificationService.CheckAvailabilityAsync().ConfigureAwait(false);
-            return availability switch
-            {
-                WindowsVerificationAvailability.Available => EffectiveTotpProtectionState.Ready,
-                WindowsVerificationAvailability.DeviceBusy => EffectiveTotpProtectionState.TemporarilyUnavailable,
-                WindowsVerificationAvailability.Unknown => EffectiveTotpProtectionState.TemporarilyUnavailable,
-                _ => EffectiveTotpProtectionState.DegradedUnavailable
-            };
+            availability = await _verificationService.CheckAvailabilityAsync().ConfigureAwait(false);
         }
         catch
         {
-            return EffectiveTotpProtectionState.TemporarilyUnavailable;
+            availability = WindowsVerificationAvailability.Unknown;
         }
+
+        bool isPasswordSupported = _passwordVerificationService.IsSupported;
+
+        EffectiveTotpProtectionState state;
+        if (availability == WindowsVerificationAvailability.Available || isPasswordSupported)
+        {
+            state = EffectiveTotpProtectionState.Ready;
+        }
+        else if (availability == WindowsVerificationAvailability.DeviceBusy)
+        {
+            state = EffectiveTotpProtectionState.TemporarilyUnavailable;
+        }
+        else
+        {
+            state = EffectiveTotpProtectionState.DegradedUnavailable;
+        }
+
+        return new TotpVerificationMethodsStatus(
+            true,
+            availability,
+            isPasswordSupported,
+            state);
     }
 
     public async Task<TotpAuthorizationOutcome> EnsureAuthorizedAsync(string? message = null)
@@ -130,52 +177,65 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
     {
         try
         {
-            // Fresh probe on reveal (Section 18: Recheck availability on reveal)
-            var availability = await _verificationService.CheckAvailabilityAsync().ConfigureAwait(false);
-
-            if (availability == WindowsVerificationAvailability.Available)
+            // 1. Proba disponibilidade do Hello/PIN
+            WindowsVerificationAvailability helloAvailability;
+            try
             {
-                var result = await _verificationService.RequestVerificationAsync(prompt).ConfigureAwait(false);
-                lock (_sync)
-                {
-                    if (result == WindowsVerificationResult.Verified)
-                    {
-                        _sessionDuration = TimeSpan.FromMinutes(_settings.TotpWindowsVerificationDurationMinutes);
-                        _authorizedAtTimestamp = _timeProvider.GetTimestamp();
-                        _isSessionActive = true;
-                        return new TotpAuthorizationOutcome(true, result, TotpAuthorizationAction.Authorized, availability);
-                    }
-                    else if (result == WindowsVerificationResult.Canceled)
-                    {
-                        _isSessionActive = false;
-                        return new TotpAuthorizationOutcome(false, result, TotpAuthorizationAction.Canceled, availability);
-                    }
-                    else if (result is WindowsVerificationResult.RetriesExhausted or WindowsVerificationResult.Failed)
-                    {
-                        _isSessionActive = false;
-                        return new TotpAuthorizationOutcome(false, result, TotpAuthorizationAction.Failed, availability);
-                    }
-                    else if (result == WindowsVerificationResult.DeviceBusy)
-                    {
-                        _isSessionActive = false;
-                        return new TotpAuthorizationOutcome(false, result, TotpAuthorizationAction.TemporarilyUnavailable, WindowsVerificationAvailability.DeviceBusy);
-                    }
-                    else
-                    {
-                        // Verifier reported NotAvailable / NotConfigured / DisabledByPolicy / Unsupported during call
-                        _isSessionActive = false;
-                        return new TotpAuthorizationOutcome(true, result, TotpAuthorizationAction.DegradedFallback, availability);
-                    }
-                }
+                helloAvailability = await _verificationService.CheckAvailabilityAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                helloAvailability = WindowsVerificationAvailability.Unknown;
             }
 
-            // Permanently unavailable on this PC/user: Degraded Fallback (Section 7 Case C)
-            if (availability is WindowsVerificationAvailability.DeviceNotPresent or
+            // Caso A: Windows Hello/PIN Disponível
+            if (helloAvailability == WindowsVerificationAvailability.Available)
+            {
+                var helloResult = await _verificationService.RequestVerificationAsync(prompt).ConfigureAwait(false);
+                if (helloResult == WindowsVerificationResult.Verified)
+                {
+                    StartAuthorizationSession();
+                    return new TotpAuthorizationOutcome(true, helloResult, TotpAuthorizationAction.Authorized, helloAvailability);
+                }
+                else if (helloResult == WindowsVerificationResult.Canceled)
+                {
+                    // Cancelamento intencional do usuário: BLOQUEIA sem fallback
+                    lock (_sync) { _isSessionActive = false; }
+                    return new TotpAuthorizationOutcome(false, helloResult, TotpAuthorizationAction.Canceled, helloAvailability);
+                }
+                else if (helloResult is WindowsVerificationResult.RetriesExhausted or WindowsVerificationResult.Failed)
+                {
+                    // Falha intencional de autenticação: BLOQUEIA sem fallback
+                    lock (_sync) { _isSessionActive = false; }
+                    return new TotpAuthorizationOutcome(false, helloResult, TotpAuthorizationAction.Failed, helloAvailability);
+                }
+                else if (helloResult == WindowsVerificationResult.DeviceBusy)
+                {
+                    // Hello ocupado: tenta senha se suportada
+                    if (_passwordVerificationService.IsSupported)
+                    {
+                        return await AttemptPasswordVerificationAsync(prompt, helloAvailability).ConfigureAwait(false);
+                    }
+
+                    lock (_sync) { _isSessionActive = false; }
+                    return new TotpAuthorizationOutcome(false, helloResult, TotpAuthorizationAction.TemporarilyUnavailable, helloAvailability);
+                }
+                // Outro erro transitório: tenta caminho de senha
+            }
+
+            // Caso B: Hello indisponível (DeviceNotPresent, NotConfiguredForUser, etc.)
+            if (_passwordVerificationService.IsSupported)
+            {
+                return await AttemptPasswordVerificationAsync(prompt, helloAvailability).ConfigureAwait(false);
+            }
+
+            // Caso C: Ambos Hello e Senha indisponíveis permanentemente neste PC/usuário
+            if (helloAvailability is WindowsVerificationAvailability.DeviceNotPresent or
                                WindowsVerificationAvailability.NotConfiguredForUser or
                                WindowsVerificationAvailability.DisabledByPolicy or
                                WindowsVerificationAvailability.UnsupportedOperatingSystem)
             {
-                var mappedResult = availability switch
+                var mappedResult = helloAvailability switch
                 {
                     WindowsVerificationAvailability.NotConfiguredForUser => WindowsVerificationResult.NotConfigured,
                     WindowsVerificationAvailability.DisabledByPolicy => WindowsVerificationResult.DisabledByPolicy,
@@ -186,28 +246,36 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
                 lock (_sync)
                 {
                     _isSessionActive = false;
-                    // Do NOT start authorization session!
-                    return new TotpAuthorizationOutcome(true, mappedResult, TotpAuthorizationAction.DegradedFallback, availability);
+                    return new TotpAuthorizationOutcome(
+                        true,
+                        mappedResult,
+                        TotpAuthorizationAction.DegradedFallback,
+                        helloAvailability);
                 }
             }
 
-            // Temporarily unavailable (DeviceBusy or Unknown) (Section 7 Case D)
+            // Caso D: Temporariamente indisponível (DeviceBusy ou Unknown/exceção)
             lock (_sync)
             {
                 _isSessionActive = false;
-                var res = availability == WindowsVerificationAvailability.DeviceBusy
+                var res = helloAvailability == WindowsVerificationAvailability.DeviceBusy
                     ? WindowsVerificationResult.DeviceBusy
                     : WindowsVerificationResult.Failed;
-                return new TotpAuthorizationOutcome(false, res, TotpAuthorizationAction.TemporarilyUnavailable, availability);
+                return new TotpAuthorizationOutcome(
+                    false,
+                    res,
+                    TotpAuthorizationAction.TemporarilyUnavailable,
+                    helloAvailability);
             }
         }
         catch
         {
-            lock (_sync)
-            {
-                _isSessionActive = false;
-            }
-            return new TotpAuthorizationOutcome(false, WindowsVerificationResult.Failed, TotpAuthorizationAction.TemporarilyUnavailable, WindowsVerificationAvailability.Unknown);
+            lock (_sync) { _isSessionActive = false; }
+            return new TotpAuthorizationOutcome(
+                false,
+                WindowsVerificationResult.Failed,
+                TotpAuthorizationAction.TemporarilyUnavailable,
+                WindowsVerificationAvailability.Unknown);
         }
         finally
         {
@@ -215,6 +283,90 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
             {
                 _inFlightVerification = null;
             }
+        }
+    }
+
+    private async Task<TotpAuthorizationOutcome> AttemptPasswordVerificationAsync(string prompt, WindowsVerificationAvailability helloAvailability)
+    {
+        var passwordResult = await _passwordVerificationService.VerifyCurrentUserPasswordAsync(prompt).ConfigureAwait(false);
+
+        switch (passwordResult)
+        {
+            case WindowsPasswordVerificationResult.VerifiedCurrentUser:
+                StartAuthorizationSession();
+                return new TotpAuthorizationOutcome(
+                    true,
+                    WindowsVerificationResult.Verified,
+                    TotpAuthorizationAction.Authorized,
+                    helloAvailability,
+                    passwordResult);
+
+            case WindowsPasswordVerificationResult.Canceled:
+                lock (_sync) { _isSessionActive = false; }
+                return new TotpAuthorizationOutcome(
+                    false,
+                    WindowsVerificationResult.Canceled,
+                    TotpAuthorizationAction.Canceled,
+                    helloAvailability,
+                    passwordResult);
+
+            case WindowsPasswordVerificationResult.InvalidCredentials:
+            case WindowsPasswordVerificationResult.DifferentUser:
+            case WindowsPasswordVerificationResult.AccountLocked:
+            case WindowsPasswordVerificationResult.PasswordExpired:
+                // Falha de autenticação do usuário: BLOQUEIA sem bypass de emergência
+                lock (_sync) { _isSessionActive = false; }
+                return new TotpAuthorizationOutcome(
+                    false,
+                    WindowsVerificationResult.Failed,
+                    TotpAuthorizationAction.Failed,
+                    helloAvailability,
+                    passwordResult);
+
+            case WindowsPasswordVerificationResult.CredentialProviderUnavailable:
+            case WindowsPasswordVerificationResult.UnsupportedCredentialType:
+            case WindowsPasswordVerificationResult.SystemError:
+            default:
+                // Falha técnica de infraestrutura do CredUI / provedor de senha
+                // Invariante de anti-bloqueio: oferece fallback de emergência
+                lock (_sync) { _isSessionActive = false; }
+                return new TotpAuthorizationOutcome(
+                    false,
+                    WindowsVerificationResult.Failed,
+                    TotpAuthorizationAction.TemporarilyUnavailable,
+                    helloAvailability,
+                    passwordResult);
+        }
+    }
+
+    public async Task<bool> VerifyPasswordToDisableProtectionAsync(string? message = null)
+    {
+        // HARD REQUIREMENT: Desativar a proteção exige SEMPRE a senha do Windows do usuário atual,
+        // mesmo se houver uma sessão ativa de autorização.
+        if (!_passwordVerificationService.IsSupported)
+        {
+            return false;
+        }
+
+        var result = await _passwordVerificationService.VerifyCurrentUserPasswordAsync(
+            message ?? DisableProtectionPromptMessage).ConfigureAwait(false);
+
+        if (result == WindowsPasswordVerificationResult.VerifiedCurrentUser)
+        {
+            Invalidate();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void StartAuthorizationSession()
+    {
+        lock (_sync)
+        {
+            _sessionDuration = TimeSpan.FromMinutes(_settings.TotpWindowsVerificationDurationMinutes);
+            _authorizedAtTimestamp = _timeProvider.GetTimestamp();
+            _isSessionActive = true;
         }
     }
 

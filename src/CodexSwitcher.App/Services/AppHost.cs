@@ -56,9 +56,11 @@ public static class AppHost
         services.AddSingleton<WindowHandleProvider>();
         services.AddSingleton<IWindowHandleProvider>(sp => sp.GetRequiredService<WindowHandleProvider>());
         services.AddSingleton<IWindowsUserVerificationService, WindowsUserVerificationService>();
+        services.AddSingleton<IWindowsPasswordVerificationService, WindowsPasswordVerificationService>();
         services.AddSingleton<ITotpRevealAuthorizationService>(sp => new TotpRevealAuthorizationService(
             sp.GetRequiredService<AppSettings>(),
-            sp.GetRequiredService<IWindowsUserVerificationService>()));
+            sp.GetRequiredService<IWindowsUserVerificationService>(),
+            sp.GetRequiredService<IWindowsPasswordVerificationService>()));
 
         services.AddSingleton(sp => new ProfileStore(sp.GetRequiredService<IFileSystem>(), paths.ProfilesPath));
         services.AddSingleton(sp => new ReconciliationService(sp.GetRequiredService<IFileSystem>(), paths.Codex));

@@ -8,10 +8,10 @@ public enum EffectiveTotpProtectionState
     /// <summary>Desativada pelo usuário nas configurações.</summary>
     DisabledByUser,
 
-    /// <summary>Ativada e com verificação do Windows operacional (Hello/PIN disponível).</summary>
+    /// <summary>Ativada e com verificação do Windows operacional (Hello/PIN ou senha da conta disponíveis).</summary>
     Ready,
 
-    /// <summary>Ativada, porém permanentemente indisponível (Hello/PIN não configurado, ausente ou não suportado).</summary>
+    /// <summary>Ativada, porém nenhum método de verificação está disponível (Hello e senha indisponíveis).</summary>
     DegradedUnavailable,
 
     /// <summary>Ativada, mas temporariamente indisponível (dispositivo ocupado ou erro transitório).</summary>
@@ -26,18 +26,27 @@ public enum TotpAuthorizationAction
     /// <summary>Autorizado: verificação do Windows bem-sucedida ou sessão ativa.</summary>
     Authorized,
 
-    /// <summary>Degradação controlada: proteção ativada, mas verificação indisponível; permite revelação única com auto-ocultação de 10s.</summary>
+    /// <summary>Degradação controlada: proteção ativada, mas verificação indisponível; permite revelação única de emergência com auto-ocultação de 10s.</summary>
     DegradedFallback,
 
-    /// <summary>Temporariamente indisponível: dispositivo ocupado ou erro transitório; requer decisão do usuário.</summary>
+    /// <summary>Temporariamente indisponível: dispositivo ocupado ou erro transitório de infraestrutura; requer decisão do usuário.</summary>
     TemporarilyUnavailable,
 
     /// <summary>Cancelado pelo usuário no diálogo do Windows; revelação bloqueada.</summary>
     Canceled,
 
-    /// <summary>Falha de autenticação ou tentativas esgotadas; revelação bloqueada.</summary>
+    /// <summary>Falha de autenticação (senha incorreta, falha de Hello ou usuário diferente); revelação bloqueada.</summary>
     Failed
 }
+
+/// <summary>
+/// Status detalhado dos métodos de verificação do Windows para exibição na UI de configurações.
+/// </summary>
+public sealed record TotpVerificationMethodsStatus(
+    bool IsProtectionEnabled,
+    WindowsVerificationAvailability HelloAvailability,
+    bool IsPasswordSupported,
+    EffectiveTotpProtectionState ProtectionState);
 
 /// <summary>
 /// Resultado da tentativa de autorização para revelar códigos TOTP.
@@ -46,21 +55,22 @@ public sealed record TotpAuthorizationOutcome(
     bool Success,
     WindowsVerificationResult Status,
     TotpAuthorizationAction Action = TotpAuthorizationAction.Authorized,
-    WindowsVerificationAvailability Availability = WindowsVerificationAvailability.Available)
+    WindowsVerificationAvailability Availability = WindowsVerificationAvailability.Available,
+    WindowsPasswordVerificationResult? PasswordStatus = null)
 {
     /// <summary>Indica se o código TOTP pode ser revelado com segurança.</summary>
     public bool CanReveal => Success;
 
-    /// <summary>Indica se a revelação ocorreu por fallback degradado (sem iniciar sessão de autorização).</summary>
+    /// <summary>Indica se a revelação ocorreu por fallback de emergência (sem iniciar sessão de autorização).</summary>
     public bool IsDegradedFallback => Action == TotpAuthorizationAction.DegradedFallback;
 
-    /// <summary>Indica se a verificação falhou temporariamente (dispositivo ocupado/erro transitório).</summary>
+    /// <summary>Indica se a verificação falhou temporariamente por erro de infraestrutura.</summary>
     public bool IsTemporarilyUnavailable => Action == TotpAuthorizationAction.TemporarilyUnavailable;
 }
 
 /// <summary>
 /// Gerencia a sessão de autorização em memória para revelação de códigos 2FA.
-/// Nunca persiste o estado da sessão em disco.
+/// O estado de autorização nunca é gravado em disco.
 /// Não possui conhecimento de segredos TOTP, quotas ou contas.
 /// </summary>
 public interface ITotpRevealAuthorizationService
@@ -78,14 +88,23 @@ public interface ITotpRevealAuthorizationService
     bool IsVerificationRequired();
 
     /// <summary>
-    /// Garante que a autorização esteja ativa, disparando a verificação do Windows se necessário
-    /// ou executando o fallback degradado se o verificador estiver indisponível.
+    /// Garante que a autorização esteja ativa, disparando a verificação do Windows (Hello ou senha) se necessário.
     /// Chamadas simultâneas são agrupadas para evitar múltiplos diálogos concorrentes.
     /// </summary>
     Task<TotpAuthorizationOutcome> EnsureAuthorizedAsync(string? message = null);
 
     /// <summary>Avalia e retorna o estado efetivo da proteção no momento.</summary>
     Task<EffectiveTotpProtectionState> GetEffectiveProtectionStateAsync();
+
+    /// <summary>Retorna o status consolidado de disponibilidade dos métodos de verificação (Hello e senha).</summary>
+    Task<TotpVerificationMethodsStatus> GetVerificationMethodsStatusAsync();
+
+    /// <summary>
+    /// Valida a senha da conta Windows do usuário atual especificamente para autorizar a desativação da proteção.
+    /// Exige validação de senha mesmo que haja uma sessão de autorização ativa em memória.
+    /// Nunca acessa ou decodifica segredos TOTP.
+    /// </summary>
+    Task<bool> VerifyPasswordToDisableProtectionAsync(string? message = null);
 
     /// <summary>Invalida a sessão de autorização imediatamente, retornando ao estado BLOQUEADO.</summary>
     void Invalidate();
