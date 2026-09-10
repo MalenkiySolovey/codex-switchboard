@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.0-preview.6] - 2026-09-10 (Local QA Candidate)
+
+### Profile-Bound Encrypted TOTP / 2FA
+
+#### Added
+- **Profile-Bound 2FA Secrets:** Each account profile can optionally be associated with an encrypted TOTP 2FA secret (RFC 6238).
+- **At-Rest DPAPI Security:** 2FA credentials are encrypted using Windows Data Protection API (`CurrentUser` scope) and isolated in `%LOCALAPPDATA%\CodexSwitchboard\totp\<ProfileId>.bin`. Secrets never touch `ProfileMetadata`, `settings.json`, or Codex `auth.json`.
+- **Protected Inline Account Card Display:**
+  - Hidden by default (`2FA ••• ••• [Reveal]`).
+  - Explicit Reveal action with automatic ~10-second security timeout countdown.
+  - Automatic auto-hide on window deactivation (Alt+Tab), window minimize, app shutdown, or card collapse.
+  - Quick 1-click clean copy with visual feedback ("Copied!").
+- **Card Action Menu Integration:** Context flyout (`...`) features contextual `Add 2FA key...` / `Manage 2FA...` dialogs with masked input, peek button, clipboard paste, and destructive removal confirmations.
+- **Export Safety Invariant:** 2FA credentials are strictly excluded by default from profile export bundles (`.codexswitchboard` / JSON).
+- **Offline Calculation:** TOTP code generation executes entirely offline in memory with zero network traffic and zero side effects on quota polling.
+- **Comprehensive Test Coverage:** Added RFC 6238 Appendix B test vectors (SHA-1, SHA-256, SHA-512) and 10 security-focused store tests verifying encryption at rest, profile isolation, corruption handling, atomic replacement, and lifecycle cleanup. Test suite expanded to **386 passing tests**.
+
+---
+
 ## [0.1.1] - 2026-09-10
 
 ### Collapsible / Compact Account Cards

@@ -30,6 +30,8 @@ public sealed partial class MainViewModel : ObservableObject
     private DispatcherTimer? _pollingTimer;
     private readonly IUiDispatcher _dispatcher;
     private readonly IAppLifetime _appLifetime;
+    private readonly ITotpCredentialStore? _totpStore;
+    private DispatcherTimer? _totpPresentationTimer;
     private CancellationTokenSource? _startupRefreshCts;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = [];
@@ -54,7 +56,8 @@ public sealed partial class MainViewModel : ObservableObject
         ProfileService profiles, SwitchService switchService,
         SettingsStore settingsStore, AppSettings settings, IClock clock, IUiInteraction ui,
         IUsageService usageService, UsagePollingCoordinator pollingCoordinator,
-        IUiDispatcher? dispatcher = null, IAppLifetime? appLifetime = null)
+        IUiDispatcher? dispatcher = null, IAppLifetime? appLifetime = null,
+        ITotpCredentialStore? totpStore = null)
     {
         _profiles = profiles;
         _switch = switchService;
@@ -66,6 +69,7 @@ public sealed partial class MainViewModel : ObservableObject
         _pollingCoordinator = pollingCoordinator;
         _dispatcher = dispatcher ?? ImmediateUiDispatcher.Instance;
         _appLifetime = appLifetime ?? new AppLifetime();
+        _totpStore = totpStore;
 
         _pollingCoordinator.UsageUpdated += OnUsageUpdated;
         _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
@@ -428,6 +432,8 @@ public sealed partial class MainViewModel : ObservableObject
     private void ToggleAccountCollapse(AccountItemViewModel? item)
     {
         if (item is null) return;
+        item.ResetTotpPresentation();
+        EnsureTotpPresentationTimer();
         item.IsCompact = !item.IsCompact;
         if (item.IsCompact)
             _settings.CollapsedProfileIds.Add(item.Id);
@@ -471,6 +477,186 @@ public sealed partial class MainViewModel : ObservableObject
         RebuildList();
     }
 
+    // Phase 9: Comandos e ciclo de vida do TOTP 2FA por perfil
+    [RelayCommand]
+    private void RevealTotp(AccountItemViewModel? item)
+    {
+        if (item is null || !item.HasTotpConfigured || _totpStore is null) return;
+
+        if (item.IsTotpRevealed)
+        {
+            item.ResetTotpPresentation();
+            EnsureTotpPresentationTimer();
+            return;
+        }
+
+        var now = _clock.UtcNow;
+        if (_totpStore.TryComputeCode(item.Id, now, out var code, out var error))
+        {
+            item.IsTotpRevealed = true;
+            item.TotpCodeText = code.Formatted;
+            item.TotpSecondsRemaining = code.SecondsRemaining;
+            item.TotpCountdownText = $"{code.SecondsRemaining}s";
+            item.RevealDeadline = now.AddSeconds(10);
+            item.IsTotpCopied = false;
+            EnsureTotpPresentationTimer();
+        }
+        else
+        {
+            ShowInfo(_loc.ErrorTitle, error ?? _loc.TotpInvalid, InfoBarSeverity.Warning);
+        }
+    }
+
+    [RelayCommand]
+    private void HideTotp(AccountItemViewModel? item)
+    {
+        if (item is null) return;
+        item.ResetTotpPresentation();
+        EnsureTotpPresentationTimer();
+    }
+
+    [RelayCommand]
+    private void CopyTotpCode(AccountItemViewModel? item)
+    {
+        if (item is null || !item.IsTotpRevealed) return;
+        var rawCode = item.TotpCodeText.Replace(" ", string.Empty);
+        if (string.IsNullOrEmpty(rawCode) || rawCode.Contains('•')) return;
+
+        try
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(rawCode);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+
+            item.IsTotpCopied = true;
+            _dispatcher.Enqueue(async () =>
+            {
+                await Task.Delay(2000);
+                item.IsTotpCopied = false;
+            });
+        }
+        catch
+        {
+            // Clipboard busy, ignore
+        }
+    }
+
+    [RelayCommand]
+    private async Task AddOrManageTotpAsync(AccountItemViewModel? item)
+    {
+        if (item is null || _totpStore is null) return;
+
+        var setupResult = await _ui.PromptTotpSetupAsync(item.DisplayName, item.HasTotpConfigured);
+        if (setupResult is null) return;
+
+        if (setupResult.Action == TotpSetupAction.SaveNewKey && !string.IsNullOrWhiteSpace(setupResult.ProvisioningKey))
+        {
+            try
+            {
+                _totpStore.Save(item.Id, setupResult.ProvisioningKey, _clock.UtcNow);
+                item.HasTotpConfigured = true;
+                item.ResetTotpPresentation();
+                EnsureTotpPresentationTimer();
+                ShowInfo(_loc.RefreshAllDoneTitle, _loc.TotpKeySavedLocally, InfoBarSeverity.Success);
+            }
+            catch (Exception ex)
+            {
+                ShowInfo(_loc.ErrorTitle, ex.Message, InfoBarSeverity.Error);
+            }
+        }
+        else if (setupResult.Action == TotpSetupAction.RemoveKey)
+        {
+            try
+            {
+                _totpStore.Delete(item.Id);
+                item.HasTotpConfigured = false;
+                item.ResetTotpPresentation();
+                EnsureTotpPresentationTimer();
+                ShowInfo(_loc.RemovedTitle, _loc.TotpKeySavedLocally, InfoBarSeverity.Informational);
+            }
+            catch (Exception ex)
+            {
+                ShowInfo(_loc.ErrorTitle, ex.Message, InfoBarSeverity.Error);
+            }
+        }
+    }
+
+    public void HideAllRevealedTotp()
+    {
+        foreach (var item in _all)
+        {
+            if (item.IsTotpRevealed)
+                item.ResetTotpPresentation();
+        }
+        if (_totpPresentationTimer is not null && _totpPresentationTimer.IsEnabled)
+            _totpPresentationTimer.Stop();
+    }
+
+    private void EnsureTotpPresentationTimer()
+    {
+        if (_totpPresentationTimer is null)
+        {
+            _totpPresentationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _totpPresentationTimer.Tick += (_, _) => OnTotpPresentationTick();
+        }
+
+        bool anyRevealed = _all.Any(a => a.IsTotpRevealed);
+        if (anyRevealed && !_totpPresentationTimer.IsEnabled)
+        {
+            _totpPresentationTimer.Start();
+        }
+        else if (!anyRevealed && _totpPresentationTimer.IsEnabled)
+        {
+            _totpPresentationTimer.Stop();
+        }
+    }
+
+    private void OnTotpPresentationTick()
+    {
+        var now = _clock.UtcNow;
+        bool anyRevealed = false;
+
+        foreach (var item in _all)
+        {
+            if (!item.IsTotpRevealed) continue;
+
+            // 1. Reveal deadline (10s auto-hide)
+            if (now >= item.RevealDeadline)
+            {
+                item.ResetTotpPresentation();
+                continue;
+            }
+
+            // 2. TOTP period countdown / rollover
+            if (item.TotpSecondsRemaining <= 1)
+            {
+                if (_totpStore is not null && _totpStore.TryComputeCode(item.Id, now, out var nextCode, out _))
+                {
+                    item.TotpCodeText = nextCode.Formatted;
+                    item.TotpSecondsRemaining = nextCode.SecondsRemaining;
+                    item.TotpCountdownText = $"{nextCode.SecondsRemaining}s";
+                }
+                else
+                {
+                    item.ResetTotpPresentation();
+                    continue;
+                }
+            }
+            else
+            {
+                item.TotpSecondsRemaining--;
+                item.TotpCountdownText = $"{item.TotpSecondsRemaining}s";
+            }
+
+            anyRevealed = true;
+        }
+
+        if (!anyRevealed && _totpPresentationTimer is not null && _totpPresentationTimer.IsEnabled)
+        {
+            _totpPresentationTimer.Stop();
+        }
+    }
+
     private void RebuildList()
     {
         _profiles.Reconcile();
@@ -484,7 +670,10 @@ public sealed partial class MainViewModel : ObservableObject
         {
             var usageVm = GetOrCreateUsageVm(p.Id);
             bool isCompact = _settings.CollapsedProfileIds.Contains(p.Id);
-            _all.Add(new AccountItemViewModel(p, now, _settings, usageVm, isCompact));
+            var item = new AccountItemViewModel(p, now, _settings, usageVm, isCompact);
+            if (_totpStore is not null)
+                item.HasTotpConfigured = _totpStore.HasCredential(p.Id);
+            _all.Add(item);
         }
 
         ShowEmptyState = _all.Count == 0;
@@ -493,6 +682,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(AccountCount));
         OnPropertyChanged(nameof(ShowNormalEmptyState));
         OnPropertyChanged(nameof(ShowDetectedAccountEmptyState));
+        EnsureTotpPresentationTimer();
     }
 
     private void UpdateDetectedAccountState()
@@ -520,6 +710,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _countdownTimer?.Stop();
         _pollingTimer?.Stop();
+        _totpPresentationTimer?.Stop();
         _startupRefreshCts?.Cancel();
         _startupRefreshCts?.Dispose();
         _pollingCoordinator.UsageUpdated -= OnUsageUpdated;

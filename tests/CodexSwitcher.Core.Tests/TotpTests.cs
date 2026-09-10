@@ -77,6 +77,78 @@ public sealed class TotpTests
         Assert.NotNull(error);
     }
 
+    [Theory]
+    [InlineData(59L, "94287082")]
+    [InlineData(1111111109L, "07081804")]
+    [InlineData(1111111111L, "14050471")]
+    [InlineData(1234567890L, "89005924")]
+    [InlineData(2000000000L, "69279037")]
+    [InlineData(20000000000L, "65353130")]
+    public void Compute_MatchesRfc6238_Sha1EightDigits(long unixSeconds, string expected)
+    {
+        var uri = $"otpauth://totp/Test?secret={Rfc6238Base32}&digits=8&algorithm=SHA1";
+        Assert.True(Totp.TryParse(uri, out var secret, out _));
+
+        var code = secret!.Compute(DateTimeOffset.FromUnixTimeSeconds(unixSeconds));
+
+        Assert.Equal(expected, code.Code);
+    }
+
+    private const string Rfc6238Sha256Base32 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA";
+
+    [Theory]
+    [InlineData(59L, "46119246")]
+    [InlineData(1111111109L, "68084774")]
+    [InlineData(1111111111L, "67062674")]
+    [InlineData(1234567890L, "91819424")]
+    [InlineData(2000000000L, "90698825")]
+    [InlineData(20000000000L, "77737706")]
+    public void Compute_MatchesRfc6238_Sha256EightDigits(long unixSeconds, string expected)
+    {
+        var uri = $"otpauth://totp/Test?secret={Rfc6238Sha256Base32}&digits=8&algorithm=SHA256";
+        Assert.True(Totp.TryParse(uri, out var secret, out _));
+
+        var code = secret!.Compute(DateTimeOffset.FromUnixTimeSeconds(unixSeconds));
+
+        Assert.Equal(expected, code.Code);
+    }
+
+    private const string Rfc6238Sha512Base32 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
+
+    [Theory]
+    [InlineData(59L, "90693936")]
+    [InlineData(1111111109L, "25091201")]
+    [InlineData(1111111111L, "99943326")]
+    [InlineData(1234567890L, "93441116")]
+    [InlineData(2000000000L, "38618901")]
+    [InlineData(20000000000L, "47863826")]
+    public void Compute_MatchesRfc6238_Sha512EightDigits(long unixSeconds, string expected)
+    {
+        var uri = $"otpauth://totp/Test?secret={Rfc6238Sha512Base32}&digits=8&algorithm=SHA512";
+        Assert.True(Totp.TryParse(uri, out var secret, out _));
+
+        var code = secret!.Compute(DateTimeOffset.FromUnixTimeSeconds(unixSeconds));
+
+        Assert.Equal(expected, code.Code);
+    }
+
+    [Fact]
+    public void TryParse_HotpUri_FailsWithUnsupportedError()
+    {
+        var hotpUri = $"otpauth://hotp/Test?secret={Rfc6238Base32}&counter=1";
+        Assert.False(Totp.TryParse(hotpUri, out var secret, out var error));
+        Assert.Null(secret);
+        Assert.NotNull(error);
+        Assert.Contains("TOTP", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Formatted_GroupsEightDigits()
+    {
+        var code = new TotpCode("94287082", 20, 30);
+        Assert.Equal("9428 7082", code.Formatted);
+    }
+
     [Fact]
     public void Formatted_GroupsSixDigits()
     {

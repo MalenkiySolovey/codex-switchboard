@@ -358,4 +358,33 @@ public sealed class Strings
         count == 1 ? "1 reinício" : $"{count} reinícios",
         count == 1 ? "1 reset" : $"{count} resets");
     public string AdditionalQuotaWindowsHeader => S("Janelas de cota adicionais:", "Additional quota windows:");
+
+    // Phase 9: 2FA / TOTP associado ao perfil
+    public string AddTotpKey => S("Adicionar chave 2FA…", "Add 2FA key…");
+    public string ManageTotpKey => S("Gerenciar 2FA…", "Manage 2FA…");
+    public string TotpKeySavedLocally => S("Chave 2FA salva localmente", "2FA key saved locally");
+    public string ReplaceTotpKey => S("Substituir chave", "Replace key");
+    public string RemoveTotpKey => S("Remover chave salva", "Remove saved key");
+    public string RevealTotpCode => S("Revelar código 2FA", "Reveal 2FA code");
+    public string HideTotpCode => S("Ocultar código 2FA", "Hide 2FA code");
+    public string CopyTotpCode => S("Copiar código 2FA", "Copy 2FA code");
+    public string TotpCodeCopied => S("Copiado!", "Copied!");
+    public string TotpHiddenPlaceholder => "••• •••";
+    public string TotpSecurityWarning => S(
+        "Salvar a chave 2FA aqui permite ao Switchboard gerar códigos de autenticação localmente. A chave é protegida para o seu usuário do Windows usando DPAPI. Manter as credenciais da conta e a chave 2FA no mesmo computador traz conveniência, mas reduz a separação física entre os fatores de autenticação.",
+        "Saving a 2FA key here lets Switchboard generate authentication codes locally. The key is encrypted for your Windows user using DPAPI. Keeping both account credentials and the 2FA key on the same computer is more convenient, but reduces separation between authentication factors.");
+    public string TotpRemoveConfirmationTitle => S("Remover chave 2FA local?", "Remove local 2FA key?");
+    public string TotpRemoveConfirmationMessage => S(
+        "Isso removerá apenas a cópia salva no Switchboard deste computador. O 2FA NÃO será desativado na sua conta da OpenAI/ChatGPT.",
+        "This will remove only Switchboard's locally saved copy on this computer. 2FA will NOT be disabled on your OpenAI/ChatGPT account.");
+    public string TotpTimeSyncNotice => S(
+        "Se os códigos forem rejeitados pelo serviço, verifique se a data e o horário do Windows estão sincronizados.",
+        "If codes are rejected by the service, verify that Windows date and time are synchronized.");
+    public string TotpEnterKeyPrompt => S(
+        "Cole a chave Base32 ou o link otpauth:// fornecido nas configurações de segurança da sua conta:",
+        "Paste the Base32 secret key or otpauth:// link provided in your account security settings:");
+    public string TotpSetupTitle => S("Configurar 2FA do Perfil", "Profile 2FA Setup");
+    public string TotpManageTitle => S("Gerenciar 2FA do Perfil", "Manage Profile 2FA");
+    public string TotpSaveKeyButton => S("Salvar chave", "Save key");
+    public string TotpConfirmRemoveButton => S("Remover chave local", "Remove local key");
 }

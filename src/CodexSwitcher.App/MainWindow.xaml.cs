@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
         _appWindow = AppWindow.GetFromWindowId(id);
         _appWindow.Changed += OnAppWindowChanged;
         VisibilityChanged += OnVisibilityChanged;
+        Activated += OnWindowActivated;
 
         if (AppHost.Services.GetService(typeof(IUiInteraction)) is UiInteractionService ui)
             ui.Attach(this);
@@ -37,10 +38,19 @@ public sealed partial class MainWindow : Window
         Closed += OnWindowClosed;
     }
 
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
+        {
+            Root.ViewModel.HideAllRevealedTotp();
+        }
+    }
+
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         try
         {
+            Root.ViewModel.HideAllRevealedTotp();
             Root.ViewModel.Cleanup();
         }
         catch { }
@@ -80,6 +90,10 @@ public sealed partial class MainWindow : Window
         }
 
         bool active = isVisible && !isMinimized;
+        if (!active)
+        {
+            Root.ViewModel.HideAllRevealedTotp();
+        }
         Root.ViewModel.SetForegroundActive(active);
     }
 

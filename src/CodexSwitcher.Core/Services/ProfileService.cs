@@ -19,12 +19,14 @@ public sealed class ProfileService
     private readonly CodexPaths _paths;
     private readonly IClock _clock;
     private readonly IAuditLog _audit;
+    private readonly ITotpCredentialStore? _totpStore;
 
     public List<ProfileMetadata> Profiles { get; private set; } = [];
 
     public ProfileService(
         VaultService vault, ProfileStore store, ReconciliationService reconciliation,
-        IFileSystem fs, CodexPaths paths, IClock clock, IAuditLog audit)
+        IFileSystem fs, CodexPaths paths, IClock clock, IAuditLog audit,
+        ITotpCredentialStore? totpStore = null)
     {
         _vault = vault ?? throw new ArgumentNullException(nameof(vault));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -33,6 +35,7 @@ public sealed class ProfileService
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _audit = audit ?? throw new ArgumentNullException(nameof(audit));
+        _totpStore = totpStore;
     }
 
     /// <summary>Carrega os perfis do disco e reconcilia com o slot ativo.</summary>
@@ -267,6 +270,7 @@ public sealed class ProfileService
         var p = Profiles.FirstOrDefault(x => x.Id == id);
         if (p is null) return;
         _vault.DeleteBlob(id);
+        _totpStore?.Delete(id);
         Profiles.Remove(p);
         _store.SaveAll(Profiles);
         _audit.Record("remove", "ok", p.DisplayName);

@@ -99,7 +99,9 @@ $forbiddenPatterns = @(
     "id_ed25519*",
     "audit.log",
     "usage-cache.json",
-    "profiles.json"
+    "profiles.json",
+    "*totp*.bin",
+    "totp"
 )
 
 $violations = @()

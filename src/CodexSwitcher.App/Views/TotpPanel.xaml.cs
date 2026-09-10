@@ -41,9 +41,9 @@ public sealed partial class TotpPanel : UserControl
     /// <summary>Para o timer quando o host (janela ou popup) é definitivamente descartado.</summary>
     internal void StopTimer() => _timer.Stop();
 
-    private void OnSecretChanged(object sender, TextChangedEventArgs e)
+    private void OnSecretChanged(object sender, RoutedEventArgs e)
     {
-        var text = SecretBox.Text;
+        var text = SecretBox.Password;
 
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -140,7 +140,7 @@ public sealed partial class TotpPanel : UserControl
                 var text = await content.GetTextAsync();
                 if (!string.IsNullOrWhiteSpace(text))
                 {
-                    SecretBox.Text = text.Trim();
+                    SecretBox.Password = text.Trim();
                     SecretBox.SelectAll();
                 }
             }

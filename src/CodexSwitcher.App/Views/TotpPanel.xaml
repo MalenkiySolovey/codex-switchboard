@@ -22,8 +22,8 @@
         <StackPanel Grid.Row="1" Spacing="6">
             <TextBlock x:Name="SecretLabel" FontWeight="SemiBold" FontSize="13" />
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBox x:Name="SecretBox" Grid.Column="0" TextChanged="OnSecretChanged"
-                         IsSpellCheckEnabled="False" FontFamily="Consolas" />
+                <PasswordBox x:Name="SecretBox" Grid.Column="0" PasswordChanged="OnSecretChanged"
+                             IsPasswordRevealButtonEnabled="True" FontFamily="Consolas" />
                 <Button x:Name="PasteButton" Grid.Column="1" Click="OnPasteClick">
                     <FontIcon Glyph="&#xE77F;" FontSize="15" />
                 </Button>

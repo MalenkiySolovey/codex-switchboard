@@ -34,4 +34,16 @@ public interface IUiInteraction
 
     /// <summary>Abre o diálogo de rastreamento de assinatura fornecido pelo usuário.</summary>
     Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current);
+
+    /// <summary>Abre o diálogo de configuração ou gerenciamento do segredo 2FA (TOTP) de um perfil.</summary>
+    Task<TotpSetupResult?> PromptTotpSetupAsync(string accountName, bool isCurrentlyConfigured);
 }
+
+public enum TotpSetupAction
+{
+    SaveNewKey,
+    RemoveKey,
+    Cancel
+}
+
+public sealed record TotpSetupResult(TotpSetupAction Action, string? ProvisioningKey = null);

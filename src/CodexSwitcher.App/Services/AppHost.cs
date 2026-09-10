@@ -47,6 +47,11 @@ public static class AppHost
             sp.GetRequiredService<IFileSystem>(),
             paths.VaultDir,
             sp.GetRequiredService<IProfileOperationCoordinator>()));
+        services.AddSingleton<ITotpCredentialStore>(sp => new TotpCredentialStore(
+            sp.GetRequiredService<ISecretProtector>(),
+            sp.GetRequiredService<IFileSystem>(),
+            paths.TotpDir,
+            sp.GetRequiredService<IProfileOperationCoordinator>()));
         services.AddSingleton(sp => new ProfileStore(sp.GetRequiredService<IFileSystem>(), paths.ProfilesPath));
         services.AddSingleton(sp => new ReconciliationService(sp.GetRequiredService<IFileSystem>(), paths.Codex));
         services.AddSingleton<ProfileService>();

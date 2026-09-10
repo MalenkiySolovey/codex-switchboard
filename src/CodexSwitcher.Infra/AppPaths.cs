@@ -18,10 +18,14 @@ public sealed class AppPaths
     public string LegacyRoot { get; }
     public string VaultDir => Path.Combine(Root, "vault");
     public string BackupsDir => Path.Combine(Root, "backups");
+    public string TotpDir => Path.Combine(Root, "totp");
     public string ProfilesPath => Path.Combine(Root, "profiles.json");
     public string SettingsPath => Path.Combine(Root, "settings.json");
     public string AuditLogPath => Path.Combine(Root, "audit.log");
     public string UsageCachePath => Path.Combine(Root, "usage-cache.json");
+
+    /// <summary>Caminho do arquivo de credencial TOTP cifrado de um perfil.</summary>
+    public string GetTotpPath(Guid profileId) => Path.Combine(TotpDir, $"{profileId:N}.bin");
 
     // Pasta de trabalho isolada para login/refresh (CODEX_HOME efêmero). NÃO usar %TEMP%: o codex
     // recusa criar binários auxiliares sob o diretório temporário do sistema. Ver §5/§6.
@@ -51,6 +55,7 @@ public sealed class AppPaths
         Directory.CreateDirectory(VaultDir);
         Directory.CreateDirectory(BackupsDir);
         Directory.CreateDirectory(TempRoot);
+        Directory.CreateDirectory(TotpDir);
     }
 }
 

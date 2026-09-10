@@ -119,6 +119,26 @@ public sealed partial class AccountsView : UserControl
         if (ItemOf(sender) is { } item) ViewModel.RefreshAccountCommand.Execute(item);
     }
 
+    private void OnRevealTotpClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.RevealTotpCommand.Execute(item);
+    }
+
+    private void OnHideTotpClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.HideTotpCommand.Execute(item);
+    }
+
+    private void OnCopyTotpClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.CopyTotpCodeCommand.Execute(item);
+    }
+
+    private void OnAddOrManageTotpClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.AddOrManageTotpCommand.Execute(item);
+    }
+
     private void OnToggleCollapseClick(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) ViewModel.ToggleAccountCollapseCommand.Execute(item);

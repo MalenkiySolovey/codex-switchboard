@@ -99,6 +99,50 @@ public sealed partial class AccountItemViewModel : ObservableObject
     public string RemoveLabel => Loc.Remove;
     public string MoreActionsLabel => Loc.MoreActions;
 
+    // Phase 9: Propriedades de apresentação do TOTP 2FA do perfil
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TotpMenuLabel))]
+    public partial bool HasTotpConfigured { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TotpRevealButtonAutomationName))]
+    [NotifyPropertyChangedFor(nameof(TotpAccessibleText))]
+    public partial bool IsTotpRevealed { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TotpAccessibleText))]
+    public partial string TotpCodeText { get; set; } = Loc.TotpHiddenPlaceholder;
+
+    [ObservableProperty]
+    public partial int TotpSecondsRemaining { get; set; }
+
+    [ObservableProperty]
+    public partial string TotpCountdownText { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TotpCopyTooltip))]
+    public partial bool IsTotpCopied { get; set; }
+
+    public DateTimeOffset RevealDeadline { get; set; } = DateTimeOffset.MinValue;
+
+    public string TotpMenuLabel => HasTotpConfigured ? Loc.ManageTotpKey : Loc.AddTotpKey;
+    public string TotpRevealButtonAutomationName => IsTotpRevealed ? Loc.HideTotpCode : Loc.RevealTotpCode;
+    public string TotpCopyButtonAutomationName => Loc.CopyTotpCode;
+    public string TotpAccessibleText => IsTotpRevealed ? TotpCodeText : Loc.TotpHiddenPlaceholder;
+    public string TotpRevealTooltip => Loc.RevealTotpCode;
+    public string TotpHideTooltip => Loc.HideTotpCode;
+    public string TotpCopyTooltip => IsTotpCopied ? Loc.TotpCopied : Loc.CopyTotpCode;
+
+    public void ResetTotpPresentation()
+    {
+        IsTotpRevealed = false;
+        TotpCodeText = Loc.TotpHiddenPlaceholder;
+        TotpSecondsRemaining = 0;
+        TotpCountdownText = string.Empty;
+        IsTotpCopied = false;
+        RevealDeadline = DateTimeOffset.MinValue;
+    }
+
     private static AccountBadge ComputeBadge(ProfileMetadata p) => p.HealthStatus switch
     {
         HealthStatus.Unknown => AccountBadge.Unavailable,
