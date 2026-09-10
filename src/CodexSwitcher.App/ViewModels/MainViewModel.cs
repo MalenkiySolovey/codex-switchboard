@@ -555,6 +555,10 @@ public sealed partial class MainViewModel : ObservableObject
                 {
                     ShowInfo(_loc.WarningTitle, _loc.WindowsPasswordExpired, InfoBarSeverity.Warning);
                 }
+                else if (outcome.PasswordStatus == WindowsPasswordVerificationResult.AccountRestricted)
+                {
+                    ShowInfo(_loc.WarningTitle, _loc.WindowsAccountRestricted, InfoBarSeverity.Warning);
+                }
                 else
                 {
                     ShowInfo(_loc.WarningTitle, _loc.WindowsVerificationFailed, InfoBarSeverity.Warning);

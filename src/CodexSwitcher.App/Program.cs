@@ -11,9 +11,19 @@ public static class Program
 {
     public const string SingleInstanceKey = "CodexSwitchboard.SingleInstance";
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int dwProcessId);
+
     [STAThread]
     public static void Main(string[] args)
     {
+        if (args != null && args.Length > 0 && Array.Exists(args, a => a.Equals("--diagnose-windows-auth", StringComparison.OrdinalIgnoreCase)))
+        {
+            AttachConsole(-1);
+            Console.WriteLine(Services.WindowsPasswordVerificationService.RunSanitizedDiagnosticProbe());
+            return;
+        }
+
         ComWrappersSupport.InitializeComWrappers();
 
         var isRedirect = DecideRedirection();

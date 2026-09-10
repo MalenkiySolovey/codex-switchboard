@@ -23,11 +23,23 @@ public enum WindowsPasswordVerificationResult
     /// <summary>A senha do usuário do Windows expirou ou precisa ser alterada.</summary>
     PasswordExpired,
 
+    /// <summary>A conta do usuário do Windows possui restrições ativas (ex.: desativada, horário ou estação restritos).</summary>
+    AccountRestricted,
+
+    /// <summary>Nenhum servidor de logon disponível para autenticar a credencial.</summary>
+    NoLogonServers,
+
     /// <summary>O subsistema CredUI ou provedor de credenciais não está disponível.</summary>
     CredentialProviderUnavailable,
 
     /// <summary>Tipo de credencial não suportado pelo provedor de autenticação.</summary>
     UnsupportedCredentialType,
+
+    /// <summary>Pacote de autenticação não suportado pelo sistema ou pela sessão.</summary>
+    UnsupportedAuthenticationPackage,
+
+    /// <summary>Falha ao mapear a identidade do usuário para o formato de autenticação.</summary>
+    IdentityMappingFailed,
 
     /// <summary>Erro do sistema operacional durante a tentativa de verificação.</summary>
     SystemError

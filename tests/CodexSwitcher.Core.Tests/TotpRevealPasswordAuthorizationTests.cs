@@ -374,4 +374,84 @@ public sealed class TotpRevealPasswordAuthorizationTests
         // When Hello is absent but password is supported, effective protection state is READY!
         Assert.Equal(EffectiveTotpProtectionState.Ready, status.ProtectionState);
     }
+
+    [Fact]
+    public async Task HelloUnavailable_PasswordAccountRestricted_BlocksReveal_NoEmergencyFallback()
+    {
+        var settings = new AppSettings { RequireWindowsVerificationForTotpReveal = true };
+        var fakeHello = new FakeWindowsUserVerificationService { Availability = WindowsVerificationAvailability.DeviceNotPresent };
+        var fakePassword = new FakeWindowsPasswordVerificationService
+        {
+            NextResult = WindowsPasswordVerificationResult.AccountRestricted
+        };
+        var service = new TotpRevealAuthorizationService(settings, fakeHello, fakePassword);
+
+        var outcome = await service.EnsureAuthorizedAsync("Reveal");
+
+        Assert.False(outcome.Success);
+        Assert.False(service.IsAuthorized);
+        Assert.Equal(TotpAuthorizationAction.Failed, outcome.Action);
+        Assert.False(outcome.IsDegradedFallback);
+        Assert.False(outcome.IsTemporarilyUnavailable);
+        Assert.Equal(WindowsPasswordVerificationResult.AccountRestricted, outcome.PasswordStatus);
+    }
+
+    [Fact]
+    public async Task HelloUnavailable_PasswordNoLogonServers_AllowsEmergencyFallback()
+    {
+        var settings = new AppSettings { RequireWindowsVerificationForTotpReveal = true };
+        var fakeHello = new FakeWindowsUserVerificationService { Availability = WindowsVerificationAvailability.DeviceNotPresent };
+        var fakePassword = new FakeWindowsPasswordVerificationService
+        {
+            NextResult = WindowsPasswordVerificationResult.NoLogonServers
+        };
+        var service = new TotpRevealAuthorizationService(settings, fakeHello, fakePassword);
+
+        var outcome = await service.EnsureAuthorizedAsync("Reveal");
+
+        Assert.False(outcome.Success);
+        Assert.False(service.IsAuthorized);
+        Assert.Equal(TotpAuthorizationAction.TemporarilyUnavailable, outcome.Action);
+        Assert.True(outcome.IsTemporarilyUnavailable);
+        Assert.Equal(WindowsPasswordVerificationResult.NoLogonServers, outcome.PasswordStatus);
+    }
+
+    [Fact]
+    public async Task HelloUnavailable_PasswordUnsupportedPackage_AllowsEmergencyFallback()
+    {
+        var settings = new AppSettings { RequireWindowsVerificationForTotpReveal = true };
+        var fakeHello = new FakeWindowsUserVerificationService { Availability = WindowsVerificationAvailability.DeviceNotPresent };
+        var fakePassword = new FakeWindowsPasswordVerificationService
+        {
+            NextResult = WindowsPasswordVerificationResult.UnsupportedAuthenticationPackage
+        };
+        var service = new TotpRevealAuthorizationService(settings, fakeHello, fakePassword);
+
+        var outcome = await service.EnsureAuthorizedAsync("Reveal");
+
+        Assert.False(outcome.Success);
+        Assert.False(service.IsAuthorized);
+        Assert.Equal(TotpAuthorizationAction.TemporarilyUnavailable, outcome.Action);
+        Assert.True(outcome.IsTemporarilyUnavailable);
+        Assert.Equal(WindowsPasswordVerificationResult.UnsupportedAuthenticationPackage, outcome.PasswordStatus);
+    }
+
+    [Fact]
+    public async Task DisableProtection_InfrastructureFailure_StrictlyFails_NoBypass()
+    {
+        var settings = new AppSettings { RequireWindowsVerificationForTotpReveal = true };
+        var fakeHello = new FakeWindowsUserVerificationService();
+        var fakePassword = new FakeWindowsPasswordVerificationService
+        {
+            NextResult = WindowsPasswordVerificationResult.CredentialProviderUnavailable
+        };
+        var service = new TotpRevealAuthorizationService(settings, fakeHello, fakePassword);
+
+        // HARD INVARIANT: Anti-lockout emergency bypass applies ONLY to TOTP viewing,
+        // NEVER to disabling security protection!
+        bool disabled = await service.VerifyPasswordToDisableProtectionAsync("Confirm disable");
+
+        Assert.False(disabled);
+        Assert.Equal(1, fakePassword.VerifyCallCount);
+    }
 }

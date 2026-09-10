@@ -314,6 +314,7 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
             case WindowsPasswordVerificationResult.DifferentUser:
             case WindowsPasswordVerificationResult.AccountLocked:
             case WindowsPasswordVerificationResult.PasswordExpired:
+            case WindowsPasswordVerificationResult.AccountRestricted:
                 // Falha de autenticação do usuário: BLOQUEIA sem bypass de emergência
                 lock (_sync) { _isSessionActive = false; }
                 return new TotpAuthorizationOutcome(
@@ -325,6 +326,9 @@ public sealed class TotpRevealAuthorizationService : ITotpRevealAuthorizationSer
 
             case WindowsPasswordVerificationResult.CredentialProviderUnavailable:
             case WindowsPasswordVerificationResult.UnsupportedCredentialType:
+            case WindowsPasswordVerificationResult.UnsupportedAuthenticationPackage:
+            case WindowsPasswordVerificationResult.IdentityMappingFailed:
+            case WindowsPasswordVerificationResult.NoLogonServers:
             case WindowsPasswordVerificationResult.SystemError:
             default:
                 // Falha técnica de infraestrutura do CredUI / provedor de senha

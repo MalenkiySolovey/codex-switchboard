@@ -401,10 +401,12 @@ public sealed class Strings
     public string WindowsVerificationHelpTooltip => S("O Windows gerencia a verificação. Dependendo da sua configuração, você pode ser solicitado a usar o Windows Hello, um PIN ou a senha da sua conta do Windows.", "Windows handles the verification. Depending on your sign-in configuration, you may be asked for Windows Hello, a PIN, or your Windows account password.");
     public string WindowsVerificationCanceled => S("A verificação do Windows foi cancelada.", "Windows verification was canceled.");
     public string WindowsVerificationFailed => S("Falha na verificação do Windows.", "Windows verification failed.");
-    public string WindowsPasswordIncorrect => S("Senha incorreta do Windows.", "Incorrect Windows password.");
+    public string WindowsPasswordIncorrect => S("A senha do Windows não foi aceita.", "The Windows password was not accepted.");
     public string WindowsDifferentUser => S("As credenciais pertencem a outro usuário do Windows.", "The credentials belong to a different Windows user.");
     public string WindowsAccountLocked => S("A conta do Windows está bloqueada.", "The Windows account is locked.");
     public string WindowsPasswordExpired => S("A senha do Windows expirou ou precisa ser alterada.", "The Windows password has expired or must be changed.");
+    public string WindowsAccountRestricted => S("Restrições da conta do Windows impedem o logon.", "Windows account restrictions prevent logon.");
+    public string WindowsAuthSystemError => S("O Windows não pôde verificar as credenciais devido a uma falha no sistema.", "Windows could not verify these credentials due to a system error.");
     public string WindowsVerificationDegradedNotice => S("A verificação do Windows não pôde ser iniciada devido a uma falha técnica. O código será exibido uma vez usando a proteção padrão de 10 segundos.", "Windows verification could not be started due to a technical failure. The code will be shown once using standard 10-second protection.");
     public string WindowsVerificationDegradedStatusMessage => S("Os códigos permanecem acessíveis usando a proteção de revelação padrão de 10 segundos.", "Codes remain accessible using standard 10-second reveal protection.");
     public string WindowsVerificationTransientTitle => S("Verificação temporariamente indisponível", "Windows verification could not be started");
