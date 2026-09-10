@@ -9,6 +9,8 @@ public partial class App : Application
 {
     private Window? _window;
 
+    public static MainWindow? MainWindowInstance { get; private set; }
+
     public App() => InitializeComponent();
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -17,6 +19,7 @@ public partial class App : Application
         LegacyRefreshTask.Remove();
 
         _window = new MainWindow();
+        MainWindowInstance = (MainWindow)_window;
         _window.Activate();
     }
 }

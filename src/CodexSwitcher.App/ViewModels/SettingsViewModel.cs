@@ -1,0 +1,258 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using CodexSwitcher.App.Localization;
+using CodexSwitcher.Core.Abstractions;
+using CodexSwitcher.Core.Models;
+using CodexSwitcher.Core.Services;
+using CodexSwitcher.Infra;
+using Microsoft.UI.Xaml.Controls;
+
+namespace CodexSwitcher.App.ViewModels;
+
+public sealed class SettingsViewModel : INotifyPropertyChanged
+{
+    private readonly AppSettings _settings;
+    private readonly SettingsStore _settingsStore;
+    private readonly ICodexRuntimeResolver _runtimeResolver;
+    private readonly ICodexCapabilityCache _capabilityCache;
+    private readonly ILegacyMigrationService _migrationService;
+    private readonly AppPaths _paths;
+
+    public Strings Loc => Strings.Current;
+
+    public Action? OnMigrationCompleted { get; set; }
+
+    public string AppName => "Codex Switchboard";
+    public string AppVersion => "0.1.0-preview.1";
+    public string RepositoryUrl => "https://github.com/unkdevv/codex-switchboard";
+    public string LicenseNotice => "MIT License • Copyright (c) 2026";
+    public string IndependenceStatement => Loc.IndependenceNotice;
+    public string DataRootPath => _paths.Root;
+
+    private string _detectedExecutablePath = string.Empty;
+    public string DetectedExecutablePath
+    {
+        get => _detectedExecutablePath;
+        private set => SetField(ref _detectedExecutablePath, value);
+    }
+
+    private string _detectedVersion = string.Empty;
+    public string DetectedVersion
+    {
+        get => _detectedVersion;
+        private set => SetField(ref _detectedVersion, value);
+    }
+
+    private string _rateLimitsCapability = string.Empty;
+    public string RateLimitsCapability
+    {
+        get => _rateLimitsCapability;
+        private set => SetField(ref _rateLimitsCapability, value);
+    }
+
+    private string _accountActivityCapability = string.Empty;
+    public string AccountActivityCapability
+    {
+        get => _accountActivityCapability;
+        private set => SetField(ref _accountActivityCapability, value);
+    }
+
+    private string _customExecutablePath = string.Empty;
+    public string CustomExecutablePath
+    {
+        get => _customExecutablePath;
+        set => SetField(ref _customExecutablePath, value);
+    }
+
+    private bool _canMigrateLegacy;
+    public bool CanMigrateLegacy
+    {
+        get => _canMigrateLegacy;
+        private set => SetField(ref _canMigrateLegacy, value);
+    }
+
+    private bool _isMigrating;
+    public bool IsMigrating
+    {
+        get => _isMigrating;
+        private set
+        {
+            if (SetField(ref _isMigrating, value))
+            {
+                OnPropertyChanged(nameof(IsNotMigrating));
+            }
+        }
+    }
+
+    public bool IsNotMigrating => !_isMigrating;
+
+    private string _statusMessage = string.Empty;
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set
+        {
+            if (SetField(ref _statusMessage, value))
+            {
+                HasStatus = !string.IsNullOrWhiteSpace(value);
+            }
+        }
+    }
+
+    private bool _hasStatus;
+    public bool HasStatus
+    {
+        get => _hasStatus;
+        private set => SetField(ref _hasStatus, value);
+    }
+
+    private InfoBarSeverity _statusSeverity = InfoBarSeverity.Informational;
+    public InfoBarSeverity StatusSeverity
+    {
+        get => _statusSeverity;
+        set => SetField(ref _statusSeverity, value);
+    }
+
+    public bool AlwaysConfirmSwitch
+    {
+        get => _settings.AlwaysConfirmSwitch;
+        set
+        {
+            if (_settings.AlwaysConfirmSwitch != value)
+            {
+                _settings.AlwaysConfirmSwitch = value;
+                _settingsStore.Save(_settings);
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public SettingsViewModel(
+        AppSettings settings,
+        SettingsStore settingsStore,
+        ICodexRuntimeResolver runtimeResolver,
+        ICodexCapabilityCache capabilityCache,
+        ILegacyMigrationService migrationService,
+        AppPaths paths)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
+        _runtimeResolver = runtimeResolver ?? throw new ArgumentNullException(nameof(runtimeResolver));
+        _capabilityCache = capabilityCache ?? throw new ArgumentNullException(nameof(capabilityCache));
+        _migrationService = migrationService ?? throw new ArgumentNullException(nameof(migrationService));
+        _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+
+        _customExecutablePath = _settings.CodexExecutablePathOverride ?? string.Empty;
+        RefreshDiagnostics();
+    }
+
+    public void RefreshDiagnostics()
+    {
+        var candidate = _runtimeResolver.ResolveCurrentRuntime(_settings.CodexExecutablePathOverride);
+        if (candidate is not null)
+        {
+            DetectedExecutablePath = candidate.ExecutablePath;
+            DetectedVersion = candidate.Version ?? "Unknown";
+            RateLimitsCapability = FormatCapability(candidate.Capabilities.RateLimitsRead);
+            AccountActivityCapability = FormatCapability(candidate.Capabilities.AccountUsageRead);
+        }
+        else
+        {
+            DetectedExecutablePath = "Not found on system or PATH";
+            DetectedVersion = "N/A";
+            RateLimitsCapability = Loc.CapabilityUnavailable;
+            AccountActivityCapability = Loc.CapabilityUnsupported;
+        }
+
+        CanMigrateLegacy = _migrationService.CanMigrate();
+    }
+
+    private string FormatCapability(CapabilityStatus status) => status switch
+    {
+        CapabilityStatus.Supported => Loc.CapabilitySupported,
+        CapabilityStatus.Unsupported => Loc.CapabilityUnsupported,
+        _ => "Unknown"
+    };
+
+    public bool ApplyCustomExecutable(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            _settings.CodexExecutablePathOverride = null;
+            _settingsStore.Save(_settings);
+            _capabilityCache.Clear();
+            CustomExecutablePath = string.Empty;
+            RefreshDiagnostics();
+            StatusMessage = Loc.SettingsSavedMsg;
+            StatusSeverity = InfoBarSeverity.Success;
+            return true;
+        }
+
+        var trimmed = path.Trim();
+        if (!_runtimeResolver.ValidateExecutable(trimmed, out var version, out var validationError))
+        {
+            StatusMessage = validationError ?? Loc.ExecutableInvalidMsg;
+            StatusSeverity = InfoBarSeverity.Error;
+            return false;
+        }
+
+        _settings.CodexExecutablePathOverride = trimmed;
+        _settingsStore.Save(_settings);
+        _capabilityCache.Clear();
+        CustomExecutablePath = trimmed;
+        RefreshDiagnostics();
+        StatusMessage = Loc.SettingsSavedMsg;
+        StatusSeverity = InfoBarSeverity.Success;
+        return true;
+    }
+
+    public void AutoDetect()
+    {
+        ApplyCustomExecutable(null);
+    }
+
+    public async Task MigrateLegacyDataAsync()
+    {
+        if (IsMigrating) return;
+        IsMigrating = true;
+        StatusMessage = string.Empty;
+
+        try
+        {
+            var result = await _migrationService.MigrateAsync();
+            if (result.Success)
+            {
+                StatusMessage = Loc.MigrationSuccessMsg(result.MigratedProfilesCount);
+                StatusSeverity = InfoBarSeverity.Success;
+                CanMigrateLegacy = false;
+                OnMigrationCompleted?.Invoke();
+            }
+            else
+            {
+                StatusMessage = Loc.MigrationFailedMsg(result.Message);
+                StatusSeverity = InfoBarSeverity.Error;
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = Loc.MigrationFailedMsg(ex.Message);
+            StatusSeverity = InfoBarSeverity.Error;
+        }
+        finally
+        {
+            IsMigrating = false;
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+}

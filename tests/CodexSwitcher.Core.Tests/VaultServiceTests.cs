@@ -125,4 +125,100 @@ public sealed class VaultServiceTests
 
         Assert.False(vault.Exists(id));
     }
+
+    [Fact]
+    public void SaveBlobIfUnchanged_WhenOriginalFingerprintMatches_SucceedsAndUpdates()
+    {
+        using var dir = new TempDir();
+        var vault = NewVault(dir);
+        var id = Guid.NewGuid();
+
+        var initial = Sample.AuthJson(lastRefresh: "2026-06-20T00:00:00Z");
+        var initialFp = vault.SaveBlob(id, initial);
+
+        var updated = Sample.AuthJson(lastRefresh: "2026-06-21T00:00:00Z");
+        var (success, newFp) = vault.SaveBlobIfUnchanged(id, initialFp, updated);
+
+        Assert.True(success);
+        Assert.NotNull(newFp);
+        Assert.NotEqual(initialFp, newFp);
+        Assert.Equal(updated, vault.LoadBlob(id));
+    }
+
+    [Fact]
+    public void SaveBlobIfUnchanged_WhenFingerprintDiffers_ReturnsFalseWithCurrentFingerprint()
+    {
+        using var dir = new TempDir();
+        var vault = NewVault(dir);
+        var id = Guid.NewGuid();
+
+        var initial = Sample.AuthJson(lastRefresh: "2026-06-20T00:00:00Z");
+        var initialFp = vault.SaveBlob(id, initial);
+
+        // Simulate concurrent mutation in vault (e.g. user performed switch or external write)
+        var concurrent = Sample.AuthJson(lastRefresh: "2026-06-21T12:00:00Z");
+        var concurrentFp = vault.SaveBlob(id, concurrent);
+
+        // Attempt CAS with stale expected original fingerprint
+        var staleUpdated = Sample.AuthJson(lastRefresh: "2026-06-22T00:00:00Z");
+        var (success, currentFp) = vault.SaveBlobIfUnchanged(id, initialFp, staleUpdated);
+
+        Assert.False(success);
+        Assert.Equal(concurrentFp, currentFp);
+        Assert.Equal(concurrent, vault.LoadBlob(id));
+    }
+
+    [Fact]
+    public void SaveBlobIfUnchanged_WhenProfileDoesNotExist_ReturnsFalse()
+    {
+        using var dir = new TempDir();
+        var vault = NewVault(dir);
+        var id = Guid.NewGuid();
+
+        var (success, currentFp) = vault.SaveBlobIfUnchanged(id, "dummy-fingerprint", Sample.AuthJson());
+
+        Assert.False(success);
+        Assert.Null(currentFp);
+    }
+
+    [Fact]
+    public async Task SaveBlobIfUnchanged_ConcurrentRace_ExactlyOneCommits()
+    {
+        using var dir = new TempDir();
+        var vault = NewVault(dir);
+        var id = Guid.NewGuid();
+
+        var initial = Sample.AuthJson(lastRefresh: "2026-06-20T00:00:00Z");
+        var initialFp = vault.SaveBlob(id, initial);
+
+        // 5 concurrent attempts starting at the same time with the same expected fingerprint
+        var candidates = Enumerable.Range(1, 5)
+            .Select(i => Sample.AuthJson(lastRefresh: $"2026-06-2{i}T00:00:00Z"))
+            .ToList();
+
+        using var barrier = new Barrier(candidates.Count);
+
+        var tasks = candidates.Select(candidate => Task.Run(() =>
+        {
+            barrier.SignalAndWait();
+            return vault.SaveBlobIfUnchanged(id, initialFp, candidate);
+        })).ToList();
+
+        var results = await Task.WhenAll(tasks);
+
+        var successCount = results.Count(r => r.Success);
+        var failureCount = results.Count(r => !r.Success);
+
+        Assert.Equal(1, successCount);
+        Assert.Equal(4, failureCount);
+
+        // All failed attempts report the current committed fingerprint
+        var winnerFp = results.First(r => r.Success).CurrentFingerprint;
+        Assert.NotNull(winnerFp);
+
+        foreach (var failure in results.Where(r => !r.Success))
+        {
+            Assert.Equal(winnerFp, failure.CurrentFingerprint);
+        }
+    }
 }

@@ -1,61 +1,55 @@
 using System.Diagnostics;
-using System.Net.Http;
+using CodexSwitcher.Core.Abstractions;
+using CodexSwitcher.Core.Services;
 using Microsoft.Web.WebView2.Core;
 
 namespace CodexSwitcher.App.Services;
 
 /// <summary>
-/// Checagem/instalação do WebView2 Runtime, compartilhada entre <see cref="Views.LoginWindow"/> e
-/// <see cref="Views.PrivateBrowserWindow"/> (ambas hospedam WebView2 e precisam do mesmo fallback em
-/// Windows 10, que não vem com o runtime pré-instalado).
+/// Probes for Microsoft Edge WebView2 Evergreen Runtime.
+/// Provides safe redirection to official Microsoft documentation rather than silent downloading.
 /// </summary>
 public static class WebView2Bootstrap
 {
-    // Fwlink fixo e documentado pela Microsoft para o Evergreen Bootstrapper do WebView2.
-    private const string BootstrapperUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+    public const string OfficialInfoUrl = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/";
 
-    public static bool IsRuntimeInstalled()
+    private static readonly IWebView2AvailabilityService Detector =
+        new WebView2AvailabilityService(DefaultVersionProvider);
+
+    private static string? DefaultVersionProvider()
     {
         try
         {
-            return !string.IsNullOrEmpty(CoreWebView2Environment.GetAvailableBrowserVersionString(null));
+            return CoreWebView2Environment.GetAvailableBrowserVersionString(null);
         }
-        catch (Exception)
+        catch
         {
-            return false;
+            return null;
         }
     }
 
-    /// <summary>Baixa o bootstrapper oficial (Evergreen, ~2 MB) e o executa. Só o bootstrapper é obtido
-    /// em tempo real (empacotar o runtime completo, ~150 MB e sem auto-atualização, infla o instalador
-    /// à toa).</summary>
-    public static async Task<bool> TryInstallRuntimeAsync(string tempRoot, CancellationToken ct)
-    {
-        var bootstrapperPath = Path.Combine(tempRoot, $"MicrosoftEdgeWebview2Setup-{Guid.NewGuid():N}.exe");
+    public static bool IsRuntimeInstalled() => Detector.IsAvailable();
 
+    public static string? GetInstalledVersion() => Detector.GetInstalledVersion();
+
+    /// <summary>
+    /// Opens the official Microsoft WebView2 info and download page in the user's default browser.
+    /// Does not silently download or install any external binaries.
+    /// </summary>
+    public static bool OpenOfficialDownloadPage()
+    {
         try
         {
-            Directory.CreateDirectory(tempRoot);
-
-            using (var http = new HttpClient())
+            Process.Start(new ProcessStartInfo
             {
-                var bytes = await http.GetByteArrayAsync(BootstrapperUrl, ct);
-                await File.WriteAllBytesAsync(bootstrapperPath, bytes, ct);
-            }
-
-            using var proc = Process.Start(new ProcessStartInfo(bootstrapperPath) { UseShellExecute = true });
-            if (proc is null) return false;
-
-            await proc.WaitForExitAsync(ct);
-            return proc.ExitCode == 0 && IsRuntimeInstalled();
+                FileName = OfficialInfoUrl,
+                UseShellExecute = true
+            });
+            return true;
         }
-        catch (Exception)
+        catch
         {
             return false;
-        }
-        finally
-        {
-            try { if (File.Exists(bootstrapperPath)) File.Delete(bootstrapperPath); } catch (Exception) { /* best-effort */ }
         }
     }
 }

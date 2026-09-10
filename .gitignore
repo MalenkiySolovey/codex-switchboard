@@ -7,6 +7,8 @@
 x64/
 x86/
 publish/
+dist/
+scratch/
 *.dll
 *.pdb
 *.exe

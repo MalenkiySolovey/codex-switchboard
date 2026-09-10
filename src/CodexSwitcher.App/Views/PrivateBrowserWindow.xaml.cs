@@ -60,17 +60,9 @@ public sealed partial class PrivateBrowserWindow : Window
         Tabs.Visibility = Visibility.Collapsed;
     }
 
-    private async void OnInstallWebView2Click(object sender, RoutedEventArgs e)
+    private void OnInstallWebView2Click(object sender, RoutedEventArgs e)
     {
-        InstallWebView2Button.IsEnabled = false;
-        InstallSpinner.IsActive = true;
-
-        var installed = await WebView2Bootstrap.TryInstallRuntimeAsync(_paths.TempRoot, CancellationToken.None);
-
-        InstallSpinner.IsActive = false;
-        InstallWebView2Button.IsEnabled = true;
-
-        if (installed) Start();
+        WebView2Bootstrap.OpenOfficialDownloadPage();
     }
 
     private void OnAddTabButtonClick(TabView sender, object args) => AddTab();

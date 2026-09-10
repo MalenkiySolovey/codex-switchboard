@@ -6,6 +6,7 @@ using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace CodexSwitcher.App.ViewModels;
@@ -19,25 +20,41 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly AppSettings _settings;
     private readonly IClock _clock;
     private readonly IUiInteraction _ui;
+    private readonly IUsageService _usageService;
+    private readonly UsagePollingCoordinator _pollingCoordinator;
     private readonly Strings _loc = Strings.Current;
 
     private readonly List<AccountItemViewModel> _all = [];
+    private readonly Dictionary<Guid, AccountUsageViewModel> _usages = [];
+    private DispatcherTimer? _countdownTimer;
+    private DispatcherTimer? _pollingTimer;
+    private readonly IUiDispatcher _dispatcher;
+    private readonly IAppLifetime _appLifetime;
+    private CancellationTokenSource? _startupRefreshCts;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = [];
 
     [ObservableProperty] public partial string SearchText { get; set; }
     [ObservableProperty] public partial bool IsBusy { get; set; }
     [ObservableProperty] public partial string? BusyText { get; set; }
+    [ObservableProperty] public partial bool IsRefreshingUsage { get; set; }
     [ObservableProperty] public partial bool InfoOpen { get; set; }
     [ObservableProperty] public partial string InfoMessage { get; set; }
     [ObservableProperty] public partial string InfoTitle { get; set; }
     [ObservableProperty] public partial InfoBarSeverity InfoSeverity { get; set; }
     [ObservableProperty] public partial bool ShowEmptyState { get; set; }
     [ObservableProperty] public partial bool ShowAdoptPrompt { get; set; }
+    [ObservableProperty] public partial bool HasDetectedActiveAccount { get; set; }
+    [ObservableProperty] public partial string DetectedActiveAccountDetails { get; set; }
+
+    public bool ShowNormalEmptyState => ShowEmptyState && !HasDetectedActiveAccount;
+    public bool ShowDetectedAccountEmptyState => ShowEmptyState && HasDetectedActiveAccount;
 
     public MainViewModel(
         ProfileService profiles, SwitchService switchService,
-        SettingsStore settingsStore, AppSettings settings, IClock clock, IUiInteraction ui)
+        SettingsStore settingsStore, AppSettings settings, IClock clock, IUiInteraction ui,
+        IUsageService usageService, UsagePollingCoordinator pollingCoordinator,
+        IUiDispatcher? dispatcher = null, IAppLifetime? appLifetime = null)
     {
         _profiles = profiles;
         _switch = switchService;
@@ -45,11 +62,19 @@ public sealed partial class MainViewModel : ObservableObject
         _settings = settings;
         _clock = clock;
         _ui = ui;
+        _usageService = usageService;
+        _pollingCoordinator = pollingCoordinator;
+        _dispatcher = dispatcher ?? ImmediateUiDispatcher.Instance;
+        _appLifetime = appLifetime ?? new AppLifetime();
+
+        _pollingCoordinator.UsageUpdated += OnUsageUpdated;
+        _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
 
         SearchText = string.Empty;
         InfoMessage = string.Empty;
         InfoTitle = string.Empty;
         InfoSeverity = InfoBarSeverity.Informational;
+        DetectedActiveAccountDetails = string.Empty;
     }
 
     public int AccountCount => _all.Count;
@@ -64,7 +89,139 @@ public sealed partial class MainViewModel : ObservableObject
             _profiles.Load();
             return Task.CompletedTask;
         });
+
+        // Cache-first startup: restore cached usage immediately without network delay
+        var cachedMap = _usageService.GetAllCached();
+        var now = _clock.UtcNow;
+        foreach (var (profileId, cacheEntry) in cachedMap)
+        {
+            var state = UsagePresentationMapper.MapFromCache(cacheEntry, profileId, now, _loc.Pt);
+            var vm = GetOrCreateUsageVm(profileId);
+            vm.ApplyState(state, now);
+        }
+
         RebuildList();
+        StartTimers();
+
+        // Background initial refresh across accounts
+        if (_profiles.Profiles.Count > 0)
+        {
+            _ = TriggerBackgroundRefreshForProfiles(_profiles.Profiles);
+        }
+    }
+
+    private void StartTimers()
+    {
+        if (_countdownTimer is null)
+        {
+            _countdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            _countdownTimer.Tick += (_, _) =>
+            {
+                var now = _clock.UtcNow;
+                foreach (var u in _usages.Values)
+                    u.UpdateCountdowns(now);
+            };
+            _countdownTimer.Start();
+        }
+
+        if (_pollingTimer is null)
+        {
+            _pollingTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+            _pollingTimer.Tick += async (_, _) =>
+            {
+                await _pollingCoordinator.OnTimerTickAsync(_profiles.Profiles);
+            };
+            _pollingTimer.Start();
+        }
+    }
+
+    public void SetForegroundActive(bool active)
+    {
+        _ = _pollingCoordinator.SetForegroundActiveAsync(active, _profiles.Profiles);
+    }
+
+    private void OnUsageUpdated(object? sender, AccountUsageUpdatedEventArgs e)
+    {
+        _dispatcher.Enqueue(() =>
+        {
+            var vm = GetOrCreateUsageVm(e.ProfileId);
+            vm.ApplyState(e.State, _clock.UtcNow);
+        });
+    }
+
+    private void OnRefreshingStateChanged(object? sender, bool isRefreshing)
+    {
+        _dispatcher.Enqueue(() =>
+        {
+            IsRefreshingUsage = isRefreshing;
+        });
+    }
+
+    private AccountUsageViewModel GetOrCreateUsageVm(Guid profileId)
+    {
+        if (!_usages.TryGetValue(profileId, out var vm))
+        {
+            vm = new AccountUsageViewModel(profileId);
+            _usages[profileId] = vm;
+        }
+        return vm;
+    }
+
+    public Task TriggerBackgroundRefreshForProfiles(IReadOnlyList<ProfileMetadata> profiles)
+    {
+        if (profiles.Count == 0)
+            return Task.CompletedTask;
+
+        _startupRefreshCts?.Cancel();
+        _startupRefreshCts?.Dispose();
+        _startupRefreshCts = CancellationTokenSource.CreateLinkedTokenSource(_appLifetime.ApplicationStopping);
+
+        var token = _startupRefreshCts.Token;
+        return Task.Run(async () =>
+        {
+            try
+            {
+                await _pollingCoordinator.TriggerRefreshAllAsync(profiles, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _dispatcher.Enqueue(() =>
+                {
+                    ShowInfo(_loc.ErrorTitle, ex.Message, InfoBarSeverity.Warning);
+                });
+            }
+        }, token);
+    }
+
+    [RelayCommand]
+    private async Task RefreshAllAsync()
+    {
+        if (_all.Count == 0) return;
+        try
+        {
+            await _pollingCoordinator.TriggerRefreshAllAsync(_profiles.Profiles);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ShowInfo(_loc.ErrorTitle, ex.Message, InfoBarSeverity.Warning);
+        }
+    }
+
+    [RelayCommand]
+    private async Task RefreshAccountAsync(AccountItemViewModel? item)
+    {
+        if (item is null) return;
+        try
+        {
+            await _pollingCoordinator.TriggerRefreshAccountAsync(item.Profile);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ShowInfo(_loc.ErrorTitle, ex.Message, InfoBarSeverity.Warning);
+        }
     }
 
     [RelayCommand]
@@ -118,6 +275,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         RebuildList();
         ShowInfo(_loc.AddedTitle, _loc.AddedMsg(profile.DisplayName), InfoBarSeverity.Success);
+        _ = TriggerBackgroundRefreshForProfiles([profile]);
     }
 
     [RelayCommand]
@@ -131,7 +289,10 @@ public sealed partial class MainViewModel : ObservableObject
         });
         RebuildList();
         if (adopted is not null)
+        {
             ShowInfo(_loc.ImportedTitle, _loc.ImportedMsg(adopted.DisplayName), InfoBarSeverity.Success);
+            _ = TriggerBackgroundRefreshForProfiles([adopted]);
+        }
     }
 
     /// <summary>
@@ -156,7 +317,10 @@ public sealed partial class MainViewModel : ObservableObject
         if (result is null) return; // RunBusy já mostrou o erro.
 
         if (adopted is not null)
+        {
             ShowInfo(_loc.ImportedTitle, _loc.ImportedMsg(adopted.DisplayName), InfoBarSeverity.Success);
+            _ = TriggerBackgroundRefreshForProfiles([adopted]);
+        }
         else if (result.ActiveFingerprint is null)
             ShowInfo(_loc.DetectNoneTitle, _loc.DetectNoneMsg, InfoBarSeverity.Informational);
         else
@@ -173,6 +337,7 @@ public sealed partial class MainViewModel : ObservableObject
         var document = await _ui.PickImportFileAsync();
         if (document is null) return;
 
+        var prevProfiles = _profiles.Profiles.ToList();
         var count = 0;
         await RunBusy(_loc.BusyImporting, () =>
         {
@@ -181,7 +346,14 @@ public sealed partial class MainViewModel : ObservableObject
         });
         RebuildList();
         if (count > 0)
+        {
             ShowInfo(_loc.ImportedTitle, _loc.ImportedAccountsMsg(count), InfoBarSeverity.Success);
+            var newProfiles = _profiles.Profiles.Where(p => !prevProfiles.Any(prev => prev.Id == p.Id)).ToList();
+            if (newProfiles.Count > 0)
+            {
+                _ = TriggerBackgroundRefreshForProfiles(newProfiles);
+            }
+        }
     }
 
     [RelayCommand]
@@ -223,12 +395,26 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task EditSubscriptionTrackingAsync(AccountItemViewModel? item)
+    {
+        if (item is null) return;
+        var updated = await _ui.PromptSubscriptionTrackingAsync(item.DisplayName, item.Profile.SubscriptionTracking);
+        if (ReferenceEquals(updated, item.Profile.SubscriptionTracking))
+            return;
+
+        _profiles.UpdateSubscriptionTracking(item.Id, updated);
+        RebuildList();
+    }
+
+    [RelayCommand]
     private async Task RemoveAsync(AccountItemViewModel? item)
     {
         if (item is null) return;
         var ok = await _ui.ConfirmAsync(_loc.RemoveTitle, _loc.RemoveConfirm(item.DisplayName),
             _loc.Remove, destructive: true);
         if (!ok) return;
+        _pollingCoordinator.Invalidate(item.Id);
+        _usages.Remove(item.Id);
         _profiles.Remove(item.Id);
         RebuildList();
         ShowInfo(_loc.RemovedTitle, _loc.RemovedMsg(item.DisplayName), InfoBarSeverity.Informational);
@@ -278,12 +464,48 @@ public sealed partial class MainViewModel : ObservableObject
             .OrderBy(p => p.SortOrder)
             .ThenByDescending(p => p.CreatedAt);
         foreach (var p in ordered)
-            _all.Add(new AccountItemViewModel(p, now, _settings));
+        {
+            var usageVm = GetOrCreateUsageVm(p.Id);
+            _all.Add(new AccountItemViewModel(p, now, _settings, usageVm));
+        }
 
         ShowEmptyState = _all.Count == 0;
-        ShowAdoptPrompt = _profiles.HasUnmanagedActiveAccount();
+        UpdateDetectedAccountState();
         ApplyFilter();
         OnPropertyChanged(nameof(AccountCount));
+        OnPropertyChanged(nameof(ShowNormalEmptyState));
+        OnPropertyChanged(nameof(ShowDetectedAccountEmptyState));
+    }
+
+    private void UpdateDetectedAccountState()
+    {
+        var (detected, email, plan) = _profiles.GetUnmanagedActiveAccountInfo();
+        HasDetectedActiveAccount = detected;
+        if (detected)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(email)) parts.Add(email);
+            if (!string.IsNullOrWhiteSpace(plan)) parts.Add(plan);
+            DetectedActiveAccountDetails = parts.Count > 0 ? string.Join(" · ", parts) : string.Empty;
+        }
+        else
+        {
+            DetectedActiveAccountDetails = string.Empty;
+        }
+
+        ShowAdoptPrompt = detected && !ShowEmptyState;
+        OnPropertyChanged(nameof(ShowNormalEmptyState));
+        OnPropertyChanged(nameof(ShowDetectedAccountEmptyState));
+    }
+
+    public void Cleanup()
+    {
+        _countdownTimer?.Stop();
+        _pollingTimer?.Stop();
+        _startupRefreshCts?.Cancel();
+        _startupRefreshCts?.Dispose();
+        _pollingCoordinator.UsageUpdated -= OnUsageUpdated;
+        _pollingCoordinator.RefreshingStateChanged -= OnRefreshingStateChanged;
     }
 
     private void ApplyFilter()

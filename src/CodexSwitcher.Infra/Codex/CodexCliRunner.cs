@@ -160,30 +160,9 @@ public sealed class CodexCliRunner : ICodexCli
             _ => Launcher.Executable,
         };
 
-    private static string? ResolveCodexPath(string? overridePath)
+    public static string? ResolveCodexPath(string? overridePath = null)
     {
-        if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
-            return overridePath;
-
-        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        var dirs = pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        // Preferir .exe, depois .cmd/.bat, depois .ps1 (wrappers do npm), depois sem extensão.
-        string[] candidates = ["codex.exe", "codex.cmd", "codex.bat", "codex.ps1", "codex"];
-
-        foreach (var candidate in candidates)
-        {
-            foreach (var dir in dirs)
-            {
-                try
-                {
-                    var full = Path.Combine(dir, candidate);
-                    if (File.Exists(full))
-                        return full;
-                }
-                catch (ArgumentException) { /* diretório inválido no PATH */ }
-            }
-        }
-
-        return null;
+        var runtime = new CodexRuntimeResolver().ResolveCurrentRuntime(overridePath);
+        return string.IsNullOrEmpty(runtime.ExecutablePath) ? null : runtime.ExecutablePath;
     }
 }

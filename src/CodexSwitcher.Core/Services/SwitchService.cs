@@ -34,6 +34,9 @@ public sealed class SwitchService
     private readonly IAuditLog _audit;
     private readonly CodexPaths _paths;
     private readonly string _backupsDir;
+    private readonly IProfileOperationCoordinator _coordinator;
+
+    public IProfileOperationCoordinator Coordinator => _coordinator;
 
     public SwitchService(
         VaultService vault,
@@ -44,7 +47,8 @@ public sealed class SwitchService
         IClock clock,
         IAuditLog audit,
         CodexPaths paths,
-        string backupsDir)
+        string backupsDir,
+        IProfileOperationCoordinator? coordinator = null)
     {
         _vault = vault ?? throw new ArgumentNullException(nameof(vault));
         _profileStore = profileStore ?? throw new ArgumentNullException(nameof(profileStore));
@@ -55,6 +59,7 @@ public sealed class SwitchService
         _audit = audit ?? throw new ArgumentNullException(nameof(audit));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _backupsDir = backupsDir ?? throw new ArgumentNullException(nameof(backupsDir));
+        _coordinator = coordinator ?? _vault.Coordinator;
     }
 
     /// <summary>Monta o plano de switch para o popup de confirmação (§4.2). Não altera nada.</summary>
@@ -95,117 +100,128 @@ public sealed class SwitchService
             return new SwitchResult(SwitchOutcome.Success, $"{to.DisplayName} já é a conta ativa.");
         }
 
-        // (2) Fail-fast: decifrar o destino ANTES de fechar qualquer app. Se não decifrar, nada é tocado.
-        byte[] targetBytes;
+        var lockHandle = from is not null
+            ? await _coordinator.LockTwoAsync(from.Id, to.Id, cancellationToken).ConfigureAwait(false)
+            : await _coordinator.LockAsync(to.Id, cancellationToken).ConfigureAwait(false);
+
         try
         {
-            targetBytes = _vault.LoadBlob(to.Id);
-        }
-        catch (SecretDecryptionException)
-        {
-            to.HealthStatus = HealthStatus.Unknown;
-            to.LastError = ErrorInfo.Create(ErrorCategory.DecryptionFailed,
-                "Perfil não pôde ser decifrado neste usuário/máquina.", _clock.UtcNow);
+            // (2) Fail-fast: decifrar o destino ANTES de fechar qualquer app. Se não decifrar, nada é tocado.
+            byte[] targetBytes;
+            try
+            {
+                targetBytes = _vault.LoadBlob(to.Id);
+            }
+            catch (SecretDecryptionException)
+            {
+                to.HealthStatus = HealthStatus.Unknown;
+                to.LastError = ErrorInfo.Create(ErrorCategory.DecryptionFailed,
+                    "Perfil não pôde ser decifrado neste usuário/máquina.", _clock.UtcNow);
+                _profileStore.SaveAll(allProfiles);
+                _audit.Record("switch", "failed", "destino não decifrável");
+                return Fail(ErrorCategory.DecryptionFailed,
+                    "Não foi possível ler a credencial do perfil de destino. Nada foi alterado.");
+            }
+
+            var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic;
+            IReadOnlyList<CodexProcessInfo> captured = [];
+            IReadOnlyList<CodexProcessInfo> closed = [];
+
+            // (2 do fluxo) Capturar processos ANTES de matar (ponto 23) e (3) encerrar.
+            if (closeApps)
+            {
+                captured = _processes.FindRunningCodexProcesses().Where(p => p.IsClosable).ToList();
+                closed = await _processes
+                    .CloseGracefullyThenKillAsync(captured, options.GracefulCloseTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+
+                // (4) Verificação anti-corrida: se sobrou CLI viva, abortar SEM tocar no slot e reabrir.
+                if (_processes.AnyCodexCliRunning())
+                {
+                    ReopenDesktop(captured, out _);
+                    _audit.Record("switch", "aborted", "processo codex remanescente");
+                    return new SwitchResult(SwitchOutcome.AbortedProcessRemnant,
+                        "A troca foi abortada: ainda há um processo do Codex em execução. Nada foi alterado.",
+                        ErrorInfo.Create(ErrorCategory.ProcessRemnant, "Processo remanescente", _clock.UtcNow),
+                        closed);
+                }
+            }
+
+            // Ler o slot ativo atual (pós-encerramento) — base do write-back, do backup e do rollback.
+            byte[]? originalActiveBytes = _fs.FileExists(_paths.ActiveAuthPath)
+                ? _fs.ReadAllBytes(_paths.ActiveAuthPath)
+                : null;
+
+            var now = _clock.UtcNow;
+            var backupPath = originalActiveBytes is not null
+                ? Path.Combine(_backupsDir, $"auth-{now.UtcDateTime:yyyyMMddTHHmmssfffZ}.bin")
+                : null;
+
+            try
+            {
+                // (5) Write-back do slot ativo atual no perfil de origem (preserva refresh/rotação: pontos 2, 3).
+                if (from is not null && originalActiveBytes is not null)
+                {
+                    from.BlobFingerprint = _vault.SaveBlob(from.Id, originalActiveBytes);
+                    var info = AuthJsonReader.TryRead(originalActiveBytes);
+                    if (info?.LastRefresh is { } lr)
+                        from.LastRefreshedAt = lr;
+                    from.HealthStatus = HealthStatus.Valid;
+                    _audit.Record("write-back", "ok", from.DisplayName);
+                }
+
+                // (6) Backup cifrado do slot ativo antes de sobrescrever.
+                if (originalActiveBytes is not null && backupPath is not null)
+                {
+                    _vault.SaveEncryptedFile(backupPath, originalActiveBytes);
+                    RotateBackups(options.BackupsToKeep);
+                }
+
+                // (7) Gravar o novo slot com escrita atômica (temp + move).
+                _fs.WriteAllBytesAtomic(_paths.ActiveAuthPath, targetBytes);
+
+                // (8) Garantir cli_auth_credentials_store = "file" (idempotente).
+                if (options.EnsureFileStore)
+                {
+                    try { _config.EnsureFileStore(_paths.ConfigTomlPath); }
+                    catch (IOException) { /* não fatal para a troca da credencial */ }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecretDecryptionException)
+            {
+                // (rollback) Restaurar o slot ativo e reabrir na conta original.
+                return Rollback(allProfiles, from, to, originalActiveBytes, captured, ex);
+            }
+
+            // (9) Metadados: destino vira ativo; origem deixa de ser.
+            to.LastSwitchedAt = now;
+            to.IsActive = true;
+            to.HealthStatus = to.HealthStatus == HealthStatus.Unknown ? HealthStatus.Valid : to.HealthStatus;
+            to.LastError = null;
+            if (from is not null) from.IsActive = false;
+            to.BlobFingerprint = Fingerprint.Compute(targetBytes);
             _profileStore.SaveAll(allProfiles);
-            _audit.Record("switch", "failed", "destino não decifrável");
-            return Fail(ErrorCategory.DecryptionFailed,
-                "Não foi possível ler a credencial do perfil de destino. Nada foi alterado.");
-        }
 
-        var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic;
-        IReadOnlyList<CodexProcessInfo> captured = [];
-        IReadOnlyList<CodexProcessInfo> closed = [];
+            // (10) Reabrir SOMENTE após o slot estar persistido (ponto 25). CLIs não reabrem (ponto 20).
+            var reopenFailures = new List<CodexProcessInfo>();
+            if (closeApps)
+                ReopenDesktop(captured, out reopenFailures);
 
-        // (2 do fluxo) Capturar processos ANTES de matar (ponto 23) e (3) encerrar.
-        if (closeApps)
-        {
-            captured = _processes.FindRunningCodexProcesses().Where(p => p.IsClosable).ToList();
-            closed = await _processes
-                .CloseGracefullyThenKillAsync(captured, options.GracefulCloseTimeout, cancellationToken)
-                .ConfigureAwait(false);
-
-            // (4) Verificação anti-corrida: se sobrou CLI viva, abortar SEM tocar no slot e reabrir.
-            if (_processes.AnyCodexCliRunning())
+            if (reopenFailures.Count > 0)
             {
-                ReopenDesktop(captured, out _);
-                _audit.Record("switch", "aborted", "processo codex remanescente");
-                return new SwitchResult(SwitchOutcome.AbortedProcessRemnant,
-                    "A troca foi abortada: ainda há um processo do Codex em execução. Nada foi alterado.",
-                    ErrorInfo.Create(ErrorCategory.ProcessRemnant, "Processo remanescente", _clock.UtcNow),
-                    closed);
-            }
-        }
-
-        // Ler o slot ativo atual (pós-encerramento) — base do write-back, do backup e do rollback.
-        byte[]? originalActiveBytes = _fs.FileExists(_paths.ActiveAuthPath)
-            ? _fs.ReadAllBytes(_paths.ActiveAuthPath)
-            : null;
-
-        var now = _clock.UtcNow;
-        var backupPath = originalActiveBytes is not null
-            ? Path.Combine(_backupsDir, $"auth-{now.UtcDateTime:yyyyMMddTHHmmssfffZ}.bin")
-            : null;
-
-        try
-        {
-            // (5) Write-back do slot ativo atual no perfil de origem (preserva refresh/rotação: pontos 2, 3).
-            if (from is not null && originalActiveBytes is not null)
-            {
-                from.BlobFingerprint = _vault.SaveBlob(from.Id, originalActiveBytes);
-                var info = AuthJsonReader.TryRead(originalActiveBytes);
-                if (info?.LastRefresh is { } lr)
-                    from.LastRefreshedAt = lr;
-                from.HealthStatus = HealthStatus.Valid;
-                _audit.Record("write-back", "ok", from.DisplayName);
+                _audit.Record("switch", "ok-reopen-warn", $"{from?.DisplayName ?? "-"} -> {to.DisplayName}");
+                return new SwitchResult(SwitchOutcome.SuccessWithReopenWarning,
+                    $"Conta trocada para {to.DisplayName}, mas alguns apps não puderam ser reabertos automaticamente.",
+                    null, closed, reopenFailures);
             }
 
-            // (6) Backup cifrado do slot ativo antes de sobrescrever.
-            if (originalActiveBytes is not null && backupPath is not null)
-            {
-                _vault.SaveEncryptedFile(backupPath, originalActiveBytes);
-                RotateBackups(options.BackupsToKeep);
-            }
-
-            // (7) Gravar o novo slot com escrita atômica (temp + move).
-            _fs.WriteAllBytesAtomic(_paths.ActiveAuthPath, targetBytes);
-
-            // (8) Garantir cli_auth_credentials_store = "file" (idempotente).
-            if (options.EnsureFileStore)
-            {
-                try { _config.EnsureFileStore(_paths.ConfigTomlPath); }
-                catch (IOException) { /* não fatal para a troca da credencial */ }
-            }
+            _audit.Record("switch", "ok", $"{from?.DisplayName ?? "-"} -> {to.DisplayName}");
+            return new SwitchResult(SwitchOutcome.Success, $"Conta trocada para {to.DisplayName}.", null, closed);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecretDecryptionException)
+        finally
         {
-            // (rollback) Restaurar o slot ativo e reabrir na conta original.
-            return Rollback(allProfiles, from, to, originalActiveBytes, captured, ex);
+            lockHandle.Dispose();
         }
-
-        // (9) Metadados: destino vira ativo; origem deixa de ser.
-        to.LastSwitchedAt = now;
-        to.IsActive = true;
-        to.HealthStatus = to.HealthStatus == HealthStatus.Unknown ? HealthStatus.Valid : to.HealthStatus;
-        to.LastError = null;
-        if (from is not null) from.IsActive = false;
-        to.BlobFingerprint = Fingerprint.Compute(targetBytes);
-        _profileStore.SaveAll(allProfiles);
-
-        // (10) Reabrir SOMENTE após o slot estar persistido (ponto 25). CLIs não reabrem (ponto 20).
-        var reopenFailures = new List<CodexProcessInfo>();
-        if (closeApps)
-            ReopenDesktop(captured, out reopenFailures);
-
-        if (reopenFailures.Count > 0)
-        {
-            _audit.Record("switch", "ok-reopen-warn", $"{from?.DisplayName ?? "-"} -> {to.DisplayName}");
-            return new SwitchResult(SwitchOutcome.SuccessWithReopenWarning,
-                $"Conta trocada para {to.DisplayName}, mas alguns apps não puderam ser reabertos automaticamente.",
-                null, closed, reopenFailures);
-        }
-
-        _audit.Record("switch", "ok", $"{from?.DisplayName ?? "-"} -> {to.DisplayName}");
-        return new SwitchResult(SwitchOutcome.Success, $"Conta trocada para {to.DisplayName}.", null, closed);
     }
 
     private SwitchResult Rollback(

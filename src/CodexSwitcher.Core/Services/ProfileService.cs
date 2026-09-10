@@ -96,6 +96,27 @@ public sealed class ProfileService
         return result is { Match: ActiveMatch.None, ActiveFingerprint: not null };
     }
 
+    /// <summary>
+    /// Retorna detalhes read-only da conta não gerenciada no slot ativo (.codex/auth.json), se existir.
+    /// Nunca expõe tokens; lê apenas email e plano (se disponíveis).
+    /// </summary>
+    public (bool Detected, string? Email, string? PlanType) GetUnmanagedActiveAccountInfo()
+    {
+        if (!HasUnmanagedActiveAccount())
+            return (false, null, null);
+
+        try
+        {
+            var bytes = _fs.ReadAllBytes(_paths.ActiveAuthPath);
+            var (_, claims) = AuthJsonReader.Identify(bytes);
+            return (true, claims.Email, claims.PlanType);
+        }
+        catch
+        {
+            return (true, null, null);
+        }
+    }
+
     /// <summary>Adota a conta já logada no .codex como um novo perfil (importar). Ver §6 (extra).</summary>
     public ProfileMetadata? AdoptActiveAccount(string? nickname = null)
     {
@@ -230,6 +251,15 @@ public sealed class ProfileService
         p.Nickname = nickname?.Trim() ?? string.Empty;
         _store.SaveAll(Profiles);
         _audit.Record("rename", "ok", p.DisplayName);
+    }
+
+    public void UpdateSubscriptionTracking(Guid id, SubscriptionTracking? tracking)
+    {
+        var p = Profiles.FirstOrDefault(x => x.Id == id);
+        if (p is null) return;
+        p.SubscriptionTracking = tracking;
+        _store.SaveAll(Profiles);
+        _audit.Record("subscription-tracking", "update", p.DisplayName);
     }
 
     public void Remove(Guid id)

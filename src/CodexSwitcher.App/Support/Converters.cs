@@ -77,3 +77,31 @@ public sealed class CardBorderBrushConverter : IValueConverter
         };
     public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
 }
+
+public sealed class QuotaProgressBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value switch
+        {
+            UsageWindowViewModel { IsExhausted: true } => Brushes.Resource("HealthDangerBrush"),
+            UsageWindowViewModel { IsLowQuota: true } => Brushes.Resource("HealthWarnBrush"),
+            _ => Brushes.Resource("BrandAccentBrush"),
+        };
+    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+}
+
+public sealed class StringToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        !string.IsNullOrWhiteSpace(value as string) ? Visibility.Visible : Visibility.Collapsed;
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class BoolToChevronConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is true ? "\uE70E" : "\uE70D"; // ChevronUp vs ChevronDown
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}

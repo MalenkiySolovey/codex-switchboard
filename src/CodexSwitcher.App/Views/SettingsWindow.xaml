@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="CodexSwitcher.App.Views.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:conv="using:CodexSwitcher.App.Support"
+    mc:Ignorable="d"
+    Title="Settings &amp; About">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid RowDefinitions="Auto,*">
+        <!-- Title Bar Header -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Margin="24,0" VerticalAlignment="Center">
+            <TextBlock Text="{x:Bind ViewModel.Loc.SettingsTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Main Scrollable Content -->
+        <ScrollViewer Grid.Row="1" Padding="24,8,24,24">
+            <StackPanel Spacing="24" MaxWidth="600" HorizontalAlignment="Left">
+
+                <!-- About Card -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                            <Border Width="40" Height="40" CornerRadius="8" Background="{ThemeResource BrandAccentBrush}">
+                                <FontIcon Glyph="&#xE713;" FontSize="20" Foreground="{ThemeResource BrandOnAccentBrush}" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind ViewModel.AppName}" FontSize="18" FontWeight="Bold" />
+                                <TextBlock Text="{x:Bind ViewModel.AppVersion}" Opacity="0.7" FontSize="12" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock Text="{x:Bind ViewModel.Loc.AppDescription}" TextWrapping="Wrap" Opacity="0.85" />
+                        <TextBlock Text="{x:Bind ViewModel.IndependenceStatement}" TextWrapping="Wrap" Opacity="0.65" FontSize="12" FontStyle="Italic" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <HyperlinkButton Content="GitHub Repository" NavigateUri="{x:Bind ViewModel.RepositoryUrl}" />
+                            <TextBlock Text="{x:Bind ViewModel.LicenseNotice}" VerticalAlignment="Center" Opacity="0.6" FontSize="12" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Status Feedback InfoBar -->
+                <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}"
+                         Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}"
+                         Message="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                         IsClosable="True" />
+
+                <!-- Legacy Migration Card (visible when detected) -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20"
+                        Visibility="{x:Bind ViewModel.CanMigrateLegacy, Mode=OneWay}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="{x:Bind ViewModel.Loc.LegacyMigrationSection}" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Bind ViewModel.Loc.LegacyMigrationDetectedMsg}" TextWrapping="Wrap" Opacity="0.85" />
+                        <Button Content="{x:Bind ViewModel.Loc.ImportLegacyButton}"
+                                Click="OnMigrateLegacyClick"
+                                IsEnabled="{x:Bind ViewModel.IsNotMigrating, Mode=OneWay}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Codex Runtime & Diagnostics -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{x:Bind ViewModel.Loc.CodexRuntimeSection}" FontSize="16" FontWeight="SemiBold" />
+
+                        <!-- Diagnostics Grid -->
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*" RowSpacing="8" ColumnSpacing="16">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{x:Bind ViewModel.Loc.DetectedRuntimeLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.DetectedExecutablePath, Mode=OneWay}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{x:Bind ViewModel.Loc.RuntimeVersionLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.DetectedVersion, Mode=OneWay}" FontWeight="SemiBold" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{x:Bind ViewModel.Loc.RateLimitsCapabilityLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind ViewModel.RateLimitsCapability, Mode=OneWay}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{x:Bind ViewModel.Loc.AccountActivityCapabilityLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{x:Bind ViewModel.AccountActivityCapability, Mode=OneWay}" />
+                        </Grid>
+
+                        <!-- Custom Executable Override -->
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{x:Bind ViewModel.Loc.CustomRuntimeOverrideLabel}" Opacity="0.85" />
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                                <TextBox x:Name="CustomPathBox" Grid.Column="0" Text="{x:Bind ViewModel.CustomExecutablePath, Mode=TwoWay}" PlaceholderText="C:\path\to\codex.exe" />
+                                <Button Grid.Column="1" Content="{x:Bind ViewModel.Loc.BrowseButton}" Click="OnBrowseExecutableClick" />
+                                <Button Grid.Column="2" Content="{x:Bind ViewModel.Loc.AutoDetectButton}" Click="OnAutoDetectClick" />
+                                <Button Grid.Column="3" Content="{x:Bind ViewModel.Loc.ApplyButton}" Click="OnApplyCustomExecutableClick"
+                                        Background="{ThemeResource BrandAccentBrush}" Foreground="{ThemeResource BrandOnAccentBrush}" />
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Preferences -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Preferences" FontSize="16" FontWeight="SemiBold" />
+                        <ToggleSwitch Header="Always confirm before switching accounts"
+                                      IsOn="{x:Bind ViewModel.AlwaysConfirmSwitch, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

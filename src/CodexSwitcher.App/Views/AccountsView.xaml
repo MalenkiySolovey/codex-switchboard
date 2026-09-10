@@ -16,6 +16,9 @@
         <conv:BadgeToBrushConverter x:Key="BadgeBrush" />
         <conv:ActiveToBackgroundConverter x:Key="ActiveBg" />
         <conv:CardBorderBrushConverter x:Key="CardBorder" />
+        <conv:QuotaProgressBrushConverter x:Key="QuotaBrush" />
+        <conv:StringToVisibilityConverter x:Key="StringToVis" />
+        <conv:BoolToChevronConverter x:Key="BoolToChevron" />
     </UserControl.Resources>
 
     <Grid>
@@ -31,7 +34,7 @@
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" Margin="16,0"
                         VerticalAlignment="Center">
                 <Image x:Name="AppIcon" Width="22" Height="22" />
-                <TextBlock Text="Codex Switcher" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBlock Text="Codex Switchboard" VerticalAlignment="Center" FontWeight="SemiBold" />
             </StackPanel>
         </Grid>
 
@@ -42,6 +45,14 @@
                 <TextBlock Text="{x:Bind Loc.AccountsSubtitle}" Opacity="0.7" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Command="{x:Bind ViewModel.RefreshAllCommand}"
+                        ToolTipService.ToolTip="{x:Bind Loc.RefreshAllTooltip}"
+                        Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource InvBoolToVis}}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                        <TextBlock Text="{x:Bind Loc.RefreshAll}" />
+                    </StackPanel>
+                </Button>
                 <AutoSuggestBox x:Name="SearchBox" PlaceholderText="{x:Bind Loc.SearchPlaceholder}" Width="200" QueryIcon="Find"
                                 Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
                                 Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource InvBoolToVis}}" />
@@ -88,6 +99,12 @@
                         <TextBlock Text="{x:Bind Loc.TwoFactorButton}" />
                     </StackPanel>
                 </Button>
+                <Button Click="OnOpenSettingsClick" ToolTipService.ToolTip="{x:Bind Loc.SettingsButtonTooltip}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE713;" FontSize="14" />
+                        <TextBlock Text="{x:Bind Loc.SettingsButton}" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Grid>
 
@@ -101,9 +118,38 @@
         <!-- Content -->
         <Grid Grid.Row="3" Margin="0,4,0,0">
 
-            <!-- Empty state -->
+            <!-- Empty state with detected active account -->
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="460" Spacing="16"
+                        Visibility="{x:Bind ViewModel.ShowDetectedAccountEmptyState, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center"
+                        Background="{ThemeResource BrandGradientBrush}">
+                    <FontIcon Glyph="&#xE77B;" FontSize="34" Foreground="{ThemeResource BrandOnAccentBrush}" />
+                </Border>
+                <TextBlock Text="{x:Bind Loc.DetectedAccountTitle}" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="{x:Bind ViewModel.DetectedActiveAccountDetails, Mode=OneWay}"
+                           FontSize="15" FontWeight="Medium" Opacity="0.9" HorizontalAlignment="Center" />
+                <TextBlock TextAlignment="Center" Opacity="0.7" TextWrapping="Wrap" Text="{x:Bind Loc.DetectedAccountBody}" />
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <Button Command="{x:Bind ViewModel.AdoptActiveCommand}"
+                            Background="{ThemeResource BrandAccentBrush}" Foreground="{ThemeResource BrandOnAccentBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="14" />
+                            <TextBlock Text="{x:Bind Loc.ImportCurrent}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{x:Bind ViewModel.AddAccountCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE710;" FontSize="14" />
+                            <TextBlock Text="{x:Bind Loc.SignInOAuth}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{x:Bind ViewModel.ImportAccountsCommand}" Content="{x:Bind Loc.ImportAccounts}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Standard Empty state (no active account detected) -->
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Spacing="16"
-                        Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                        Visibility="{x:Bind ViewModel.ShowNormalEmptyState, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center"
                         Background="{ThemeResource BrandGradientBrush}">
                     <FontIcon Glyph="&#xE77B;" FontSize="34" Foreground="{ThemeResource BrandOnAccentBrush}" />
@@ -153,83 +199,327 @@
                             <Border CornerRadius="{StaticResource CardCornerRadius}" BorderThickness="1.5" Padding="16"
                                     BorderBrush="{x:Bind Converter={StaticResource CardBorder}}"
                                     Background="{x:Bind IsActive, Converter={StaticResource ActiveBg}}">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
-                                    <Border Grid.Column="0" Width="48" Height="48"
-                                            CornerRadius="{StaticResource AvatarCornerRadius}"
-                                            Background="{ThemeResource BrandGradientBrush}" VerticalAlignment="Center">
-                                        <TextBlock Text="{x:Bind Initials}" FontWeight="Bold" FontSize="18"
-                                                   Foreground="{ThemeResource BrandOnAccentBrush}"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <StackPanel Spacing="10">
+                                    <!-- Top Row: Identity + Badges + Actions -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
+                                        <!-- Col 0: Avatar -->
+                                        <Border Grid.Column="0" Width="44" Height="44"
+                                                CornerRadius="{StaticResource AvatarCornerRadius}"
+                                                Background="{ThemeResource BrandGradientBrush}" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Initials}" FontWeight="Bold" FontSize="16"
+                                                       Foreground="{ThemeResource BrandOnAccentBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+
+                                        <!-- Col 1: Name, Email/Plan, Badges -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" FontSize="16"
+                                                           VerticalAlignment="Center" />
+                                                <!-- Health status badge -->
+                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
+                                                        Padding="8,1" VerticalAlignment="Center"
+                                                        BorderBrush="{x:Bind Badge, Converter={StaticResource BadgeBrush}}">
+                                                    <TextBlock Text="{x:Bind Badge, Converter={StaticResource BadgeText}}"
+                                                               FontSize="11" FontWeight="SemiBold"
+                                                               Foreground="{x:Bind Badge, Converter={StaticResource BadgeBrush}}" />
+                                                </Border>
+                                                <!-- Stale Cache Badge -->
+                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
+                                                        Padding="8,1" VerticalAlignment="Center"
+                                                        BorderBrush="{ThemeResource HealthWarnBrush}"
+                                                        Visibility="{x:Bind Usage.ShowStaleBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{x:Bind Usage.StaleBadgeLabel, Mode=OneWay}"
+                                                               FontSize="10" FontWeight="Bold"
+                                                               Foreground="{ThemeResource HealthWarnBrush}" />
+                                                </Border>
+                                                <!-- Rate Limited Badge -->
+                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
+                                                        Padding="8,1" VerticalAlignment="Center"
+                                                        BorderBrush="{ThemeResource HealthDangerBrush}"
+                                                        Visibility="{x:Bind Usage.ShowRateLimitedBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{x:Bind Usage.RateLimitedBadgeLabel, Mode=OneWay}"
+                                                               FontSize="10" FontWeight="Bold"
+                                                               Foreground="{ThemeResource HealthDangerBrush}" />
+                                                </Border>
+                                                <!-- Refreshing Badge -->
+                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
+                                                        Padding="8,1" VerticalAlignment="Center"
+                                                        BorderBrush="{ThemeResource BrandAccentBrush}"
+                                                        Visibility="{x:Bind Usage.ShowRefreshingBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                    <TextBlock Text="{x:Bind Usage.RefreshingBadgeLabel, Mode=OneWay}"
+                                                               FontSize="10" FontWeight="Bold"
+                                                               Foreground="{ThemeResource BrandAccentBrush}" />
+                                                </Border>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="{x:Bind Subtitle}" Opacity="0.7" FontSize="13" />
+                                                <TextBlock Text="{x:Bind PlanText}" Opacity="0.5" FontSize="12"
+                                                           Visibility="{x:Bind PlanText, Converter={StaticResource StringToVis}}" />
+                                                <TextBlock Text="{x:Bind SubscriptionDisplayText}" Opacity="0.5" FontSize="12"
+                                                           ToolTipService.ToolTip="{x:Bind SubscriptionTooltipText}"
+                                                           Visibility="{x:Bind HasSubscriptionText, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                        </StackPanel>
+
+                                        <!-- Col 2: Per-card manual refresh button -->
+                                        <Button Grid.Column="2" VerticalAlignment="Center" Click="OnRefreshAccountClick"
+                                                ToolTipService.ToolTip="{x:Bind Usage.RefreshUsageTooltip, Mode=OneWay}"
+                                                Background="Transparent" BorderThickness="0" Padding="8">
+                                            <FontIcon Glyph="&#xE72C;" FontSize="13" />
+                                        </Button>
+
+                                        <!-- Col 3: Switch / In Use -->
+                                        <Button Grid.Column="3" VerticalAlignment="Center" Click="OnSwitchClick"
+                                                Visibility="{x:Bind CanSwitch, Converter={StaticResource BoolToVis}}"
+                                                Background="{ThemeResource BrandAccentBrush}"
+                                                Foreground="{ThemeResource BrandOnAccentBrush}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon Glyph="&#xE8AB;" FontSize="14" />
+                                                <TextBlock Text="{x:Bind SwitchLabel}" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Border Grid.Column="3" VerticalAlignment="Center" Padding="10,6"
+                                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                                Visibility="{x:Bind IsActive, Converter={StaticResource BoolToVis}}"
+                                                Background="{ThemeResource BrandAccentSoftBrush}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="{ThemeResource BrandAccentBrush}" />
+                                                <TextBlock Text="{x:Bind InUseLabel}" Foreground="{ThemeResource BrandAccentBrush}"
+                                                           FontWeight="SemiBold" FontSize="13" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- Col 4: More Actions Flyout -->
+                                        <Button Grid.Column="4" VerticalAlignment="Center" Background="Transparent"
+                                                BorderThickness="0" ToolTipService.ToolTip="{x:Bind MoreActionsLabel}">
+                                            <FontIcon Glyph="&#xE712;" FontSize="16" />
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="{x:Bind ExportLabel}" Click="OnExportItemClick">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="{x:Bind RenameLabel}" Click="OnRenameItemClick">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8AC;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="{x:Bind SubscriptionTrackingLabel}" Click="OnSubscriptionTrackingClick">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEC05;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="{x:Bind MarkUsedLabel}" Click="OnMarkUsedClick"
+                                                                    Visibility="{x:Bind IsMarkedUsed, Converter={StaticResource InvBoolToVis}}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE73E;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="{x:Bind UnmarkUsedLabel}" Click="OnUnmarkUsedClick"
+                                                                    Visibility="{x:Bind IsMarkedUsed, Converter={StaticResource BoolToVis}}">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE894;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="{x:Bind MarkReLoginLabel}" Click="OnMarkReLoginClick">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7BA;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutSeparator />
+                                                    <MenuFlyoutItem Text="{x:Bind RemoveLabel}" Click="OnRemoveItemClick">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </Grid>
+
+                                    <!-- Notice Banner Row (When notice exists: AuthRequired, ProcessDown, CredentialConflict) -->
+                                    <Border Padding="10,6" CornerRadius="{StaticResource ControlCornerRadius}"
+                                            Background="{ThemeResource LayerFillColorAltBrush}" BorderThickness="1" BorderBrush="{ThemeResource HealthWarnBrush}"
+                                            Visibility="{x:Bind Usage.HasNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE7BA;" FontSize="13" Foreground="{ThemeResource HealthWarnBrush}" />
+                                            <TextBlock Text="{x:Bind Usage.NoticeMessage, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Opacity="0.9" />
+                                        </StackPanel>
                                     </Border>
 
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" FontSize="16"
-                                                       VerticalAlignment="Center" />
-                                            <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
-                                                    Padding="8,1" VerticalAlignment="Center"
-                                                    BorderBrush="{x:Bind Badge, Converter={StaticResource BadgeBrush}}">
-                                                <TextBlock Text="{x:Bind Badge, Converter={StaticResource BadgeText}}"
-                                                           FontSize="11" FontWeight="SemiBold"
-                                                           Foreground="{x:Bind Badge, Converter={StaticResource BadgeBrush}}" />
+                                    <!-- Quota Windows Section -->
+                                    <ItemsControl ItemsSource="{x:Bind Usage.Windows, Mode=OneWay}"
+                                                  Visibility="{x:Bind Usage.HasWindows, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:UsageWindowViewModel">
+                                                <StackPanel Spacing="3" Margin="0,2,0,6">
+                                                    <!-- Window Header: DisplayLabel + Limit Reached Badge on Left, Remaining % on Right -->
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                            <TextBlock Text="{x:Bind DisplayLabel}" FontWeight="SemiBold" FontSize="12" />
+                                                            <Border CornerRadius="3" Padding="5,1" Background="{ThemeResource HealthDangerBrush}"
+                                                                    Visibility="{x:Bind IsExhausted, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Text="{x:Bind LimitReachedLabel}" FontSize="9" FontWeight="Bold"
+                                                                           Foreground="{ThemeResource BrandOnAccentBrush}" />
+                                                            </Border>
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{x:Bind RemainingText, Mode=OneWay}"
+                                                                   FontWeight="SemiBold" FontSize="12" />
+                                                    </Grid>
+
+                                                    <!-- Progress Bar (Value = RemainingPercent, matching text) -->
+                                                    <ProgressBar Value="{x:Bind ProgressValue, Mode=OneWay}" Maximum="100" Minimum="0"
+                                                                 Height="5" CornerRadius="2.5"
+                                                                 Foreground="{x:Bind Converter={StaticResource QuotaBrush}, Mode=OneWay}" />
+
+                                                    <!-- Window Footer: Used % on Left, Relative Reset Countdown on Right -->
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Grid.Column="0" Text="{x:Bind UsedText, Mode=OneWay}" Opacity="0.6" FontSize="11" />
+                                                        <TextBlock Grid.Column="1" Text="{x:Bind ResetCountdownText, Mode=OneWay}"
+                                                                   ToolTipService.ToolTip="{x:Bind ResetTooltipText, Mode=OneWay}"
+                                                                   Opacity="0.75" FontSize="11" />
+                                                    </Grid>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- Never Loaded Prompt (if no usage data has been queried yet) -->
+                                    <TextBlock Text="{x:Bind Usage.NeverLoadedLabel, Mode=OneWay}"
+                                               Visibility="{x:Bind Usage.ShowNeverLoadedText, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                               Opacity="0.5" FontSize="12" Margin="0,2,0,2" />
+
+                                    <!-- Account Activity Section (Collapsible / Compact) -->
+                                    <Border CornerRadius="{StaticResource ControlCornerRadius}"
+                                            Background="{ThemeResource LayerFillColorAltBrush}"
+                                            Padding="8,6" Margin="0,2,0,4"
+                                            Visibility="{x:Bind Usage.ShowActivitySection, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel Spacing="4">
+                                            <!-- Status Notice Banner (Unsupported runtime, temporary unavailable, or cached notice) -->
+                                            <Border CornerRadius="4" Padding="8,4" Margin="2,2,2,2"
+                                                    Background="{ThemeResource LayerFillColorAltBrush}"
+                                                    BorderBrush="{ThemeResource HealthWarnBrush}" BorderThickness="1"
+                                                    Visibility="{x:Bind Usage.Activity.HasStatusNotice, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE946;" FontSize="12" Foreground="{ThemeResource HealthWarnBrush}" />
+                                                    <TextBlock Text="{x:Bind Usage.Activity.StatusNotice, Mode=OneWay}" FontSize="11" TextWrapping="Wrap" />
+                                                </StackPanel>
                                             </Border>
-                                        </StackPanel>
-                                        <TextBlock Text="{x:Bind Subtitle}" Opacity="0.7" FontSize="13" />
-                                        <TextBlock Text="{x:Bind HealthText}" Opacity="0.6" FontSize="12" />
-                                        <TextBlock Text="{x:Bind LastSwitchedText}" Opacity="0.5" FontSize="12"
-                                                   ToolTipService.ToolTip="{x:Bind LastSwitchedTooltip}" />
-                                    </StackPanel>
 
-                                    <Button Grid.Column="2" VerticalAlignment="Center" Click="OnSwitchClick"
-                                            Visibility="{x:Bind CanSwitch, Converter={StaticResource BoolToVis}}"
-                                            Background="{ThemeResource BrandAccentBrush}"
-                                            Foreground="{ThemeResource BrandOnAccentBrush}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <FontIcon Glyph="&#xE8AB;" FontSize="14" />
-                                            <TextBlock Text="{x:Bind SwitchLabel}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Border Grid.Column="2" VerticalAlignment="Center" Padding="10,6"
-                                            CornerRadius="{StaticResource ControlCornerRadius}"
-                                            Visibility="{x:Bind IsActive, Converter={StaticResource BoolToVis}}"
-                                            Background="{ThemeResource BrandAccentSoftBrush}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="{ThemeResource BrandAccentBrush}" />
-                                            <TextBlock Text="{x:Bind InUseLabel}" Foreground="{ThemeResource BrandAccentBrush}"
-                                                       FontWeight="SemiBold" FontSize="13" />
+                                            <!-- Collapsible Activity Data Content -->
+                                            <StackPanel Visibility="{x:Bind Usage.Activity.HasActivity, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="4">
+                                                <!-- Toggle Button Header -->
+                                                <Button Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="4,2"
+                                                        Command="{x:Bind Usage.Activity.ToggleExpandCommand, Mode=OneWay}">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                            <FontIcon Glyph="&#xE9D9;" FontSize="12" Foreground="{ThemeResource BrandAccentBrush}" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.ActivitySectionTitle, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Opacity="0.8" />
+                                                        </StackPanel>
+                                                        <FontIcon Grid.Column="2" Glyph="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource BoolToChevron}}"
+                                                                  FontSize="10" Opacity="0.5" />
+                                                    </Grid>
+                                                </Button>
+
+                                                <!-- Collapsed Preview (single line: Lifetime & Streak) -->
+                                                <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,0"
+                                                      Visibility="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource InvBoolToVis}}">
+                                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                                                        <TextBlock Text="{x:Bind Usage.Activity.LifetimeTokens, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
+                                                        <TextBlock Text="tokens" FontSize="11" Opacity="0.5" />
+                                                        <TextBlock Text="·" FontSize="11" Opacity="0.4" Margin="2,0" />
+                                                        <TextBlock Text="Peak" FontSize="11" Opacity="0.5" />
+                                                        <TextBlock Text="{x:Bind Usage.Activity.PeakDailyTokens, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" />
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind Usage.Activity.CurrentStreak, Mode=OneWay}" FontSize="11" Opacity="0.7" />
+                                                </Grid>
+
+                                                <!-- Expanded Activity Details -->
+                                                <StackPanel Visibility="{x:Bind Usage.Activity.IsExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="6" Margin="4,2,4,2">
+                                                    <!-- Metric Tiles Grid -->
+                                                    <Grid ColumnDefinitions="*,*,*,*,*" Margin="0,2">
+                                                        <StackPanel Grid.Column="0" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.LifetimeTokensTooltip, Mode=OneWay}">
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LifetimeLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LifetimeTokens, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.PeakDailyTokensTooltip, Mode=OneWay}">
+                                                            <TextBlock Text="{x:Bind Usage.Activity.PeakDayLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.PeakDailyTokens, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="2" Spacing="1" ToolTipService.ToolTip="{x:Bind Usage.Activity.LongestTurnTooltip, Mode=OneWay}">
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestTurnLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestTurn, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="3" Spacing="1">
+                                                            <TextBlock Text="{x:Bind Usage.Activity.CurrentStreakLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.CurrentStreak, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="4" Spacing="1">
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestStreakLabel, Mode=OneWay}" FontSize="9" Opacity="0.6" />
+                                                            <TextBlock Text="{x:Bind Usage.Activity.LongestStreak, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <!-- Daily Activity Mini Bars -->
+                                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled">
+                                                        <ItemsControl ItemsSource="{x:Bind Usage.Activity.Bars, Mode=OneWay}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Height="50" />
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:ActivityBarItemViewModel">
+                                                                    <StackPanel Spacing="2" VerticalAlignment="Bottom" ToolTipService.ToolTip="{x:Bind TooltipText}">
+                                                                        <Border Width="12" Height="{x:Bind BarHeight}" Background="{ThemeResource BrandAccentBrush}"
+                                                                                CornerRadius="2" VerticalAlignment="Bottom" Opacity="0.85" />
+                                                                        <TextBlock Text="{x:Bind DisplayDate}" FontSize="8" Opacity="0.5" HorizontalAlignment="Center" />
+                                                                    </StackPanel>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </ScrollViewer>
+
+                                                    <!-- Server-reported neutral disclaimer -->
+                                                    <TextBlock Text="{x:Bind Usage.Activity.DisclaimerText, Mode=OneWay}" FontSize="10" Opacity="0.4" FontStyle="Italic" />
+                                                </StackPanel>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
 
-                                    <Button Grid.Column="3" VerticalAlignment="Center" Background="Transparent"
-                                            BorderThickness="0" ToolTipService.ToolTip="{x:Bind MoreActionsLabel}">
-                                        <FontIcon Glyph="&#xE712;" FontSize="16" />
-                                        <Button.Flyout>
-                                            <MenuFlyout>
-                                                <MenuFlyoutItem Text="{x:Bind ExportLabel}" Click="OnExportItemClick">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutItem Text="{x:Bind RenameLabel}" Click="OnRenameItemClick">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8AC;" /></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutItem Text="{x:Bind MarkUsedLabel}" Click="OnMarkUsedClick"
-                                                                Visibility="{x:Bind IsMarkedUsed, Converter={StaticResource InvBoolToVis}}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE73E;" /></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutItem Text="{x:Bind UnmarkUsedLabel}" Click="OnUnmarkUsedClick"
-                                                                Visibility="{x:Bind IsMarkedUsed, Converter={StaticResource BoolToVis}}">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE894;" /></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutItem Text="{x:Bind MarkReLoginLabel}" Click="OnMarkReLoginClick">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7BA;" /></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                                <MenuFlyoutSeparator />
-                                                <MenuFlyoutItem Text="{x:Bind RemoveLabel}" Click="OnRemoveItemClick">
-                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
-                                                </MenuFlyoutItem>
-                                            </MenuFlyout>
-                                        </Button.Flyout>
-                                    </Button>
-                                </Grid>
+                                    <!-- Card Footer Row: Health status on Left, Reset credits and Last switched on Right -->
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{x:Bind HealthText}" Opacity="0.6" FontSize="11" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource SubtleButtonStyle}" Padding="4,1" VerticalAlignment="Center"
+                                                    Visibility="{x:Bind Usage.HasResetCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon Glyph="&#xEC05;" FontSize="11" Opacity="0.7" />
+                                                    <TextBlock Text="{x:Bind Usage.ResetCreditsText, Mode=OneWay}" FontSize="11" Opacity="0.8" />
+                                                    <FontIcon Glyph="&#xE70D;" FontSize="8" Opacity="0.5" />
+                                                </StackPanel>
+                                                <Button.Flyout>
+                                                    <Flyout Placement="Top">
+                                                        <StackPanel Spacing="8" MinWidth="240" MaxWidth="340">
+                                                            <TextBlock Text="{x:Bind Usage.ResetCreditsHeader, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" />
+                                                            <ItemsControl ItemsSource="{x:Bind Usage.DetailedCredits, Mode=OneWay}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:ResetCreditItemViewModel">
+                                                                        <Grid Margin="0,3">
+                                                                            <StackPanel Spacing="2">
+                                                                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                                    <Border Width="7" Height="7" CornerRadius="3.5" Background="{x:Bind UrgencyBrush}" VerticalAlignment="Center" />
+                                                                                    <TextBlock Text="{x:Bind Title}" FontWeight="Medium" FontSize="11" />
+                                                                                </StackPanel>
+                                                                                <TextBlock Text="{x:Bind ExpiryText}" FontSize="10" Opacity="0.7" Margin="13,0,0,0" />
+                                                                            </StackPanel>
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                            <TextBlock Text="{x:Bind Usage.UnreportedCreditsText, Mode=OneWay}"
+                                                                       Visibility="{x:Bind Usage.HasUnreportedCredits, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                                       FontSize="10" Opacity="0.6" FontStyle="Italic" />
+                                                            <TextBlock Text="{x:Bind Usage.NoDetailedCreditsMessage, Mode=OneWay}"
+                                                                       Visibility="{x:Bind Usage.HasDetailedCredits, Mode=OneWay, Converter={StaticResource InvBoolToVis}}"
+                                                                       FontSize="11" Opacity="0.6" />
+                                                        </StackPanel>
+                                                    </Flyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                            <TextBlock Text="{x:Bind LastSwitchedText}" Opacity="0.5" FontSize="11"
+                                                       ToolTipService.ToolTip="{x:Bind LastSwitchedTooltip}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>

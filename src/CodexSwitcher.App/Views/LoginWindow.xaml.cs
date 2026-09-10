@@ -104,31 +104,12 @@ public sealed partial class LoginWindow : Window
         Spinner.IsActive = false;
     }
 
-    /// <summary>Baixa e instala o WebView2 Runtime via <see cref="WebView2Bootstrap"/>; ao concluir,
-    /// tenta o login de novo. Ver pedido do usuário 2026-07-04.</summary>
-    private async void OnInstallWebView2Click(object sender, RoutedEventArgs e)
+    private void OnInstallWebView2Click(object sender, RoutedEventArgs e)
     {
-        InstallWebView2Button.IsEnabled = false;
-        SetStatus(_loc.LoginWebView2Installing);
-        HintText.Text = string.Empty;
-        Spinner.IsActive = true;
-
-        var installed = await WebView2Bootstrap.TryInstallRuntimeAsync(_paths.TempRoot, _cts.Token);
-
-        if (_completed) return;
-
-        if (installed)
+        if (!WebView2Bootstrap.OpenOfficialDownloadPage())
         {
-            InstallWebView2Button.Visibility = Visibility.Collapsed;
-            InstallWebView2Button.IsEnabled = true;
-            await StartAsync();
-            return;
+            SetStatus(_loc.LoginWebView2InstallFailed);
         }
-
-        InstallWebView2Button.IsEnabled = true;
-        SetStatus(_loc.LoginWebView2InstallFailed);
-        HintText.Text = _loc.LoginWebView2MissingHint;
-        Spinner.IsActive = false;
     }
 
     private async Task RunLoginAsync()

@@ -80,12 +80,43 @@ public sealed partial class AccountsView : UserControl
         _browserWindow.Activate();
     }
 
+    private SettingsWindow? _settingsWindow;
+
+    private void OnOpenSettingsClick(object sender, RoutedEventArgs e)
+    {
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        var vm = AppHost.Services.GetService(typeof(SettingsViewModel)) as SettingsViewModel
+                 ?? throw new InvalidOperationException("SettingsViewModel não registrado.");
+
+        vm.OnMigrationCompleted = () =>
+        {
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                await ViewModel.LoadCommand.ExecuteAsync(null);
+            });
+        };
+
+        _settingsWindow = new SettingsWindow(vm);
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Activate();
+    }
+
     private static AccountItemViewModel? ItemOf(object sender) =>
         (sender as FrameworkElement)?.DataContext as AccountItemViewModel;
 
     private void OnSwitchClick(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) ViewModel.SwitchCommand.Execute(item);
+    }
+
+    private void OnRefreshAccountClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.RefreshAccountCommand.Execute(item);
     }
 
     private void OnExportItemClick(object sender, RoutedEventArgs e)
@@ -96,6 +127,11 @@ public sealed partial class AccountsView : UserControl
     private void OnRenameItemClick(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) ViewModel.RenameCommand.Execute(item);
+    }
+
+    private void OnSubscriptionTrackingClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.EditSubscriptionTrackingCommand.Execute(item);
     }
 
     private void OnRemoveItemClick(object sender, RoutedEventArgs e)

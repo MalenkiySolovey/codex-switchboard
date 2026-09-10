@@ -10,7 +10,7 @@ namespace CodexSwitcher.Infra.Io;
 /// </summary>
 public static class TempCleanup
 {
-    private static readonly string[] EphemeralPrefixes = ["codex-webview-", "codex-login-", "codex-browser-"];
+    private static readonly string[] EphemeralPrefixes = ["codex-webview-", "codex-login-", "codex-browser-", "usage-"];
 
     /// <summary>
     /// Apaga, na inicialização, quaisquer pastas efêmeras que sobraram de execuções anteriores.

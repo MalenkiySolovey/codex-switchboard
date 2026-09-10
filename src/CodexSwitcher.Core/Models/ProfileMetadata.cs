@@ -58,6 +58,12 @@ public sealed class ProfileMetadata
     /// <summary>Posição de exibição definida pelo usuário via drag-and-drop (crescente).</summary>
     public int SortOrder { get; set; }
 
+    /// <summary>
+    /// Metadados opcionais de rastreamento local de assinatura fornecidos pelo usuário.
+    /// Nunca inferidos automaticamente de tokens ou datas de perfil.
+    /// </summary>
+    public SubscriptionTracking? SubscriptionTracking { get; set; }
+
     /// <summary>Nome de exibição preferido: apelido, senão e-mail, senão id curto.</summary>
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(Nickname) ? Nickname

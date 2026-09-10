@@ -22,12 +22,13 @@ public sealed class AccountItemViewModel
 {
     private static Strings Loc => Strings.Current;
 
-    public AccountItemViewModel(ProfileMetadata profile, DateTimeOffset now, AppSettings settings)
+    public AccountItemViewModel(ProfileMetadata profile, DateTimeOffset now, AppSettings settings, AccountUsageViewModel? usage = null)
     {
         Profile = profile;
         Id = profile.Id;
         DisplayName = profile.DisplayName;
         IsActive = profile.IsActive;
+        Usage = usage ?? new AccountUsageViewModel(profile.Id);
 
         Subtitle = !string.IsNullOrWhiteSpace(profile.AccountEmail)
             ? profile.AccountEmail!
@@ -45,16 +46,24 @@ public sealed class AccountItemViewModel
         HealthText = ComputeHealthText(profile, now, settings);
         NeedsAttention = Badge is AccountBadge.NeedsReLogin or AccountBadge.Error;
         IsMarkedUsed = profile.MarkedUsedAt is { } markedAt && (now - markedAt) < TimeSpan.FromHours(24);
+
+        var today = DateOnly.FromDateTime(now.LocalDateTime);
+        SubscriptionDisplayText = SubscriptionFormatter.FormatDisplayText(profile.SubscriptionTracking, today, culture: null, pt: Loc.Pt);
+        SubscriptionTooltipText = SubscriptionFormatter.FormatTooltipText(profile.SubscriptionTracking, today, culture: null, pt: Loc.Pt);
     }
 
     public ProfileMetadata Profile { get; }
     public Guid Id { get; }
+    public AccountUsageViewModel Usage { get; }
     public string DisplayName { get; }
     public string Subtitle { get; }
     public string Initials { get; }
     public bool IsActive { get; }
     public AccountBadge Badge { get; }
     public string? PlanText { get; }
+    public string? SubscriptionDisplayText { get; }
+    public string? SubscriptionTooltipText { get; }
+    public bool HasSubscriptionText => !string.IsNullOrWhiteSpace(SubscriptionDisplayText);
     public string LastSwitchedText { get; }
     public string LastSwitchedTooltip { get; }
     public string HealthText { get; }
@@ -69,6 +78,7 @@ public sealed class AccountItemViewModel
     public string InUseLabel => Loc.InUse;
     public string ExportLabel => Loc.Export;
     public string RenameLabel => Loc.Rename;
+    public string SubscriptionTrackingLabel => Loc.SubscriptionTrackingLabel;
     public string MarkReLoginLabel => Loc.MarkNeedsReLogin;
     public string MarkUsedLabel => Loc.MarkUsed;
     public string UnmarkUsedLabel => Loc.UnmarkUsed;

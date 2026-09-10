@@ -151,6 +151,8 @@ public sealed class UiInteractionService : IUiInteraction
     public async Task<string?> PickImportFileAsync()
     {
         var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".codexswitchboard");
+        picker.FileTypeFilter.Add(".codexswitcher");
         picker.FileTypeFilter.Add(".json");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(_window));
         var file = await picker.PickSingleFileAsync();
@@ -164,12 +166,144 @@ public sealed class UiInteractionService : IUiInteraction
             SuggestedFileName = suggestedFileName,
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
         };
-        picker.FileTypeChoices.Add("Codex Switcher accounts", [".json"]);
+        picker.FileTypeChoices.Add("Codex Switchboard accounts (*.codexswitchboard)", [".codexswitchboard"]);
+        picker.FileTypeChoices.Add("Codex Switcher accounts (*.codexswitcher)", [".codexswitcher"]);
+        picker.FileTypeChoices.Add("JSON files (*.json)", [".json"]);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(_window));
         StorageFile? file = await picker.PickSaveFileAsync();
         if (file is null) return false;
         await FileIO.WriteTextAsync(file, contents);
         return true;
+    }
+
+    public async Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current)
+    {
+        var panel = new StackPanel { Spacing = 14, MinWidth = 360, MaxWidth = 420 };
+
+        // Disclaimer
+        var disclaimer = new InfoBar
+        {
+            IsOpen = true,
+            IsClosable = false,
+            Severity = InfoBarSeverity.Informational,
+            Message = _loc.SubscriptionTrackingDisclaimer,
+        };
+        panel.Children.Add(disclaimer);
+
+        // Mode RadioButtons
+        var modePanel = new StackPanel { Spacing = 6 };
+        modePanel.Children.Add(new TextBlock { Text = _loc.SubscriptionModeLabel, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var radioRenewal = new RadioButton { Content = _loc.SubscriptionModeRenewal, IsChecked = current?.Mode != SubscriptionTrackingMode.Expiration };
+        var radioExpiration = new RadioButton { Content = _loc.SubscriptionModeExpiration, IsChecked = current?.Mode == SubscriptionTrackingMode.Expiration };
+        var radioStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        radioStack.Children.Add(radioRenewal);
+        radioStack.Children.Add(radioExpiration);
+        modePanel.Children.Add(radioStack);
+        panel.Children.Add(modePanel);
+
+        // Target DatePicker
+        var targetPanel = new StackPanel { Spacing = 6 };
+        targetPanel.Children.Add(new TextBlock { Text = _loc.SubscriptionTargetLabel, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var targetPicker = new DatePicker();
+        if (current?.NextRenewalOrExpiryOn is { } dt)
+        {
+            targetPicker.Date = new DateTimeOffset(dt.ToDateTime(TimeOnly.MinValue));
+        }
+        else
+        {
+            targetPicker.Date = DateTimeOffset.Now;
+        }
+        targetPanel.Children.Add(targetPicker);
+        panel.Children.Add(targetPanel);
+
+        // Started DatePicker (Optional)
+        var startedPanel = new StackPanel { Spacing = 6 };
+        var startedCheck = new CheckBox { Content = _loc.SubscriptionStartedLabel, IsChecked = current?.StartedOn.HasValue == true };
+        var startedPicker = new DatePicker
+        {
+            IsEnabled = startedCheck.IsChecked == true,
+        };
+        if (current?.StartedOn is { } st)
+        {
+            startedPicker.Date = new DateTimeOffset(st.ToDateTime(TimeOnly.MinValue));
+        }
+        else
+        {
+            startedPicker.Date = DateTimeOffset.Now;
+        }
+        startedCheck.Checked += (_, _) => startedPicker.IsEnabled = true;
+        startedCheck.Unchecked += (_, _) => startedPicker.IsEnabled = false;
+        startedPanel.Children.Add(startedCheck);
+        startedPanel.Children.Add(startedPicker);
+        panel.Children.Add(startedPanel);
+
+        // Monthly Estimation Button
+        var isEstimated = current?.IsEstimated == true;
+        var estimateButton = new Button
+        {
+            Content = _loc.SubscriptionEstimateButton,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        estimateButton.Click += (_, _) =>
+        {
+            var start = DateOnly.FromDateTime(startedPicker.Date.DateTime);
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var estimated = SubscriptionTracking.EstimateNextMonthlyRenewal(start, today);
+            if (estimated.HasValue)
+            {
+                targetPicker.Date = new DateTimeOffset(estimated.Value.ToDateTime(TimeOnly.MinValue));
+                radioRenewal.IsChecked = true;
+                isEstimated = true;
+            }
+        };
+        panel.Children.Add(estimateButton);
+
+        // Manage Link Button
+        var manageLink = new HyperlinkButton
+        {
+            Content = _loc.SubscriptionManageLink,
+            NavigateUri = new Uri(CodexSwitcher.Core.Support.SubscriptionFormatter.OfficialBillingUrl),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        panel.Children.Add(manageLink);
+
+        var dialog = new ContentDialog
+        {
+            Title = $"{_loc.SubscriptionTrackingTitle}: {accountName}",
+            Content = panel,
+            PrimaryButtonText = _loc.Save,
+            SecondaryButtonText = _loc.SubscriptionClearButton,
+            CloseButtonText = _loc.Cancel,
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Secondary)
+        {
+            // Clear tracking
+            return null;
+        }
+        if (result == ContentDialogResult.Primary)
+        {
+            var targetDate = DateOnly.FromDateTime(targetPicker.Date.DateTime);
+            DateOnly? startedDate = startedCheck.IsChecked == true
+                ? DateOnly.FromDateTime(startedPicker.Date.DateTime)
+                : null;
+            var mode = radioExpiration.IsChecked == true
+                ? SubscriptionTrackingMode.Expiration
+                : SubscriptionTrackingMode.Renewal;
+
+            return new SubscriptionTracking(
+                StartedOn: startedDate,
+                NextRenewalOrExpiryOn: targetDate,
+                Mode: mode,
+                Source: SubscriptionDateSource.UserProvided,
+                IsEstimated: isEstimated);
+        }
+
+        // Canceled: return current unchanged
+        return current;
     }
 
     private static StackPanel SectionText(string heading, string body)

@@ -8,24 +8,35 @@ namespace CodexSwitcher.Infra;
 /// </summary>
 public sealed class AppPaths
 {
+    public static string DefaultRoot =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexSwitchboard");
+
+    public static string LegacyDefaultRoot =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexSwitcher");
+
     public string Root { get; }
+    public string LegacyRoot { get; }
     public string VaultDir => Path.Combine(Root, "vault");
     public string BackupsDir => Path.Combine(Root, "backups");
     public string ProfilesPath => Path.Combine(Root, "profiles.json");
     public string SettingsPath => Path.Combine(Root, "settings.json");
     public string AuditLogPath => Path.Combine(Root, "audit.log");
+    public string UsageCachePath => Path.Combine(Root, "usage-cache.json");
 
     // Pasta de trabalho isolada para login/refresh (CODEX_HOME efêmero). NÃO usar %TEMP%: o codex
     // recusa criar binários auxiliares sob o diretório temporário do sistema. Ver §5/§6.
     public string TempRoot => Path.Combine(Root, "work");
     public CodexPaths Codex { get; }
 
-    public AppPaths(string? root = null, string? codexHome = null)
+    public AppPaths(string? root = null, string? codexHome = null, string? legacyRoot = null)
     {
-        // Override opcional da pasta de dados (CODEXSWITCHER_HOME) para portabilidade/testes.
+        // Active Switchboard data root: strictly CODEXSWITCHBOARD_HOME or DefaultRoot.
+        // Never falls back to CODEXSWITCHER_HOME to guarantee isolation from upstream legacy switcher.
         Root = root
-            ?? Environment.GetEnvironmentVariable("CODEXSWITCHER_HOME")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexSwitcher");
+            ?? Environment.GetEnvironmentVariable("CODEXSWITCHBOARD_HOME")
+            ?? DefaultRoot;
+
+        LegacyRoot = LegacyDataRootResolver.ResolveLegacyRoot(legacyRoot);
 
         var home = codexHome
             ?? Environment.GetEnvironmentVariable("CODEX_HOME")
@@ -41,4 +52,16 @@ public sealed class AppPaths
         Directory.CreateDirectory(BackupsDir);
         Directory.CreateDirectory(TempRoot);
     }
+}
+
+/// <summary>
+/// Dedicated resolver for legacy CodexSwitcher data root.
+/// Guaranteed to be isolated from the active Switchboard destination root.
+/// </summary>
+public static class LegacyDataRootResolver
+{
+    public static string ResolveLegacyRoot(string? explicitLegacyRoot = null) =>
+        explicitLegacyRoot
+        ?? Environment.GetEnvironmentVariable("CODEXSWITCHER_HOME")
+        ?? AppPaths.LegacyDefaultRoot;
 }

@@ -7,8 +7,8 @@
     <RootNamespace>CodexSwitcher.App</RootNamespace>
     <!-- WinUI 3 (unpackaged) ties resources.pri/manifest lookups to the built exe's own name at
          build time; renaming the exe after publish breaks activation (Microsoft.UI.Xaml.dll crash).
-         Set the name here so the produced binary is always CodexSwitcher.exe. -->
-    <AssemblyName>CodexSwitcher</AssemblyName>
+         Set the name here so the produced binary is always CodexSwitchboard.exe. -->
+    <AssemblyName>CodexSwitchboard</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -21,6 +21,7 @@
     <SelfContained>true</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

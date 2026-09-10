@@ -31,4 +31,7 @@ public interface IUiInteraction
 
     /// <summary>Escolhe onde salvar um arquivo de contas e grava seu conteúdo.</summary>
     Task<bool> SaveExportFileAsync(string suggestedFileName, string contents);
+
+    /// <summary>Abre o diálogo de rastreamento de assinatura fornecido pelo usuário.</summary>
+    Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current);
 }

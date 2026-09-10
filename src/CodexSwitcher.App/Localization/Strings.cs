@@ -86,6 +86,10 @@ public sealed class Strings
         "Adicione sua primeira conta do Codex fazendo login numa sessão limpa, ou importe a conta que já está logada no seu computador.",
         "Add your first Codex account by signing in with a clean session, or import the account already logged in on this computer.");
     public string ImportCurrent => S("Importar conta atual", "Import current account");
+    public string DetectedAccountTitle => S("Conta atual do Codex detectada", "Current Codex account detected");
+    public string DetectedAccountBody => S(
+        "Uma sessão ativa do Codex foi encontrada neste computador. Deseja importá-la para o cofre seguro?",
+        "An active Codex session was found on this computer. Would you like to import it into the secure vault?");
 
     // Adoção
     public string AdoptTitle => S("Conta detectada no Codex", "Account detected in Codex");
@@ -113,6 +117,12 @@ public sealed class Strings
     public string BadgeNeedsReLogin => S("Precisa re-login", "Needs re-login");
     public string BadgeError => S("Erro", "Error");
     public string BadgeUnavailable => S("Indisponível", "Unavailable");
+    public string BadgeStaleData => S("DADOS EM CACHE", "STALE DATA");
+    public string BadgeRateLimited => S("LIMITE ATINGIDO", "RATE LIMITED");
+    public string BadgeNeverLoaded => S("Cota ainda não consultada", "No usage data yet");
+    public string LimitReached => S("LIMITE ATINGIDO", "LIMIT REACHED");
+    public string QuotaHeader => S("Cota de uso", "Usage quota");
+    public string RefreshQuotaTooltip => S("Atualizar cota agora", "Refresh quota now");
 
     // Subtítulo / saúde do item
     public string CodexAccount => S("conta Codex", "Codex account");
@@ -230,17 +240,17 @@ public sealed class Strings
         "Verifique se o WebView2 Runtime (Evergreen) está instalado. ",
         "Make sure the WebView2 Runtime (Evergreen) is installed. ");
     public string LoginWebView2Missing => S(
-        "O WebView2 Runtime não está instalado neste Windows.",
-        "The WebView2 Runtime is not installed on this Windows.");
+        "O WebView2 Runtime não está instalado neste sistema.",
+        "The WebView2 Runtime is not installed on this system.");
     public string LoginWebView2MissingHint => S(
-        "Necessário para abrir a página de login (o Windows 10 não vem com ele por padrão).",
-        "Required to open the sign-in page (Windows 10 does not include it by default).");
-    public string LoginWebView2InstallButton => S("Baixar e instalar", "Download and install");
+        "O WebView2 Runtime é necessário apenas para adicionar contas via navegador. Suas contas existentes, troca de perfil e monitoramento de cota continuam funcionando normalmente.",
+        "The WebView2 Runtime is required only for browser-based OAuth account additions. Your existing accounts, switching, and rate-limit monitoring continue to function normally without it.");
+    public string LoginWebView2InstallButton => S("Abrir página da Microsoft", "Open Microsoft info page");
     public string LoginWebView2Installing => S(
-        "Baixando e instalando o WebView2 Runtime…", "Downloading and installing the WebView2 Runtime…");
+        "Abrindo a página oficial da Microsoft…", "Opening official Microsoft page…");
     public string LoginWebView2InstallFailed => S(
-        "Não foi possível instalar automaticamente. Tente novamente ou instale manualmente pelo site da Microsoft.",
-        "Could not install it automatically. Try again or install it manually from Microsoft's site.");
+        "Não foi possível abrir o navegador. Acesse manualmente o site da Microsoft para obter o WebView2 Runtime.",
+        "Could not open browser. Please visit Microsoft's site manually to get WebView2 Runtime.");
     public string LoginCleanOpened => S(
         "Sessão limpa aberta. Entre na sua conta do ChatGPT para continuar.",
         "Clean session open. Sign in to your ChatGPT account to continue.");
@@ -254,12 +264,47 @@ public sealed class Strings
         "Close this window and try again. Your session stays clean and nothing was changed.");
     public string Close => S("Fechar", "Close");
     public string ImportAccounts => S("Importar", "Import");
-    public string ImportAccountsTooltip => S("Importar contas exportadas do Codex Switcher", "Import accounts exported by Codex Switcher");
+    public string ImportAccountsTooltip => S("Importar contas exportadas (Codex Switchboard / Codex Switcher)", "Import exported accounts (Codex Switchboard / Codex Switcher)");
     public string ExportAll => S("Exportar todas", "Export all");
     public string ExportAllTooltip => S("Exportar todas as contas do cofre", "Export all vault accounts");
     public string Export => S("Exportar", "Export");
     public string HealthSaved => S("Credencial salva no cofre", "Credential saved in vault");
     public string BusyExporting => S("Exportando contas...", "Exporting accounts...");
+
+    // Configurações e Sobre
+    public string SettingsButton => S("Configurações", "Settings");
+    public string SettingsButtonTooltip => S("Configurações e diagnóstico do sistema", "Settings and system diagnostics");
+    public string SettingsTitle => S("Configurações e Sobre", "Settings & About");
+    public string AppDescription => S(
+        "Aplicativo Windows nativo para gerenciar contas do Codex, alternar credenciais com segurança e monitorar cotas.",
+        "Native Windows app to securely manage multiple Codex accounts, switch active credentials, and monitor rate limits.");
+    public string IndependenceNotice => S(
+        "Projeto independente de código aberto. Não afiliado, endossado ou suportado pela OpenAI.",
+        "Independent open-source project. Not affiliated with, endorsed by, or supported by OpenAI.");
+    public string CodexRuntimeSection => S("Ambiente de Execução do Codex", "Codex Runtime Environment");
+    public string DetectedRuntimeLabel => S("Executável detectado:", "Detected executable:");
+    public string RuntimeVersionLabel => S("Versão detectada:", "Detected version:");
+    public string RateLimitsCapabilityLabel => S("Monitoramento de cotas:", "Rate limits monitoring:");
+    public string AccountActivityCapabilityLabel => S("Atividade histórica da conta:", "Account Activity:");
+    public string CapabilitySupported => S("Suportado", "Supported");
+    public string CapabilityUnsupported => S("Não suportado", "Unsupported");
+    public string CapabilityUnavailable => S("Temporariamente indisponível", "Temporarily unavailable");
+    public string CustomRuntimeOverrideLabel => S("Caminho personalizado do executável (opcional):", "Custom executable path override (optional):");
+    public string BrowseButton => S("Procurar…", "Browse…");
+    public string AutoDetectButton => S("Detecção automática", "Auto-detect");
+    public string ApplyButton => S("Aplicar", "Apply");
+    public string ExecutableInvalidMsg => S("O executável especificado não foi encontrado ou não é válido.", "The specified executable was not found or is invalid.");
+    public string SettingsSavedMsg => S("Configurações salvas e diagnóstico atualizado.", "Settings saved and diagnostics updated.");
+    public string LegacyMigrationSection => S("Migração de Dados Legados", "Legacy Data Migration");
+    public string LegacyMigrationDetectedMsg => S(
+        "Dados do Codex Account Switcher foram detectados no seu computador.",
+        "Codex Account Switcher data was detected on this computer.");
+    public string LegacyMigrationNoneMsg => S("Nenhum dado legado encontrado para migração.", "No legacy data found to migrate.");
+    public string ImportLegacyButton => S("Importar dados do Codex Account Switcher", "Import data from Codex Account Switcher");
+    public string MigrationSuccessMsg(int count) => S(
+        $"{count} conta(s) migradas com sucesso para o Codex Switchboard. Os arquivos originais foram mantidos intactos.",
+        $"Successfully migrated {count} account(s) to Codex Switchboard. Original files remain untouched.");
+    public string MigrationFailedMsg(string reason) => S($"Falha na migração: {reason}", $"Migration failed: {reason}");
     public string ImportedAccountsMsg(int count) => S(
         $"{count} conta(s) foram importadas para o cofre.", $"{count} account(s) were imported into the vault.");
     public string ExportTitle => S("Exportar credenciais", "Export credentials");
@@ -271,4 +316,37 @@ public sealed class Strings
     public string ExportedAllMsg(int count) => S($"{count} conta(s) foram exportadas.", $"{count} account(s) were exported.");
     public string ExportedOneMsg(string name) => S($"{name} foi exportada.", $"{name} was exported.");
     public string Cancelar => Cancel;
+
+    // Phase 4: Atividade histórica da conta (account/usage/read)
+    public string AccountActivityHeader => S("Atividade da conta", "Account activity");
+    public string LifetimeTokensLabel => S("Total de tokens", "Lifetime tokens");
+    public string PeakDailyTokensLabel => S("Pico diário", "Peak daily tokens");
+    public string LongestTurnLabel => S("Maior turno", "Longest turn");
+    public string CurrentStreakLabel => S("Sequência atual", "Current streak");
+    public string LongestStreakLabel => S("Maior sequência", "Longest streak");
+    public string DailyActivityLabel => S("Atividade diária", "Daily activity");
+    public string ServerReportedDisclaimer => S("Atividade reportada pelo servidor • Fuso não convertido", "Server-reported activity • Dates not converted");
+    public string NoActivityReported => S("Nenhuma atividade registrada", "No activity reported");
+
+    // Phase 5.7: Reset credits & Subscription tracking
+    public string ResetCreditsHeader => S("Créditos de reinício de cota", "Rate limit reset credits");
+    public string ResetCreditsNone => S("Nenhum detalhe adicional informado pelo runtime", "No additional details reported by runtime");
+    public string ResetCreditsUnreported(int count) => S(
+        $"+ {count} crédito(s) adicional(is) não detalhado(s) pelo servidor",
+        $"+ {count} additional credit(s) not detailed by server");
+
+    public string SubscriptionTrackingLabel => S("Rastreamento de assinatura…", "Subscription tracking…");
+    public string SubscriptionTrackingTitle => S("Rastreamento de Assinatura", "Subscription Tracking");
+    public string SubscriptionTrackingDisclaimer => S(
+        "Rastreamento local fornecido pelo usuário. O Codex não expõe datas de faturamento do ChatGPT. As datas informadas são salvas apenas localmente neste computador.",
+        "User-provided local tracking. Codex does not expose ChatGPT billing dates. The entered dates are stored locally on this computer only.");
+    public string SubscriptionModeLabel => S("Tipo de evento:", "Date type:");
+    public string SubscriptionModeRenewal => S("Renovação", "Renewal");
+    public string SubscriptionModeExpiration => S("Expiração", "Expiration");
+    public string SubscriptionStartedLabel => S("Data de início (opcional):", "Started date (optional):");
+    public string SubscriptionTargetLabel => S("Data de renovação/expiração:", "Renewal/expiration date:");
+    public string SubscriptionEstimateButton => S("Estimar próxima renovação mensal", "Estimate next monthly renewal");
+    public string SubscriptionManageLink => S("Gerenciar assinatura oficial no ChatGPT", "Manage official subscription on ChatGPT");
+    public string SubscriptionClearButton => S("Limpar rastreamento", "Clear tracking");
+    public string SubscriptionEstimatedNotice => S("(data estimada mensalmente)", "(monthly estimated date)");
 }
