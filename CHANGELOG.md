@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.1] - 2026-09-10
+
+### Collapsible / Compact Account Cards
+
+#### Added
+- **Collapsible Account Cards:** Each account card now features an interactive expand/collapse toggle chevron with dual presentation states:
+  - **Expanded:** Complete full-featured account card preserving all quota progress bars, Account Activity telemetry, and detailed credit breakdowns.
+  - **Compact:** High-density operational summary (~64px height) displaying Avatar, Display Name, status badges, Plan badge, subscription tracking, and up to 2 high-priority quota windows with dynamic health colors and countdowns.
+- **Deterministic Quota Window Prioritization in Compact Mode:**
+  - Intelligently displays the most actionable quota windows: Exhausted/rate-limited windows first, low-quota (<20%) windows second, followed by shortest duration windows.
+  - Informative `+N` badge with detailed hover tooltip detailing all additional quota windows.
+- **Compact Reset Credits:** Instant lightning badge (``) with flyout detailing earned credits and expiration urgency.
+- **Operational Efficiency:** Quick 1-click Switch, manual per-account Refresh, and context flyouts remain fully functional directly within compact cards.
+- **Durable UI Persistence:** Card collapsed states are durably persisted in `settings.json` (`CollapsedProfileIds`) keyed by `ProfileId`. Survives application restarts, account list rebuilds, background polling, filtering, and drag-and-drop reordering.
+- **Single Fact Ownership:** Clean separation between UI display state and domain models; zero side effects on credential vaults, encryption, or quota calculations.
+- **Expanded Test Suite:** 22 new unit tests covering persistence round-tripping, backward compatibility, corrupted settings recovery, deterministic quota selection, and truthful states, bringing the automated test suite to **356 passing tests**.
+
+---
+
 ## [0.1.0-preview.4] - 2026-09-10
 
 ### Initial Preview Release Candidate

@@ -8,9 +8,9 @@
 ![Платформа](https://img.shields.io/badge/платформа-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![Интерфейс](https://img.shields.io/badge/интерфейс-WinUI%203%20Fluent-2E9BFF)
-![Тесты](https://img.shields.io/badge/тесты-334%20пройдены-3DDC84)
+![Тесты](https://img.shields.io/badge/тесты-356%20пройдены-3DDC84)
 ![Архитектура](https://img.shields.io/badge/архитектура-x64-blue)
-![Релиз](https://img.shields.io/badge/превью-v0.1.0--preview.4-orange)
+![Релиз](https://img.shields.io/badge/релиз-v0.1.1-brightgreen)
 
 ---
 
@@ -182,7 +182,7 @@ Codex Switchboard построен по модульной многослойн�
 
 Готовые исполняемые сборки для Windows x64 доступны в разделе [GitHub Releases](../../releases).
 
-1. Скачайте архив **`CodexSwitchboard-0.1.0-preview.4-win-x64.zip`** из последнего релиза.
+1. Скачайте архив **`CodexSwitchboard-0.1.1-win-x64.zip`** из последнего релиза.
 2. Распакуйте архив в любую удобную папку.
 3. Запустите **`CodexSwitchboard.exe`**.
 
@@ -205,16 +205,16 @@ dotnet restore CodexSwitcher.slnx
 # Сборка проекта в конфигурации Release
 dotnet build CodexSwitcher.slnx -c Release
 
-# Запуск полного набора офлайн-тестов (334 теста)
+# Запуск полного набора офлайн-тестов (356 тестов)
 dotnet test CodexSwitcher.slnx -c Release --no-build
 ```
 
 ### 2. Создание локального установочного архива
 Запустите скрипт сборки и упаковки:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.0-preview.4"
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.1"
 ```
-Файлы сборки: `dist/CodexSwitchboard-0.1.0-preview.4-win-x64.zip` и контрольная сумма `dist/SHA256SUMS.txt`.
+Файлы сборки: `dist/CodexSwitchboard-0.1.1-win-x64.zip` и контрольная сумма `dist/SHA256SUMS.txt`.
 
 ---
 
