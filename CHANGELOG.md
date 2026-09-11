@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.3] - 2026-09-11
+
+### Added
+- **Best-Effort Automatic Subscription Term Detection:** Extracts subscription period metadata (`chatgpt_subscription_active_start`, `chatgpt_subscription_active_until`, `chatgpt_plan_type`) directly from local OAuth credentials under `https://api.openai.com/auth`.
+- **Subscription Tracking Dialog Integration:** Added a convenient one-click "Use detected date" prefill option to the manual subscription tracking dialog when detected dates are available.
+- **Provenance-Aware Subscription Tooltips:** Displays exact observation source, date span, and neutral phrasing without asserting unverified billing claims.
+
+### Changed
+- **Polished Status Badges:** Redesigned `Ready`, `Active now`, `Refreshing`, `Rate limited`, and `Stale` badges into compact, elegant Fluent rounded rectangles (`CornerRadius = 6`, `MinHeight = 20`, centered typography).
+- **Aligned Metadata Baseline:** Unified typography and vertical centering across `Subtitle` (email), `PlanText`, and `SubscriptionDisplayText` on account cards with clean dynamic dot separators (`·`).
+
+### Fixed
+- **Compact Quota Reset Visibility Bug:** Fixed an issue where compact account cards omitted quota reset countdowns until the card was expanded and collapsed.
+- **Immediate Startup Quota Display:** Restored usage cache on application startup before initial account list rendering, ensuring cached quota reset countdowns appear immediately upon launch.
+
+### Security / Privacy
+- **Strictly Local Detection:** Subscription claim extraction executes entirely locally; private ChatGPT web endpoints (e.g. `/backend-api/subscriptions`) are never queried.
+- **Token Invariant Enforcement:** JWT `exp` and `iat` are strictly ignored for billing purposes; tokens are never persisted in derived subscription metadata.
+- **Manual Override Precedence:** User-configured manual subscription tracking strictly overrides automatically detected claims and is never overwritten.
+
+---
+
 ## [0.1.2] - 2026-09-11
 
 ### Profile 2FA / TOTP

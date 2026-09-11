@@ -8,9 +8,9 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
-![Tests](https://img.shields.io/badge/tests-458%20passing-3DDC84)
+![Tests](https://img.shields.io/badge/tests-468%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
-![Release](https://img.shields.io/badge/release-v0.1.2-brightgreen)
+![Release](https://img.shields.io/badge/release-v0.1.3-brightgreen)
 
 ---
 
@@ -43,10 +43,10 @@ Codex Switchboard solves both challenges:
   1. *Confirmation & pre-flight checks.*
   2. *Fail-fast decryption test* of target credentials before modifying any active files.
   3. *Process discovery & graceful shutdown* of running Codex processes to prevent file lock errors.
-  4. *Anti-race verification* ensuring no concurrent mutations occurred.
-  5. *Active slot token write-back* capturing tokens refreshed by the CLI during active sessions.
-  6. *Encrypted timestamped backup* of the previous active slot.
-  7. *Atomic file swap* via temporary replacement.
+  4. *Atomic credentials backup* to timestamped recovery storage.
+  5. *Atomic file swap* (`%USERPROFILE%\.codex\auth.json`).
+  6. *Decryption verification* of newly placed credentials in the active slot.
+  7. *Post-swap health probe* to confirm token validity.
   8. *Configuration verification* (`cli_auth_credentials_store = "file"` in `config.toml`).
   9. *Metadata state update* in `profiles.json`.
   10. *Process relaunch* to resume developer workflow.
@@ -66,7 +66,9 @@ Codex Switchboard solves both challenges:
 
 ### Plan & Subscription Intelligence
 - **Automatic Tier Detection:** Identifies account subscription tiers (Plus, Team, Enterprise, Free) directly from credential claims and app-server responses.
-- **Visual Plan Badges:** Clearly displays plan type on each account card for quick context when choosing which account to activate.
+- **Best-Effort Subscription Period Detection:** Automatically surfaces subscription period information (e.g. `period until Oct 2`) from local Codex OAuth metadata without contacting private billing APIs.
+- **Manual Tracking Override:** Preserves user-configured renewal or expiration tracking with complete authority over detected claims.
+- **Visual Plan Badges:** Clearly displays plan type and subscription details on each account card for quick context when choosing which account to activate.
 
 ### Account Activity Telemetry (Compatible Runtimes)
 - **Activity & Streak Metrics:** Displays server-reported lifetime token consumption, peak daily usage, longest turn duration, current streak, and longest streak days.
@@ -190,7 +192,7 @@ All configuration, credentials, and cache files reside strictly on your local co
 
 Pre-built Windows x64 binaries are available under [GitHub Releases](../../releases).
 
-1. Download **`CodexSwitchboard-0.1.2-win-x64.zip`** from the latest release.
+1. Download **`CodexSwitchboard-0.1.3-win-x64.zip`** from the latest release.
 2. Extract the archive to any folder.
 3. Run **`CodexSwitchboard.exe`**.
 
@@ -213,16 +215,16 @@ dotnet restore CodexSwitcher.slnx
 # Build solution in Release configuration
 dotnet build CodexSwitcher.slnx -c Release
 
-# Run the complete offline test suite (458 tests)
+# Run the complete offline test suite (468 tests)
 dotnet test CodexSwitcher.slnx -c Release --no-build
 ```
 
 ### 2. Package Local Release Candidate
 Execute the packaging script to build, test, sanitize, and produce an unpackaged release archive:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.2"
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.3"
 ```
-Output artifact: `dist/CodexSwitchboard-0.1.2-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
+Output artifact: `dist/CodexSwitchboard-0.1.3-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
 
 ---
 

@@ -71,8 +71,9 @@ Security updates are provided for the following versions:
 
 | Version | Supported | Notes |
 | :--- | :---: | :--- |
-| **0.1.2** | ✅ | Current stable release |
-| **0.1.1** | ✅ | Supported |
+| **0.1.3** | ✅ | Current stable release |
+| **0.1.2** | ❌ | Superseded by 0.1.3 |
+| **0.1.1** | ❌ | Superseded by 0.1.3 |
 | **0.1.0-preview.4** | ❌ | Superseded preview release |
 | **Legacy CodexSwitcher** | ❌ | Discontinued upstream; users should migrate to Switchboard |
 

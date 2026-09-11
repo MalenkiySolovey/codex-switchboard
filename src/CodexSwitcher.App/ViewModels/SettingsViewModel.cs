@@ -31,7 +31,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public string AppVersion =>
         typeof(SettingsViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
         ?? typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3)
-        ?? "0.1.3-preview.1";
+        ?? "0.1.3";
     public string RepositoryUrl => "https://github.com/MalenkiySolovey/codex-switchboard";
     public string LicenseNotice => "MIT License • Copyright (c) 2026";
     public string IndependenceStatement => Loc.IndependenceNotice;
