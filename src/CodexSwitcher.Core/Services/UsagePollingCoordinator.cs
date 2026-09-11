@@ -88,6 +88,7 @@ public sealed class UsagePollingCoordinator : IDisposable
             return new Dictionary<Guid, AccountUsageState>();
 
         Task<IReadOnlyDictionary<Guid, AccountUsageState>> batchTask;
+        bool isInitiator = false;
         lock (_batchGate)
         {
             if (_activeBatchTask is { IsCompleted: false })
@@ -98,10 +99,27 @@ public sealed class UsagePollingCoordinator : IDisposable
             {
                 batchTask = ExecuteBatchRefreshCoreAsync(profiles, cancellationToken);
                 _activeBatchTask = batchTask;
+                isInitiator = true;
             }
         }
 
-        return await batchTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await batchTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (isInitiator && cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await batchTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // Suppress background task exception to preserve original cancellation
+            }
+
+            throw;
+        }
     }
 
     private async Task<IReadOnlyDictionary<Guid, AccountUsageState>> ExecuteBatchRefreshCoreAsync(
