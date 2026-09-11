@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MalenkiySolovey/codex-switchboard/catalog/providers.catalog.schema.json",
+  "title": "Codex Switchboard Provider Catalog",
+  "description": "Declarative, data-driven provider knowledge and capability definitions for Codex Switchboard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "catalogVersion",
+    "updatedAt",
+    "minAppVersion",
+    "providers"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Catalog schema version (currently 1)."
+    },
+    "catalogVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing catalog content release version."
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of catalog generation."
+    },
+    "minAppVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+.*$",
+      "description": "Minimum application version required to load this catalog."
+    },
+    "providers": {
+      "type": "array",
+      "description": "Known provider descriptors.",
+      "items": {
+        "$ref": "#/$defs/ProviderDescriptor"
+      }
+    }
+  },
+  "$defs": {
+    "ProviderDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "match",
+        "codex",
+        "routes",
+        "trustedHosts",
+        "capabilities"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Canonical kebab-case identifier for this provider."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable display name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional human-readable description or notes."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Alternative names or keywords for search/matching."
+        },
+        "match": {
+          "$ref": "#/$defs/ProviderMatchCriteria"
+        },
+        "codex": {
+          "$ref": "#/$defs/ProviderCodexConfig"
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ProviderRoute"
+          }
+        },
+        "trustedHosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Strict whitelist of hosts allowed for automatic credential-bearing inspection probes."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/ProviderCapabilities"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProviderEvidence"
+          }
+        },
+        "metadata": {
+          "$ref": "#/$defs/ProviderMetadata"
+        }
+      }
+    },
+    "ProviderMatchCriteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exactHosts"
+      ],
+      "properties": {
+        "exactHosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Exact lowercase hostnames to match against (no suffix/substring wildcarding)."
+        },
+        "exactBaseUrls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "description": "Optional normalized exact base URLs."
+        }
+      }
+    },
+    "ProviderCodexConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wireApi"
+      ],
+      "properties": {
+        "wireApi": {
+          "type": "string",
+          "enum": [
+            "responses"
+          ],
+          "description": "Wire API protocol expected by Codex CLI (currently strictly 'responses')."
+        },
+        "authStrategy": {
+          "type": "string",
+          "enum": [
+            "bearer"
+          ],
+          "default": "bearer",
+          "description": "Authentication strategy used for Codex inference (delegated via auth.command)."
+        },
+        "defaultModel": {
+          "type": "string",
+          "description": "Optional default model identifier for this provider."
+        }
+      }
+    },
+    "ProviderRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "baseUrl"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Route identifier (e.g. 'primary', 'reserve')."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://.*$",
+          "description": "Base URL for the route (strictly HTTPS in production)."
+        },
+        "isDefault": {
+          "type": "boolean",
+          "default": false
+        },
+        "isReserve": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ProviderCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "models",
+        "balance",
+        "usage"
+      ],
+      "properties": {
+        "models": {
+          "$ref": "#/$defs/ProviderCapabilityRecipe"
+        },
+        "balance": {
+          "$ref": "#/$defs/ProviderCapabilityRecipe"
+        },
+        "usage": {
+          "$ref": "#/$defs/ProviderCapabilityRecipe"
+        }
+      }
+    },
+    "ProviderCapabilityRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "strategy"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "unsupported",
+            "unknown"
+          ],
+          "description": "Capability status: supported, unsupported, or unknown."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "openai-models",
+            "json-http",
+            "unsupported",
+            "unknown",
+            "built-in-adapter"
+          ],
+          "description": "Inspection strategy."
+        },
+        "request": {
+          "$ref": "#/$defs/RecipeRequest"
+        },
+        "response": {
+          "$ref": "#/$defs/RecipeResponseMapping"
+        }
+      }
+    },
+    "RecipeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "HEAD"
+          ],
+          "description": "HTTP request method. Only GET and HEAD are permitted for automatic inspection."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Full absolute URL if static and known."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/.*$",
+          "description": "Relative URL path to append to the active route baseUrl."
+        },
+        "auth": {
+          "type": "string",
+          "enum": [
+            "none",
+            "bearer",
+            "x-api-key"
+          ],
+          "default": "none",
+          "description": "Credential injection scheme for the inspection probe."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Optional static headers to attach."
+        }
+      }
+    },
+    "RecipeResponseMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "balance": {
+          "$ref": "#/$defs/JsonFieldMapping"
+        },
+        "used": {
+          "$ref": "#/$defs/JsonFieldMapping"
+        },
+        "limit": {
+          "$ref": "#/$defs/JsonFieldMapping"
+        },
+        "remaining": {
+          "$ref": "#/$defs/JsonFieldMapping"
+        },
+        "currency": {
+          "$ref": "#/$defs/CurrencyMapping"
+        },
+        "models": {
+          "$ref": "#/$defs/JsonFieldMapping"
+        }
+      }
+    },
+    "JsonFieldMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pointer",
+        "type"
+      ],
+      "properties": {
+        "pointer": {
+          "type": "string",
+          "pattern": "^/.*$",
+          "description": "RFC 6901 JSON pointer (e.g. '/data/usage', '/data/0/balance')."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "decimal",
+            "string",
+            "boolean",
+            "integer",
+            "array"
+          ]
+        },
+        "transform": {
+          "type": "string",
+          "enum": [
+            "scale",
+            "centsToUnits"
+          ],
+          "description": "Safe deterministic transform."
+        },
+        "scaleFactor": {
+          "type": "number",
+          "description": "Factor to multiply the value by when transform is 'scale'."
+        }
+      }
+    },
+    "CurrencyMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "literal": {
+          "type": "string",
+          "description": "Constant ISO currency symbol (e.g. 'USD', 'CNY')."
+        },
+        "pointer": {
+          "type": "string",
+          "pattern": "^/.*$",
+          "description": "RFC 6901 JSON pointer to extract dynamic currency string."
+        }
+      }
+    },
+    "ProviderEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "sourceType",
+        "source",
+        "verifiedAt"
+      ],
+      "properties": {
+        "capability": {
+          "type": "string",
+          "description": "Target capability ('models', 'balance', 'usage', 'wireApi')."
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": [
+            "official-doc",
+            "official-source",
+            "official-api-schema",
+            "observed-readonly",
+            "community-source",
+            "manual"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "description": "Source URL, documentation link, or commit reference."
+        },
+        "verifiedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "ProviderMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verifiedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reviewAfter": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deprecated": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

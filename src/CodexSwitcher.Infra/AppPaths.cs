@@ -24,8 +24,18 @@ public sealed class AppPaths
     public string AuditLogPath => Path.Combine(Root, "audit.log");
     public string UsageCachePath => Path.Combine(Root, "usage-cache.json");
 
+    public string CatalogDir => Path.Combine(Root, "catalog");
+    public string CatalogPath => Path.Combine(CatalogDir, "providers.catalog.json");
+    public string CatalogSigPath => Path.Combine(CatalogDir, "providers.catalog.sig");
+    public string CatalogPreviousPath => Path.Combine(CatalogDir, "providers.catalog.previous.json");
+    public string LocalCatalogPath => Path.Combine(CatalogDir, "providers.local.json");
+    public string ApiKeysDir => Path.Combine(Root, "api-keys");
+
     /// <summary>Caminho do arquivo de credencial TOTP cifrado de um perfil.</summary>
     public string GetTotpPath(Guid profileId) => Path.Combine(TotpDir, $"{profileId:N}.bin");
+
+    /// <summary>Caminho do arquivo de chave API cifrada de um perfil de provedor.</summary>
+    public string GetApiKeyPath(Guid profileId) => Path.Combine(ApiKeysDir, $"{profileId:N}.bin");
 
     // Pasta de trabalho isolada para login/refresh (CODEX_HOME efêmero). NÃO usar %TEMP%: o codex
     // recusa criar binários auxiliares sob o diretório temporário do sistema. Ver §5/§6.
@@ -56,6 +66,8 @@ public sealed class AppPaths
         Directory.CreateDirectory(BackupsDir);
         Directory.CreateDirectory(TempRoot);
         Directory.CreateDirectory(TotpDir);
+        Directory.CreateDirectory(CatalogDir);
+        Directory.CreateDirectory(ApiKeysDir);
     }
 }
 

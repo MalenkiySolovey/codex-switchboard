@@ -9,4 +9,8 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\catalog\providers.catalog.json" Link="Catalog\providers.catalog.json" />
+  </ItemGroup>
+
 </Project>

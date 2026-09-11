@@ -1,0 +1,200 @@
+{
+  "$schema": "./providers.catalog.schema.json",
+  "schemaVersion": 1,
+  "catalogVersion": 1,
+  "updatedAt": "2026-09-11T12:00:00Z",
+  "minAppVersion": "0.1.0",
+  "providers": [
+    {
+      "id": "router-cheap",
+      "displayName": "Router.Cheap",
+      "description": "High-performance OpenAI-compatible proxy with multiple global routes.",
+      "aliases": [
+        "routercheap",
+        "router-cheap.com"
+      ],
+      "match": {
+        "exactHosts": [
+          "router.cheap",
+          "direct.router-cheap.com"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "gpt-5.6-sol"
+      },
+      "routes": [
+        {
+          "id": "primary",
+          "displayName": "Primary (Hong Kong)",
+          "baseUrl": "https://router.cheap/v1",
+          "isDefault": true,
+          "isReserve": false
+        },
+        {
+          "id": "reserve",
+          "displayName": "Direct Reserve",
+          "baseUrl": "https://direct.router-cheap.com/v1",
+          "isDefault": false,
+          "isReserve": true
+        }
+      ],
+      "trustedHosts": [
+        "router.cheap",
+        "direct.router-cheap.com"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "unknown",
+          "strategy": "unknown"
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "observed-readonly",
+          "source": "Phase 10A Codex live validation",
+          "verifiedAt": "2026-09-11T09:00:00Z",
+          "note": "Confirmed wire_api responses compatibility with codex-cli 0.130.0-alpha.5"
+        },
+        {
+          "capability": "models",
+          "sourceType": "observed-readonly",
+          "source": "Phase 10A direct /models inspection",
+          "verifiedAt": "2026-09-11T09:00:00Z",
+          "note": "42 models returned on both primary and reserve routes, including gpt-5.6-sol"
+        },
+        {
+          "capability": "balance",
+          "sourceType": "observed-readonly",
+          "source": "Phase 10A endpoint discovery",
+          "verifiedAt": "2026-09-11T09:00:00Z",
+          "note": "No public inference-key balance endpoint observed; balance status set to unknown"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-11T09:00:00Z",
+        "deprecated": false
+      }
+    },
+    {
+      "id": "openrouter",
+      "displayName": "OpenRouter",
+      "description": "Unified LLM routing interface with key usage and credit query endpoints.",
+      "aliases": [
+        "openrouter.ai"
+      ],
+      "match": {
+        "exactHosts": [
+          "openrouter.ai"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "openrouter/auto"
+      },
+      "routes": [
+        {
+          "id": "primary",
+          "displayName": "Primary",
+          "baseUrl": "https://openrouter.ai/api/v1",
+          "isDefault": true,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "openrouter.ai"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          }
+        },
+        "balance": {
+          "status": "supported",
+          "strategy": "json-http",
+          "request": {
+            "method": "GET",
+            "url": "https://openrouter.ai/api/v1/key",
+            "auth": "bearer"
+          },
+          "response": {
+            "used": {
+              "pointer": "/data/usage",
+              "type": "decimal"
+            },
+            "limit": {
+              "pointer": "/data/limit",
+              "type": "decimal"
+            },
+            "currency": {
+              "literal": "USD"
+            }
+          }
+        },
+        "usage": {
+          "status": "supported",
+          "strategy": "json-http",
+          "request": {
+            "method": "GET",
+            "url": "https://openrouter.ai/api/v1/key",
+            "auth": "bearer"
+          },
+          "response": {
+            "used": {
+              "pointer": "/data/usage",
+              "type": "decimal"
+            },
+            "limit": {
+              "pointer": "/data/limit",
+              "type": "decimal"
+            },
+            "currency": {
+              "literal": "USD"
+            }
+          }
+        }
+      },
+      "evidence": [
+        {
+          "capability": "balance",
+          "sourceType": "official-doc",
+          "source": "https://openrouter.ai/docs#key-details",
+          "verifiedAt": "2026-09-11T09:30:00Z",
+          "note": "GET /api/v1/key returns label, usage, and limit fields"
+        },
+        {
+          "capability": "models",
+          "sourceType": "official-doc",
+          "source": "https://openrouter.ai/docs#models",
+          "verifiedAt": "2026-09-11T09:30:00Z",
+          "note": "GET /api/v1/models returns OpenAI-compatible models list"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-11T09:30:00Z",
+        "deprecated": false
+      }
+    }
+  ]
+}
