@@ -107,10 +107,20 @@ public sealed class FaultInjectingFileSystem : IFileSystem
         _inner.WriteAllTextAtomic(path, contents);
     }
 
+    public Func<string, byte[]?>? OnReadAllBytes { get; set; }
+
     public bool FileExists(string path) => _inner.FileExists(path);
     public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
     public void CreateDirectory(string path) => _inner.CreateDirectory(path);
-    public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
+    public byte[] ReadAllBytes(string path)
+    {
+        if (OnReadAllBytes is not null)
+        {
+            var custom = OnReadAllBytes(path);
+            if (custom is not null) return custom;
+        }
+        return _inner.ReadAllBytes(path);
+    }
     public string ReadAllText(string path) => _inner.ReadAllText(path);
     public void Copy(string s, string d, bool o) => _inner.Copy(s, d, o);
     public void Move(string s, string d, bool o) => _inner.Move(s, d, o);

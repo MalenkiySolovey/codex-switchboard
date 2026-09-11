@@ -201,17 +201,26 @@ public static class AppHost
             paths));
         services.AddSingleton<ICodexActiveTargetResolver, CodexActiveTargetResolver>();
 
-        services.AddSingleton<ICodexTargetSwitchService>(sp => new CodexTargetSwitchService(
-            sp.GetRequiredService<SwitchService>(),
-            sp.GetRequiredService<ICodexRoutingConfigStore>(),
+        services.AddSingleton<ISwitchPlanBuilder>(sp => new SwitchPlanBuilder(
             sp.GetRequiredService<IApiProviderStore>(),
             sp.GetRequiredService<IApiKeySecretStore>(),
             sp.GetRequiredService<IKeyBrokerInstaller>(),
+            sp.GetRequiredService<ICodexRoutingConfigStore>(),
+            paths.Codex));
+
+        services.AddSingleton<ISwitchTransactionExecutor>(sp => new SwitchTransactionExecutor(
+            sp.GetRequiredService<SwitchService>(),
+            sp.GetRequiredService<ICodexRoutingConfigStore>(),
+            sp.GetRequiredService<IApiProviderStore>(),
             sp.GetRequiredService<IProcessManager>(),
             sp.GetRequiredService<IFileSystem>(),
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IAuditLog>(),
             paths.Codex));
+
+        services.AddSingleton<ICodexTargetSwitchService>(sp => new CodexTargetSwitchService(
+            sp.GetRequiredService<ISwitchPlanBuilder>(),
+            sp.GetRequiredService<ISwitchTransactionExecutor>()));
 
         services.AddSingleton<ICodexThreadHandoffService>(sp =>
         {
