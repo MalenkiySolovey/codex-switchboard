@@ -64,6 +64,12 @@ public sealed class ProfileMetadata
     /// </summary>
     public SubscriptionTracking? SubscriptionTracking { get; set; }
 
+    /// <summary>
+    /// Metadados de período de assinatura observados de forma melhor-esforço no token OAuth.
+    /// Nunca sobrepõem o rastreamento manual do usuário (<see cref="SubscriptionTracking"/>).
+    /// </summary>
+    public DetectedSubscriptionInfo? DetectedSubscription { get; set; }
+
     /// <summary>Nome de exibição preferido: apelido, senão e-mail, senão id curto.</summary>
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(Nickname) ? Nickname

@@ -52,7 +52,23 @@
     <CornerRadius x:Key="CardCornerRadius">14</CornerRadius>
     <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
     <CornerRadius x:Key="OverlayCornerRadius">12</CornerRadius>
-    <CornerRadius x:Key="BadgeCornerRadius">20</CornerRadius>
+    <CornerRadius x:Key="BadgeCornerRadius">6</CornerRadius>
     <CornerRadius x:Key="AvatarCornerRadius">12</CornerRadius>
+
+    <!-- Shared Fluent Status Badge Styles -->
+    <Style x:Key="StatusBadgeBorderStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="{StaticResource BadgeCornerRadius}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="MinHeight" Value="20" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="StatusBadgeTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextAlignment" Value="Center" />
+    </Style>
 
 </ResourceDictionary>

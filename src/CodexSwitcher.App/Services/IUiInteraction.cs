@@ -33,7 +33,7 @@ public interface IUiInteraction
     Task<bool> SaveExportFileAsync(string suggestedFileName, string contents);
 
     /// <summary>Abre o diálogo de rastreamento de assinatura fornecido pelo usuário.</summary>
-    Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current);
+    Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current, DetectedSubscriptionInfo? detected = null);
 
     /// <summary>Abre o diálogo de configuração ou gerenciamento do segredo 2FA (TOTP) de um perfil.</summary>
     Task<TotpSetupResult?> PromptTotpSetupAsync(string accountName, bool isCurrentlyConfigured);

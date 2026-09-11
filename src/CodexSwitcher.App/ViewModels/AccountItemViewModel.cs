@@ -50,8 +50,15 @@ public sealed partial class AccountItemViewModel : ObservableObject
         IsMarkedUsed = profile.MarkedUsedAt is { } markedAt && (now - markedAt) < TimeSpan.FromHours(24);
 
         var today = DateOnly.FromDateTime(now.LocalDateTime);
-        SubscriptionDisplayText = SubscriptionFormatter.FormatDisplayText(profile.SubscriptionTracking, today, culture: null, pt: Loc.Pt);
-        SubscriptionTooltipText = SubscriptionFormatter.FormatTooltipText(profile.SubscriptionTracking, today, culture: null, pt: Loc.Pt);
+        var subPres = SubscriptionPresentationResolver.Resolve(
+            profile.SubscriptionTracking,
+            profile.DetectedSubscription,
+            profile.PlanType,
+            today,
+            culture: null,
+            pt: Loc.Pt);
+        SubscriptionDisplayText = subPres.DisplayText;
+        SubscriptionTooltipText = subPres.TooltipText;
     }
 
     [ObservableProperty]
@@ -78,6 +85,8 @@ public sealed partial class AccountItemViewModel : ObservableObject
     public string? SubscriptionDisplayText { get; }
     public string? SubscriptionTooltipText { get; }
     public bool HasSubscriptionText => !string.IsNullOrWhiteSpace(SubscriptionDisplayText);
+    public bool HasPlanOrSubscription => !string.IsNullOrWhiteSpace(PlanText) || HasSubscriptionText;
+    public bool ShowSubscriptionSeparator => !string.IsNullOrWhiteSpace(PlanText) && HasSubscriptionText;
     public string LastSwitchedText { get; }
     public string LastSwitchedTooltip { get; }
     public string HealthText { get; }

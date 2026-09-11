@@ -56,6 +56,8 @@ public sealed class ManualQaBugfixTests
 
         public IReadOnlyDictionary<Guid, UsageCacheEntry> GetAllCached() => Cache;
 
+        public Task LoadCacheAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public async Task<UsageFetchResult> RefreshAsync(
             ProfileMetadata profile,
             bool force = false,

@@ -176,7 +176,7 @@ public sealed class UiInteractionService : IUiInteraction
         return true;
     }
 
-    public async Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current)
+    public async Task<SubscriptionTracking?> PromptSubscriptionTrackingAsync(string accountName, SubscriptionTracking? current, DetectedSubscriptionInfo? detected = null)
     {
         var panel = new StackPanel { Spacing = 14, MinWidth = 360, MaxWidth = 420 };
 
@@ -209,11 +209,47 @@ public sealed class UiInteractionService : IUiInteraction
         {
             targetPicker.Date = new DateTimeOffset(dt.ToDateTime(TimeOnly.MinValue));
         }
+        else if (detected?.ActiveUntilUtc is { } detUntilDate)
+        {
+            var d = DateOnly.FromDateTime(detUntilDate.ToLocalTime().DateTime);
+            targetPicker.Date = new DateTimeOffset(d.ToDateTime(TimeOnly.MinValue));
+        }
         else
         {
             targetPicker.Date = DateTimeOffset.Now;
         }
         targetPanel.Children.Add(targetPicker);
+
+        if (detected?.ActiveUntilUtc is { } detUntil)
+        {
+            var detectedDateOnly = DateOnly.FromDateTime(detUntil.ToLocalTime().DateTime);
+            var detectedHintPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            var detectedText = new TextBlock
+            {
+                Text = _loc.Pt
+                    ? $"Detectado via token: {detectedDateOnly:dd/MM/yyyy}"
+                    : $"Detected via token: {detectedDateOnly:d}",
+                FontSize = 12,
+                Opacity = 0.8,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var useDetectedButton = new Button
+            {
+                Content = _loc.Pt ? "Usar data detectada" : "Use detected date",
+                FontSize = 11,
+                Padding = new Thickness(6, 2, 6, 2),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            useDetectedButton.Click += (_, _) =>
+            {
+                targetPicker.Date = new DateTimeOffset(detectedDateOnly.ToDateTime(TimeOnly.MinValue));
+                radioRenewal.IsChecked = true;
+            };
+            detectedHintPanel.Children.Add(detectedText);
+            detectedHintPanel.Children.Add(useDetectedButton);
+            targetPanel.Children.Add(detectedHintPanel);
+        }
+
         panel.Children.Add(targetPanel);
 
         // Started DatePicker (Optional)
@@ -226,6 +262,11 @@ public sealed class UiInteractionService : IUiInteraction
         if (current?.StartedOn is { } st)
         {
             startedPicker.Date = new DateTimeOffset(st.ToDateTime(TimeOnly.MinValue));
+        }
+        else if (detected?.ActiveStartUtc is { } detStart)
+        {
+            var ds = DateOnly.FromDateTime(detStart.ToLocalTime().DateTime);
+            startedPicker.Date = new DateTimeOffset(ds.ToDateTime(TimeOnly.MinValue));
         }
         else
         {

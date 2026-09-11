@@ -220,55 +220,55 @@
                                                            ToolTipService.ToolTip="{x:Bind DisplayName}"
                                                            VerticalAlignment="Center" />
                                                 <!-- Health status badge -->
-                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
-                                                        Padding="8,1" VerticalAlignment="Center"
+                                                <Border Style="{StaticResource StatusBadgeBorderStyle}"
                                                         BorderBrush="{x:Bind Badge, Converter={StaticResource BadgeBrush}}">
-                                                    <TextBlock Text="{x:Bind Badge, Converter={StaticResource BadgeText}}"
-                                                               FontSize="11" FontWeight="SemiBold"
+                                                    <TextBlock Style="{StaticResource StatusBadgeTextStyle}"
+                                                               Text="{x:Bind Badge, Converter={StaticResource BadgeText}}"
                                                                Foreground="{x:Bind Badge, Converter={StaticResource BadgeBrush}}" />
                                                 </Border>
                                                 <!-- Stale Cache Badge -->
-                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
-                                                        Padding="8,1" VerticalAlignment="Center"
+                                                <Border Style="{StaticResource StatusBadgeBorderStyle}"
                                                         BorderBrush="{ThemeResource HealthWarnBrush}"
                                                         Visibility="{x:Bind Usage.ShowStaleBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                                    <TextBlock Text="{x:Bind Usage.StaleBadgeLabel, Mode=OneWay}"
-                                                               FontSize="10" FontWeight="Bold"
+                                                    <TextBlock Style="{StaticResource StatusBadgeTextStyle}"
+                                                               Text="{x:Bind Usage.StaleBadgeLabel, Mode=OneWay}"
                                                                Foreground="{ThemeResource HealthWarnBrush}" />
                                                 </Border>
                                                 <!-- Rate Limited Badge -->
-                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
-                                                        Padding="8,1" VerticalAlignment="Center"
+                                                <Border Style="{StaticResource StatusBadgeBorderStyle}"
                                                         BorderBrush="{ThemeResource HealthDangerBrush}"
                                                         Visibility="{x:Bind Usage.ShowRateLimitedBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                                    <TextBlock Text="{x:Bind Usage.RateLimitedBadgeLabel, Mode=OneWay}"
-                                                               FontSize="10" FontWeight="Bold"
+                                                    <TextBlock Style="{StaticResource StatusBadgeTextStyle}"
+                                                               Text="{x:Bind Usage.RateLimitedBadgeLabel, Mode=OneWay}"
                                                                Foreground="{ThemeResource HealthDangerBrush}" />
                                                 </Border>
                                                 <!-- Refreshing Badge -->
-                                                <Border CornerRadius="{StaticResource BadgeCornerRadius}" BorderThickness="1"
-                                                        Padding="8,1" VerticalAlignment="Center"
+                                                <Border Style="{StaticResource StatusBadgeBorderStyle}"
                                                         BorderBrush="{ThemeResource BrandAccentBrush}"
                                                         Visibility="{x:Bind Usage.ShowRefreshingBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}">
-                                                    <TextBlock Text="{x:Bind Usage.RefreshingBadgeLabel, Mode=OneWay}"
-                                                               FontSize="10" FontWeight="Bold"
+                                                    <TextBlock Style="{StaticResource StatusBadgeTextStyle}"
+                                                               Text="{x:Bind Usage.RefreshingBadgeLabel, Mode=OneWay}"
                                                                Foreground="{ThemeResource BrandAccentBrush}" />
                                                 </Border>
                                             </StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="{x:Bind Subtitle}" Opacity="0.7" FontSize="13"
+                                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="{x:Bind Subtitle}" Opacity="0.7" FontSize="13" VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis" MaxWidth="240"
                                                            ToolTipService.ToolTip="{x:Bind Subtitle}" />
-                                                <TextBlock Text="{x:Bind PlanText}" Opacity="0.5" FontSize="12"
+                                                <TextBlock Text="·" Opacity="0.4" FontSize="13" VerticalAlignment="Center"
+                                                           Visibility="{x:Bind HasPlanOrSubscription, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Text="{x:Bind PlanText}" Opacity="0.55" FontSize="13" VerticalAlignment="Center"
                                                            Visibility="{x:Bind PlanText, Converter={StaticResource StringToVis}}" />
-                                                <TextBlock Text="{x:Bind SubscriptionDisplayText}" Opacity="0.5" FontSize="12"
+                                                <TextBlock Text="·" Opacity="0.4" FontSize="13" VerticalAlignment="Center"
+                                                           Visibility="{x:Bind ShowSubscriptionSeparator, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Text="{x:Bind SubscriptionDisplayText}" Opacity="0.55" FontSize="13" VerticalAlignment="Center"
                                                            ToolTipService.ToolTip="{x:Bind SubscriptionTooltipText}"
                                                            Visibility="{x:Bind HasSubscriptionText, Converter={StaticResource BoolToVis}}" />
                                             </StackPanel>
                                         </StackPanel>
 
                                         <!-- Col 2: Compact Quota Summary (visible when IsCompact) -->
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2"
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2" MinWidth="110"
                                                     Visibility="{x:Bind IsCompact, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                             <!-- When quota windows are available -->
                                             <StackPanel Visibility="{x:Bind Usage.HasWindows, Mode=OneWay, Converter={StaticResource BoolToVis}}" Spacing="2">

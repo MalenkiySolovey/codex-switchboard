@@ -64,6 +64,9 @@ public sealed class UsageService : IUsageService, IDisposable
 
     public UsageCacheEntry? GetCached(Guid profileId) => _cache.Get(profileId);
 
+    public Task LoadCacheAsync(CancellationToken cancellationToken = default) =>
+        _cache.LoadAsync(cancellationToken);
+
     public IReadOnlyDictionary<Guid, UsageCacheEntry> GetAllCached() => _cache.GetAll();
 
     public void Invalidate(Guid profileId) => _cache.Invalidate(profileId);
@@ -206,6 +209,10 @@ public sealed class UsageService : IUsageService, IDisposable
 
                     if (casSuccess)
                     {
+                        var newSub = SubscriptionJwtClaimExtractor.Extract(fetchResult.RotatedAuthJson, _clock.UtcNow);
+                        if (newSub is not null)
+                            profile.DetectedSubscription = newSub;
+
                         _cache.Set(
                             profile.Id,
                             fetchResult.Snapshot,

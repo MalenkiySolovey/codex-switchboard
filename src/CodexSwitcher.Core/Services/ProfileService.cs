@@ -43,6 +43,7 @@ public sealed class ProfileService
     {
         Profiles = _store.LoadAll();
         EnsureSortOrderInitialized();
+        EnsureDetectedSubscriptions();
         return Reconcile();
     }
 
@@ -67,6 +68,55 @@ public sealed class ProfileService
         _store.SaveAll(Profiles);
     }
 
+    /// <summary>
+    /// Garante que perfis existentes tenham metadados de assinatura detectados preenchidos
+    /// a partir do cofre ou do slot ativo caso ainda estejam nulos (migração transparente pós-v0.1.2).
+    /// </summary>
+    public void EnsureDetectedSubscriptions()
+    {
+        var changed = false;
+        var now = _clock.UtcNow;
+
+        foreach (var profile in Profiles)
+        {
+            if (profile.DetectedSubscription is not null)
+                continue;
+
+            try
+            {
+                if (profile.IsActive && _fs.FileExists(_paths.ActiveAuthPath))
+                {
+                    var activeBytes = _fs.ReadAllBytes(_paths.ActiveAuthPath);
+                    var sub = SubscriptionJwtClaimExtractor.Extract(activeBytes, now);
+                    if (sub is not null)
+                    {
+                        profile.DetectedSubscription = sub;
+                        changed = true;
+                        continue;
+                    }
+                }
+
+                if (_vault.Exists(profile.Id))
+                {
+                    var blob = _vault.LoadBlob(profile.Id);
+                    var sub = SubscriptionJwtClaimExtractor.Extract(blob, now);
+                    if (sub is not null)
+                    {
+                        profile.DetectedSubscription = sub;
+                        changed = true;
+                    }
+                }
+            }
+            catch
+            {
+                // Silencioso em caso de falha de leitura pontual
+            }
+        }
+
+        if (changed)
+            _store.SaveAll(Profiles);
+    }
+
     /// <summary>Reconcilia; em caso de drift (Codex renovou externamente) faz write-back no cofre.</summary>
     public ReconciliationResult Reconcile()
     {
@@ -82,6 +132,8 @@ public sealed class ProfileService
                 var info = AuthJsonReader.TryRead(activeBytes);
                 if (info?.LastRefresh is { } lr) profile.LastRefreshedAt = lr;
                 if (profile.HealthStatus is HealthStatus.Unknown) profile.HealthStatus = HealthStatus.Valid;
+                var sub = SubscriptionJwtClaimExtractor.Extract(activeBytes, _clock.UtcNow);
+                if (sub is not null) profile.DetectedSubscription = sub;
                 _store.SaveAll(Profiles);
                 _audit.Record("reconcile", "write-back", profile.DisplayName);
             }
@@ -154,6 +206,8 @@ public sealed class ProfileService
             existing.HealthStatus = HealthStatus.Valid;
             existing.LastError = null;
             existing.LastRefreshedAt = file?.LastRefresh ?? _clock.UtcNow;
+            var sub = SubscriptionJwtClaimExtractor.Extract(authJson, _clock.UtcNow);
+            if (sub is not null) existing.DetectedSubscription = sub;
             if (!string.IsNullOrWhiteSpace(nickname)) existing.Nickname = nickname!;
             _store.SaveAll(Profiles);
             _audit.Record("add", "updated-existing", existing.DisplayName);
@@ -171,6 +225,7 @@ public sealed class ProfileService
             LastRefreshedAt = file?.LastRefresh ?? _clock.UtcNow,
             HealthStatus = HealthStatus.Valid,
             SortOrder = Profiles.Count == 0 ? 0 : Profiles.Max(p => p.SortOrder) + 1,
+            DetectedSubscription = SubscriptionJwtClaimExtractor.Extract(authJson, _clock.UtcNow),
         };
         profile.BlobFingerprint = _vault.SaveBlob(profile.Id, authJson);
         Profiles.Add(profile);

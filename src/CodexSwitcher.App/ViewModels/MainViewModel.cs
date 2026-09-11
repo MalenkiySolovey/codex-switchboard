@@ -99,6 +99,7 @@ public sealed partial class MainViewModel : ObservableObject
         });
 
         // Cache-first startup: restore cached usage immediately without network delay
+        await _usageService.LoadCacheAsync();
         var cachedMap = _usageService.GetAllCached();
         var now = _clock.UtcNow;
         foreach (var (profileId, cacheEntry) in cachedMap)
@@ -406,7 +407,7 @@ public sealed partial class MainViewModel : ObservableObject
     private async Task EditSubscriptionTrackingAsync(AccountItemViewModel? item)
     {
         if (item is null) return;
-        var updated = await _ui.PromptSubscriptionTrackingAsync(item.DisplayName, item.Profile.SubscriptionTracking);
+        var updated = await _ui.PromptSubscriptionTrackingAsync(item.DisplayName, item.Profile.SubscriptionTracking, item.Profile.DetectedSubscription);
         if (ReferenceEquals(updated, item.Profile.SubscriptionTracking))
             return;
 

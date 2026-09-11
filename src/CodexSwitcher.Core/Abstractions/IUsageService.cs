@@ -1,4 +1,4 @@
-﻿using CodexSwitcher.Core.Models;
+using CodexSwitcher.Core.Models;
 
 namespace CodexSwitcher.Core.Abstractions;
 
@@ -13,6 +13,11 @@ public interface IUsageService
     /// Gets the current cached usage entry for a profile, if any.
     /// </summary>
     UsageCacheEntry? GetCached(Guid profileId);
+
+    /// <summary>
+    /// Carrega o cache persistido em disco para a memória na inicialização.
+    /// </summary>
+    Task LoadCacheAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all cached usage entries.

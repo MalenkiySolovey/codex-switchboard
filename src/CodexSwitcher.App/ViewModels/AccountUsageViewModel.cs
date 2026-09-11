@@ -172,50 +172,65 @@ public sealed partial class AccountUsageViewModel : ObservableObject
 
     private void UpdateCompactWindows(DateTimeOffset now)
     {
-        CompactWindows.Clear();
         if (Windows.Count == 0)
         {
+            if (CompactWindows.Count > 0)
+                CompactWindows.Clear();
             AdditionalWindowsCount = 0;
             AdditionalWindowsTooltip = string.Empty;
             return;
         }
+
+        List<UsageWindowViewModel> targetWindows;
+        List<UsageWindowViewModel> remaining;
 
         if (Windows.Count <= 2)
         {
-            foreach (var w in Windows)
-                CompactWindows.Add(w);
-            AdditionalWindowsCount = 0;
-            AdditionalWindowsTooltip = string.Empty;
-            return;
+            targetWindows = Windows.ToList();
+            remaining = [];
         }
-
-        // >2 windows: deterministic selection rule
-        // 1. IsExhausted (descending)
-        // 2. IsLowQuota (descending)
-        // 3. DurationMinutes ?? int.MaxValue (ascending)
-        // 4. Index (ascending)
-        var indexed = Windows.Select((w, idx) => (Window: w, Index: idx)).ToList();
-        var top2 = indexed
-            .OrderByDescending(x => x.Window.IsExhausted)
-            .ThenByDescending(x => x.Window.IsLowQuota)
-            .ThenBy(x => x.Window.DurationMinutes ?? int.MaxValue)
-            .ThenBy(x => x.Index)
-            .Take(2)
-            .Select(x => x.Window)
-            .OrderBy(w => w.DurationMinutes ?? int.MaxValue)
-            .ToList();
-
-        foreach (var w in top2)
-            CompactWindows.Add(w);
-
-        var remaining = Windows.Except(top2).ToList();
-        AdditionalWindowsCount = remaining.Count;
-
-        var lines = new List<string> { Loc.AdditionalQuotaWindowsHeader };
-        foreach (var rw in remaining)
+        else
         {
-            lines.Add($"• {rw.DisplayLabel}: {rw.RemainingText} · {rw.ResetCountdownText}");
+            // >2 windows: deterministic selection rule
+            // 1. IsExhausted (descending)
+            // 2. IsLowQuota (descending)
+            // 3. DurationMinutes ?? int.MaxValue (ascending)
+            // 4. Index (ascending)
+            var indexed = Windows.Select((w, idx) => (Window: w, Index: idx)).ToList();
+            var top2 = indexed
+                .OrderByDescending(x => x.Window.IsExhausted)
+                .ThenByDescending(x => x.Window.IsLowQuota)
+                .ThenBy(x => x.Window.DurationMinutes ?? int.MaxValue)
+                .ThenBy(x => x.Index)
+                .Take(2)
+                .Select(x => x.Window)
+                .OrderBy(w => w.DurationMinutes ?? int.MaxValue)
+                .ToList();
+
+            targetWindows = top2;
+            remaining = Windows.Except(top2).ToList();
         }
-        AdditionalWindowsTooltip = string.Join(Environment.NewLine, lines);
+
+        if (!CompactWindows.SequenceEqual(targetWindows))
+        {
+            CompactWindows.Clear();
+            foreach (var w in targetWindows)
+                CompactWindows.Add(w);
+        }
+
+        AdditionalWindowsCount = remaining.Count;
+        if (remaining.Count > 0)
+        {
+            var lines = new List<string> { Loc.AdditionalQuotaWindowsHeader };
+            foreach (var rw in remaining)
+            {
+                lines.Add($"• {rw.DisplayLabel}: {rw.RemainingText} · {rw.ResetCountdownText}");
+            }
+            AdditionalWindowsTooltip = string.Join(Environment.NewLine, lines);
+        }
+        else
+        {
+            AdditionalWindowsTooltip = string.Empty;
+        }
     }
 }
