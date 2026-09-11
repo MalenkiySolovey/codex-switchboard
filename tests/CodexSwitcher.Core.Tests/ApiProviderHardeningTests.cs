@@ -7,6 +7,7 @@ using CodexSwitcher.Core.Tests.TestSupport;
 using CodexSwitcher.Infra;
 using CodexSwitcher.Infra.Codex;
 using CodexSwitcher.Infra.Io;
+using CodexSwitcher.Infra.Providers.Inspection;
 using CodexSwitcher.Infra.Security;
 using Xunit;
 

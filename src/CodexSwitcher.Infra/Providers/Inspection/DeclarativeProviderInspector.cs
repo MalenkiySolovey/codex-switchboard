@@ -5,7 +5,7 @@ using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Models;
 
-namespace CodexSwitcher.Core.Services;
+namespace CodexSwitcher.Infra.Providers.Inspection;
 
 /// <summary>
 /// Safe, non-Turing-complete declarative inspection engine for AI model providers.

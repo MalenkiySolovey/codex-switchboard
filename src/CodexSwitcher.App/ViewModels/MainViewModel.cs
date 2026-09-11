@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
+using CodexSwitcher.App.Features.Providers;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
 using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Services;
 using CodexSwitcher.Infra;
@@ -38,19 +38,13 @@ public sealed partial class MainViewModel : ObservableObject
     private bool _hasShownDegradedNoticeThisSession;
     private CancellationTokenSource? _startupRefreshCts;
 
-    // Phase 10C services
+    // Shell Active Target & Providers orchestration
     private readonly ICodexActiveTargetResolver? _activeTargetResolver;
     private readonly ICodexTargetSwitchService? _targetSwitchService;
-    private readonly IApiProviderStore? _apiProviderStore;
-    private readonly IApiKeySecretStore? _secretStore;
-    private readonly IProviderCatalogService? _catalogService;
-    private readonly IDeclarativeProviderInspector? _providerInspector;
-    private readonly ICodexThreadHandoffService? _threadHandoffService;
-    private readonly IProviderModelCache? _modelCache;
     private readonly AppPaths? _paths;
 
+    public ApiProvidersViewModel ApiProviders { get; }
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = [];
-    public ObservableCollection<ApiProviderItemViewModel> ApiProviders { get; } = [];
 
     [ObservableProperty] public partial string SearchText { get; set; }
     [ObservableProperty] public partial bool IsBusy { get; set; }
@@ -65,12 +59,11 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty] public partial bool HasDetectedActiveAccount { get; set; }
     [ObservableProperty] public partial string DetectedActiveAccountDetails { get; set; }
 
-    // Phase 10C properties
+    // Phase 10C / ARCH-R1 properties
     [ObservableProperty] public partial int SelectedTab { get; set; }
     [ObservableProperty] public partial string ActiveTargetSummary { get; set; }
     [ObservableProperty] public partial string ActiveTargetCredentialSlot { get; set; }
     [ObservableProperty] public partial bool IsRoutingActiveToApi { get; set; }
-    [ObservableProperty] public partial bool ShowApiProvidersEmptyState { get; set; }
 
     public bool ShowNormalEmptyState => ShowEmptyState && !HasDetectedActiveAccount;
     public bool ShowDetectedAccountEmptyState => ShowEmptyState && HasDetectedActiveAccount;
@@ -79,18 +72,13 @@ public sealed partial class MainViewModel : ObservableObject
         ProfileService profiles, SwitchService switchService,
         SettingsStore settingsStore, AppSettings settings, IClock clock, IUiInteraction ui,
         IUsageService usageService, UsagePollingCoordinator pollingCoordinator,
+        ApiProvidersViewModel apiProviders,
         IUiDispatcher? dispatcher = null, IAppLifetime? appLifetime = null,
         ITotpCredentialStore? totpStore = null,
         ITotpRevealAuthorizationService? authService = null,
         ICodexActiveTargetResolver? activeTargetResolver = null,
         ICodexTargetSwitchService? targetSwitchService = null,
-        IApiProviderStore? apiProviderStore = null,
-        IApiKeySecretStore? secretStore = null,
-        IProviderCatalogService? catalogService = null,
-        IDeclarativeProviderInspector? providerInspector = null,
-        ICodexThreadHandoffService? threadHandoffService = null,
-        AppPaths? paths = null,
-        IProviderModelCache? modelCache = null)
+        AppPaths? paths = null)
     {
         _profiles = profiles;
         _switch = switchService;
@@ -106,13 +94,12 @@ public sealed partial class MainViewModel : ObservableObject
         _authService = authService;
         _activeTargetResolver = activeTargetResolver;
         _targetSwitchService = targetSwitchService;
-        _apiProviderStore = apiProviderStore;
-        _secretStore = secretStore;
-        _catalogService = catalogService;
-        _providerInspector = providerInspector;
-        _threadHandoffService = threadHandoffService;
         _paths = paths;
-        _modelCache = modelCache;
+
+        ApiProviders = apiProviders ?? throw new ArgumentNullException(nameof(apiProviders));
+        ApiProviders.TargetStateChanged += (_, _) => RebuildList();
+        ApiProviders.InfoRequested += (t, m, s) => ShowInfo(t, m, s);
+        ApiProviders.RunBusyRequested += (t, a) => RunBusy(t, a);
 
         _pollingCoordinator.UsageUpdated += OnUsageUpdated;
         _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
@@ -325,335 +312,6 @@ public sealed partial class MainViewModel : ObservableObject
         RebuildList();
         if (result is not null)
             ShowSwitchResult(result, item.DisplayName);
-    }
-
-    [RelayCommand]
-    private async Task AddApiProviderAsync()
-    {
-        var descriptors = _catalogService?.CurrentResult.Catalog.Providers ?? (IReadOnlyList<ProviderDescriptor>)Array.Empty<ProviderDescriptor>();
-        var result = await _ui.PromptAddApiProviderAsync(descriptors);
-        if (result is null) return;
-
-        var id = Guid.NewGuid();
-        var profile = new ApiProviderProfile
-        {
-            Id = id,
-            Nickname = result.Nickname,
-            CatalogProviderId = result.CatalogProviderId,
-            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
-            BaseUrl = result.BaseUrl,
-            SelectedRouteId = result.SelectedRouteId,
-            SelectedModel = result.SelectedModel,
-            KeyPreview = ApiProviderProfile.ComputeKeyPreview(result.ApiKey),
-            Status = string.IsNullOrWhiteSpace(result.ApiKey) ? ApiProviderProfileStatus.CredentialMissing : ApiProviderProfileStatus.Active,
-            CreatedAt = _clock.UtcNow,
-        };
-
-        if (_secretStore is not null && !string.IsNullOrWhiteSpace(result.ApiKey))
-        {
-            _secretStore.SaveApiKey(profile.Id, result.ApiKey);
-        }
-
-        _apiProviderStore?.Save(profile);
-
-        if (result.SaveAndSwitch && _targetSwitchService is not null)
-        {
-            await SwitchToApiProviderInternalAsync(profile);
-        }
-
-        RebuildList();
-        ShowInfo(_loc.ProviderDialogTitle, $"API Provider '{profile.Nickname}' saved.", InfoBarSeverity.Success);
-    }
-
-    [RelayCommand]
-    private async Task SwitchToApiProviderAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null || !item.CanSwitch) return;
-
-        if (!item.HasSecret)
-        {
-            ShowInfo(_loc.ErrorTitle, _loc.ApiKeyRequired, InfoBarSeverity.Warning);
-            return;
-        }
-
-        if (_settings.AlwaysConfirmSwitch && !await _ui.ConfirmSwitchToApiAsync(item.DisplayName, item.SelectedModel, item.SelectedRoute))
-            return;
-
-        await SwitchToApiProviderInternalAsync(item.Profile);
-        RebuildList();
-    }
-
-    private async Task SwitchToApiProviderInternalAsync(ApiProviderProfile profile)
-    {
-        if (_targetSwitchService is null) return;
-
-        await RunBusy(_loc.BusySwitching(profile.Nickname), async () =>
-        {
-            var res = await _targetSwitchService.SwitchToApiProviderAsync(
-                profile.Id,
-                SwitchExecutionOptions.From(_settings));
-
-            if (res.Outcome is TargetSwitchOutcome.Success or TargetSwitchOutcome.SuccessWithReopenWarning)
-            {
-                ShowInfo(_loc.SwitchedTitle, _loc.SwitchedMsg(profile.Nickname), InfoBarSeverity.Success);
-            }
-            else
-            {
-                ShowInfo(_loc.SwitchFailedTitle, _loc.SwitchFailedMsg, InfoBarSeverity.Error);
-            }
-        });
-    }
-
-    [RelayCommand]
-    private async Task ToggleRouteAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null || item.Routes.Count <= 1 || item.Descriptor is null) return;
-
-        var currentRouteId = item.Profile.SelectedRouteId;
-        var routes = item.Descriptor.Routes;
-        var currentIndex = routes.FindIndex(r => r.Id.Equals(currentRouteId, StringComparison.OrdinalIgnoreCase));
-        var nextIndex = currentIndex >= 0 ? (currentIndex + 1) % routes.Count : 0;
-        var nextRoute = routes[nextIndex];
-
-        item.Profile.SelectedRouteId = nextRoute.Id;
-        item.Profile.BaseUrl = nextRoute.BaseUrl;
-
-        _apiProviderStore?.Save(item.Profile);
-
-        if (item.IsTargetActive && _targetSwitchService is not null)
-        {
-            await _targetSwitchService.SwitchApiRouteAsync(
-                item.Profile.Id,
-                nextRoute.Id,
-                nextRoute.BaseUrl,
-                SwitchExecutionOptions.From(_settings));
-        }
-
-        RebuildList();
-    }
-
-    [RelayCommand]
-    private async Task SwitchRouteAsync((ApiProviderItemViewModel? Item, string RouteId) args)
-    {
-        var (item, routeId) = args;
-        if (item is null || item.Descriptor is null || string.IsNullOrWhiteSpace(routeId)) return;
-
-        var route = item.Descriptor.Routes.FirstOrDefault(r => r.Id.Equals(routeId, StringComparison.OrdinalIgnoreCase));
-        if (route is null || route.Id.Equals(item.Profile.SelectedRouteId, StringComparison.OrdinalIgnoreCase)) return;
-
-        item.Profile.SelectedRouteId = route.Id;
-        item.Profile.BaseUrl = route.BaseUrl;
-
-        _apiProviderStore?.Save(item.Profile);
-
-        if (item.IsTargetActive && _targetSwitchService is not null)
-        {
-            await _targetSwitchService.SwitchApiRouteAsync(
-                item.Profile.Id,
-                route.Id,
-                route.BaseUrl,
-                SwitchExecutionOptions.From(_settings));
-        }
-
-        RebuildList();
-    }
-
-    [RelayCommand]
-    private async Task EditApiProviderAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null) return;
-
-        var result = await _ui.PromptEditApiProviderAsync(item.Profile, item.Descriptor);
-        if (result is null) return;
-
-        item.Profile.Nickname = result.Nickname;
-        item.Profile.BaseUrl = result.BaseUrl;
-        item.Profile.SelectedRouteId = result.SelectedRouteId;
-        item.Profile.SelectedModel = result.SelectedModel;
-
-        _apiProviderStore?.Save(item.Profile);
-
-        if (item.IsTargetActive && _targetSwitchService is not null)
-        {
-            await _targetSwitchService.SwitchToApiProviderAsync(
-                item.Profile.Id,
-                SwitchExecutionOptions.From(_settings));
-        }
-
-        RebuildList();
-        ShowInfo(_loc.EditProviderDialogTitle, "Provider updated.", InfoBarSeverity.Success);
-    }
-
-    [RelayCommand]
-    private async Task RotateApiKeyAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null || _secretStore is null) return;
-
-        var newKey = await _ui.PromptRotateApiKeyAsync(item.DisplayName);
-        if (string.IsNullOrWhiteSpace(newKey)) return;
-
-        _secretStore.SaveApiKey(item.Profile.Id, newKey);
-        item.Profile.Status = ApiProviderProfileStatus.Active;
-        item.Profile.KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey);
-        _apiProviderStore?.Save(item.Profile);
-
-        RebuildList();
-        ShowInfo(_loc.RotateKeyDialogTitle, "API key updated successfully.", InfoBarSeverity.Success);
-    }
-
-    [RelayCommand]
-    private async Task RemoveCredentialAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null || _secretStore is null) return;
-
-        bool ok = await _ui.ConfirmAsync(
-            _loc.RemoveCredentialConfirmTitle(item.DisplayName),
-            _loc.RemoveCredentialConfirmMessage,
-            _loc.RemoveCredential,
-            destructive: true);
-
-        if (!ok) return;
-
-        _secretStore.DeleteApiKey(item.Profile.Id);
-        item.Profile.Status = ApiProviderProfileStatus.CredentialMissing;
-        item.Profile.KeyPreview = string.Empty;
-        _apiProviderStore?.Save(item.Profile);
-
-        if (item.IsTargetActive && _targetSwitchService is not null)
-        {
-            await _targetSwitchService.SwitchToChatGptAsync(null, _profiles.Profiles, SwitchExecutionOptions.From(_settings));
-        }
-
-        RebuildList();
-        ShowInfo(_loc.RemoveCredential, "API key credential removed.", InfoBarSeverity.Informational);
-    }
-
-    [RelayCommand]
-    private async Task RemoveApiProviderAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null) return;
-
-        bool ok = await _ui.ConfirmAsync(
-            _loc.RemoveTitle,
-            _loc.RemoveConfirm(item.DisplayName),
-            _loc.Remove,
-            destructive: true);
-
-        if (!ok) return;
-
-        _secretStore?.DeleteApiKey(item.Profile.Id);
-        _apiProviderStore?.Delete(item.Profile.Id);
-
-        if (item.IsTargetActive && _targetSwitchService is not null)
-        {
-            await _targetSwitchService.SwitchToChatGptAsync(null, _profiles.Profiles, SwitchExecutionOptions.From(_settings));
-        }
-
-        RebuildList();
-        ShowInfo(_loc.RemovedTitle, _loc.RemovedMsg(item.DisplayName), InfoBarSeverity.Informational);
-    }
-
-    [RelayCommand]
-    private async Task ContinueOnAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null || _threadHandoffService is null) return;
-
-        if (!item.HasSecret)
-        {
-            ShowInfo(_loc.ErrorTitle, _loc.ApiKeyRequired, InfoBarSeverity.Warning);
-            return;
-        }
-
-        IReadOnlyList<CodexThreadSummary> threads;
-        try
-        {
-            threads = await _threadHandoffService.ListThreadsAsync();
-        }
-        catch (Exception ex)
-        {
-            ShowInfo(_loc.ErrorTitle, $"Failed to retrieve threads: {ex.Message}", InfoBarSeverity.Error);
-            return;
-        }
-
-        if (threads.Count == 0)
-        {
-            ShowInfo(_loc.ThreadPickerTitle, "No recent conversations found in Codex to continue.", InfoBarSeverity.Informational);
-            return;
-        }
-
-        var targetModel = !string.IsNullOrWhiteSpace(item.SelectedModel)
-            ? item.SelectedModel
-            : _modelCache?.GetLatestModels(item.Profile.Id)?.FirstOrDefault()
-              ?? item.Descriptor?.Codex.DefaultModel
-              ?? "gpt-5.6-sol";
-
-        var selected = await _ui.PromptContinueOnThreadAsync(threads, item.DisplayName, targetModel);
-        if (selected is null) return;
-
-        await RunBusy(_loc.ContinueOn, async () =>
-        {
-            var forkResult = await _threadHandoffService.ForkThreadAsync(
-                selected.Id,
-                item.Profile.StableCodexProviderId,
-                targetModel);
-
-            if (!item.IsTargetActive && _targetSwitchService is not null)
-            {
-                await _targetSwitchService.SwitchToApiProviderAsync(item.Profile.Id, SwitchExecutionOptions.From(_settings));
-            }
-
-            ShowInfo(_loc.ForkSuccessTitle, _loc.ForkSuccessMessage(item.DisplayName, selected.Name ?? selected.Id), InfoBarSeverity.Success);
-        });
-
-        RebuildList();
-    }
-
-    [RelayCommand]
-    private async Task DiscoverModelsAsync(ApiProviderItemViewModel? item)
-    {
-        if (item is null || _providerInspector is null) return;
-
-        item.IsLoadingModels = true;
-        item.ModelsStatusMessage = _loc.DiscoveringModels;
-
-        string? secret = _secretStore?.GetApiKey(item.Profile.Id);
-        var desc = item.Descriptor ?? _catalogService?.GetDescriptor(item.Profile.CatalogProviderId);
-        var routeKey = !string.IsNullOrWhiteSpace(item.Profile.SelectedRouteId) ? item.Profile.SelectedRouteId : item.Profile.BaseUrl;
-
-        try
-        {
-            ApiProviderSnapshot snapshot;
-            if (desc is not null)
-            {
-                snapshot = await _providerInspector.InspectAsync(desc, item.Profile.BaseUrl, secret, CancellationToken.None);
-            }
-            else
-            {
-                snapshot = await _providerInspector.InspectGenericUnknownAsync(item.Profile.BaseUrl, secret, CancellationToken.None);
-            }
-
-            if (snapshot.Models.Count > 0)
-            {
-                item.SetDiscoveredModels(snapshot.Models);
-                _modelCache?.SetModels(item.Profile.Id, routeKey, 1, snapshot.Models);
-            }
-            else if (!string.IsNullOrWhiteSpace(snapshot.Error))
-            {
-                item.ModelsStatusMessage = snapshot.Error;
-            }
-            else
-            {
-                item.ModelsStatusMessage = "No models discovered.";
-            }
-        }
-        catch (Exception ex)
-        {
-            item.ModelsStatusMessage = ex.Message;
-        }
-        finally
-        {
-            item.IsLoadingModels = false;
-        }
     }
 
     [RelayCommand]
@@ -1202,25 +860,7 @@ public sealed partial class MainViewModel : ObservableObject
         ApplyFilter();
 
         // Rebuild API Providers collection
-        ApiProviders.Clear();
-        if (_apiProviderStore is not null)
-        {
-            var apiProfiles = _apiProviderStore.GetAll();
-            foreach (var prof in apiProfiles)
-            {
-                var desc = _catalogService?.GetDescriptor(prof.CatalogProviderId);
-                bool hasSecret = _secretStore?.HasApiKey(prof.Id) ?? false;
-                bool isTargetActive = IsRoutingActiveToApi && activeTarget is ActiveTarget.Api a && a.Profile.Id == prof.Id;
-                var vm = new ApiProviderItemViewModel(prof, desc, hasSecret, isTargetActive);
-                var routeKey = !string.IsNullOrWhiteSpace(prof.SelectedRouteId) ? prof.SelectedRouteId : prof.BaseUrl;
-                if (_modelCache?.TryGetModels(prof.Id, routeKey, 1, out var cachedModels) == true && cachedModels.Count > 0)
-                {
-                    vm.SetDiscoveredModels(cachedModels);
-                }
-                ApiProviders.Add(vm);
-            }
-        }
-        ShowApiProvidersEmptyState = ApiProviders.Count == 0;
+        ApiProviders?.Rebuild(activeTarget, IsRoutingActiveToApi);
 
         OnPropertyChanged(nameof(AccountCount));
         OnPropertyChanged(nameof(ShowNormalEmptyState));

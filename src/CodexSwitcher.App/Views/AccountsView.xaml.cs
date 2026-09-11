@@ -1,4 +1,5 @@
 using System.Linq;
+using CodexSwitcher.App.Features.Providers;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
 using CodexSwitcher.App.ViewModels;
@@ -191,42 +192,42 @@ public sealed partial class AccountsView : UserControl
 
     private void OnSwitchApiClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.SwitchToApiProviderCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.SwitchToApiProviderCommand.Execute(item);
     }
 
     private void OnToggleRouteClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.ToggleRouteCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.ToggleRouteCommand.Execute(item);
     }
 
     private void OnContinueOnClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.ContinueOnCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.ContinueOnCommand.Execute(item);
     }
 
     private void OnDiscoverModelsClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.DiscoverModelsCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.DiscoverModelsCommand.Execute(item);
     }
 
     private void OnEditApiProviderClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.EditApiProviderCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.EditApiProviderCommand.Execute(item);
     }
 
     private void OnRotateApiKeyClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.RotateApiKeyCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.RotateApiKeyCommand.Execute(item);
     }
 
     private void OnRemoveApiCredentialClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.RemoveCredentialCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.RemoveCredentialCommand.Execute(item);
     }
 
     private void OnRemoveApiProviderClick(object sender, RoutedEventArgs e)
     {
-        if (ApiItemOf(sender) is { } item) ViewModel.RemoveApiProviderCommand.Execute(item);
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.RemoveApiProviderCommand.Execute(item);
     }
 
     private void OnSelectChatGptTabClick(object sender, RoutedEventArgs e)

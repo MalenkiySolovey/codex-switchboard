@@ -1,3 +1,4 @@
+using CodexSwitcher.App.Features.Providers;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Catalog;
@@ -7,6 +8,7 @@ using CodexSwitcher.Infra;
 using CodexSwitcher.Infra.Codex;
 using CodexSwitcher.Infra.Io;
 using CodexSwitcher.Infra.Processes;
+using CodexSwitcher.Infra.Providers.Inspection;
 using CodexSwitcher.Infra.Security;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -137,6 +139,12 @@ public static class AppHost
         services.AddSingleton<IProviderCatalogService, ProviderCatalogService>();
         services.AddSingleton<IDeclarativeProviderInspector>(sp => new DeclarativeProviderInspector());
         services.AddSingleton<IProviderModelCache, ProviderModelCache>();
+        services.AddSingleton<IProviderInspectionService>(sp => new ProviderInspectionService(
+            sp.GetRequiredService<IApiProviderStore>(),
+            sp.GetRequiredService<IApiKeySecretStore>(),
+            sp.GetRequiredService<IProviderCatalogService>(),
+            sp.GetRequiredService<IDeclarativeProviderInspector>(),
+            sp.GetRequiredService<IProviderModelCache>()));
 
         services.AddSingleton<ICodexRoutingConfigStore>(sp => new CodexRoutingConfigStore(
             sp.GetRequiredService<IFileSystem>(),
@@ -173,6 +181,7 @@ public static class AppHost
         });
 
         services.AddSingleton<IUiInteraction, UiInteractionService>();
+        services.AddTransient<ApiProvidersViewModel>();
         services.AddTransient<MainViewModel>();
         services.AddTransient<SettingsViewModel>();
 
