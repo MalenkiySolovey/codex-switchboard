@@ -1,88 +1,46 @@
-using CodexSwitcher.Core.Accounts.Contracts;
-using CodexSwitcher.Core.Accounts.Formatting;
-using CodexSwitcher.Core.Accounts.Models;
-using CodexSwitcher.Core.Accounts.Services;
-using CodexSwitcher.Core.Common.Dispatcher;
 using CodexSwitcher.Core.Common.Enums;
-using CodexSwitcher.Core.Common.Environment;
-using CodexSwitcher.Core.Common.Errors;
-using CodexSwitcher.Core.Common.Lifecycle;
-using CodexSwitcher.Core.Common.Logging;
-using CodexSwitcher.Core.Common.Storage;
-using CodexSwitcher.Core.Common.Time;
-using CodexSwitcher.Core.Providers.Services;
-using CodexSwitcher.Core.Routing.Contracts;
-using CodexSwitcher.Core.Routing.Services;
-using CodexSwitcher.Core.Security.Secrets;
-using CodexSwitcher.Core.Security.Totp;
-using CodexSwitcher.Core.Security.Verification;
-using CodexSwitcher.Core.Settings.Contracts;
-using CodexSwitcher.Core.Settings.Models;
-using CodexSwitcher.Core.Threads.Contracts;
-using CodexSwitcher.Core.Threads.Models;
-using CodexSwitcher.Core.Transfer.Contracts;
-using CodexSwitcher.Core.Transfer.Models;
-using CodexSwitcher.Core.Transfer.Services;
-using CodexSwitcher.Core.Usage.Contracts;
-using CodexSwitcher.Core.Usage.Formatting;
-using CodexSwitcher.Core.Usage.Models;
-using CodexSwitcher.Core.Usage.Services;
-using CodexSwitcher.Infra.Accounts.Storage;
-using CodexSwitcher.Infra.Codex.Routing;
-using CodexSwitcher.Infra.Codex.Runtime;
-using CodexSwitcher.Infra.Codex.Threads;
-using CodexSwitcher.Infra.Codex.Usage;
-using CodexSwitcher.Infra.Common.Logging;
-using CodexSwitcher.Infra.Common.Paths;
-using CodexSwitcher.Infra.Common.Storage;
-using CodexSwitcher.Infra.Common.Time;
-using CodexSwitcher.Infra.Providers.Inspection;
-using CodexSwitcher.Infra.Providers.Secrets;
-using CodexSwitcher.Infra.Providers.Storage;
-using CodexSwitcher.Infra.Scheduling;
-using CodexSwitcher.Infra.Security.Dpapi;
-using CodexSwitcher.Infra.Security.Hardening;
-using CodexSwitcher.Infra.Security.Totp;
-using CodexSwitcher.Infra.Settings;
-using CodexSwitcher.Core.Routing.Models;
 using CodexSwitcher.Core.Providers.Catalog;
 using CodexSwitcher.Core.Providers.Contracts;
 using CodexSwitcher.Core.Providers.Models;
-using System.Net;
-using System.Net.Http.Headers;
-using System.Text.Json;
+using CodexSwitcher.Core.Routing.Models;
 
 namespace CodexSwitcher.Infra.Providers.Inspection;
 
 /// <summary>
-/// Safe, non-Turing-complete declarative inspection engine for AI model providers.
+/// Safe, non-Turing-complete declarative inspection facade for AI model providers.
+/// Coordinates request planning (<see cref="IProviderProbePlanner"/>), hardened HTTP transport
+/// (<see cref="ISafeProviderHttpTransport"/>), and fact extraction (<see cref="IProviderProbeResponseMapper"/>).
 /// Strictly enforces GET/HEAD-only, exact trusted-host validation, redirect credential stripping,
 /// response size capping, and normalized snapshot extraction.
 /// </summary>
-public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
+public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector, IDisposable
 {
-    private readonly HttpClient _httpClient;
+    private readonly IProviderProbePlanner _planner;
+    private readonly ISafeProviderHttpTransport _transport;
+    private readonly IProviderProbeResponseMapper _mapper;
 
-    public DeclarativeProviderInspector(HttpClient? httpClient = null)
+    /// <summary>
+    /// Decomposed constructor injecting dedicated planner, transport, and mapper.
+    /// </summary>
+    public DeclarativeProviderInspector(
+        IProviderProbePlanner planner,
+        ISafeProviderHttpTransport transport,
+        IProviderProbeResponseMapper mapper)
     {
-        if (httpClient != null)
-        {
-            _httpClient = httpClient;
-        }
-        else
-        {
-            // Default handler with disabled automatic redirect to enable strict redirect defense
-            var handler = new HttpClientHandler
-            {
-                AllowAutoRedirect = false,
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-            };
-            _httpClient = new HttpClient(handler)
-            {
-                Timeout = TimeSpan.FromSeconds(15),
-            };
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("CodexSwitchboard/0.1.4");
-        }
+        _planner = planner ?? throw new ArgumentNullException(nameof(planner));
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+    }
+
+    /// <summary>
+    /// Backward-compatible constructor for existing tests and composition roots.
+    /// </summary>
+    public DeclarativeProviderInspector(HttpClient? httpClient = null)
+        : this(
+            new ProviderProbePlanner(),
+            new SafeProviderHttpTransport(httpClient),
+            new ProviderProbeResponseMapper())
+    {
     }
 
     /// <summary>
@@ -96,7 +54,9 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         if (string.IsNullOrWhiteSpace(activeBaseUrl))
+        {
             throw new ArgumentException("Active base URL cannot be empty.", nameof(activeBaseUrl));
+        }
 
         var capabilities = new Dictionary<string, CapabilityStatus>(StringComparer.OrdinalIgnoreCase)
         {
@@ -118,17 +78,29 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
         var modelsRecipe = descriptor.Capabilities?.Models;
         if (modelsRecipe != null && modelsRecipe.Status == CapabilityStatus.Supported)
         {
-            var modelsResult = await ExecuteModelsProbeAsync(descriptor, modelsRecipe, activeBaseUrl, apiKey, ct);
-            if (modelsResult.Success)
+            var (valid, plan, planError) = _planner.PlanProbe(descriptor, modelsRecipe, activeBaseUrl, "models");
+            if (!valid || plan == null)
             {
-                connectionStatus = HealthStatus.Valid;
-                if (modelsResult.Models != null)
-                    modelsList.AddRange(modelsResult.Models);
+                connectionStatus = HealthStatus.Error;
+                overallError = planError;
             }
             else
             {
-                connectionStatus = HealthStatus.Error;
-                overallError = modelsResult.Error;
+                var response = await _transport.SendProbeAsync(plan, descriptor, apiKey, ct).ConfigureAwait(false);
+                var (success, models, mapError) = _mapper.MapModelsResponse(response, plan.ModelsPointer);
+                if (success)
+                {
+                    connectionStatus = HealthStatus.Valid;
+                    if (models != null)
+                    {
+                        modelsList.AddRange(models);
+                    }
+                }
+                else
+                {
+                    connectionStatus = HealthStatus.Error;
+                    overallError = mapError ?? response.Error;
+                }
             }
         }
 
@@ -136,17 +108,34 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
         var balanceRecipe = descriptor.Capabilities?.Balance;
         if (balanceRecipe != null && balanceRecipe.Status == CapabilityStatus.Supported)
         {
-            var balanceResult = await ExecuteJsonProbeAsync(descriptor, balanceRecipe, activeBaseUrl, apiKey, ct);
-            if (balanceResult.Success && balanceResult.Json != null)
+            var (valid, plan, planError) = _planner.PlanProbe(descriptor, balanceRecipe, activeBaseUrl, "balance");
+            if (valid && plan != null)
             {
-                if (connectionStatus == HealthStatus.Unknown)
-                    connectionStatus = HealthStatus.Valid;
+                var response = await _transport.SendProbeAsync(plan, descriptor, apiKey, ct).ConfigureAwait(false);
+                if (response.Success && response.Json != null)
+                {
+                    if (connectionStatus == HealthStatus.Unknown)
+                    {
+                        connectionStatus = HealthStatus.Valid;
+                    }
 
-                ExtractFields(balanceResult.Json.Value, balanceRecipe.Response, ref balance, ref usedCredits, ref creditLimit, ref remainingCredits, ref currency);
+                    _mapper.MapBalanceAndUsageResponse(
+                        response,
+                        balanceRecipe.Response,
+                        ref balance,
+                        ref usedCredits,
+                        ref creditLimit,
+                        ref remainingCredits,
+                        ref currency);
+                }
+                else if (response.Error != null)
+                {
+                    overallError ??= response.Error;
+                }
             }
-            else if (balanceResult.Error != null)
+            else if (planError != null)
             {
-                overallError ??= balanceResult.Error;
+                overallError ??= planError;
             }
         }
 
@@ -154,10 +143,21 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
         var usageRecipe = descriptor.Capabilities?.Usage;
         if (usageRecipe != null && usageRecipe.Status == CapabilityStatus.Supported && usageRecipe != balanceRecipe)
         {
-            var usageResult = await ExecuteJsonProbeAsync(descriptor, usageRecipe, activeBaseUrl, apiKey, ct);
-            if (usageResult.Success && usageResult.Json != null)
+            var (valid, plan, _) = _planner.PlanProbe(descriptor, usageRecipe, activeBaseUrl, "usage");
+            if (valid && plan != null)
             {
-                ExtractFields(usageResult.Json.Value, usageRecipe.Response, ref balance, ref usedCredits, ref creditLimit, ref remainingCredits, ref currency);
+                var response = await _transport.SendProbeAsync(plan, descriptor, apiKey, ct).ConfigureAwait(false);
+                if (response.Success && response.Json != null)
+                {
+                    _mapper.MapBalanceAndUsageResponse(
+                        response,
+                        usageRecipe.Response,
+                        ref balance,
+                        ref usedCredits,
+                        ref creditLimit,
+                        ref remainingCredits,
+                        ref currency);
+                }
             }
         }
 
@@ -191,313 +191,37 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
         string? apiKey,
         CancellationToken ct = default)
     {
-        var normalizedBase = ProviderMatcher.NormalizeBaseUrl(rawBaseUrl);
-        if (string.IsNullOrEmpty(normalizedBase))
+        var (valid, plan, syntheticDescriptor, planError) = _planner.PlanGenericUnknownModelsProbe(rawBaseUrl);
+        if (!valid || plan == null || syntheticDescriptor == null)
         {
             return new ApiProviderSnapshot
             {
                 ConnectionStatus = HealthStatus.Unknown,
-                Error = "Invalid base URL format.",
+                Error = planError ?? "Invalid base URL format.",
                 LastCheckedAt = DateTimeOffset.UtcNow,
             };
         }
 
-        var baseUri = new Uri(normalizedBase);
-        var host = baseUri.IdnHost.ToLowerInvariant();
-
-        // Synthesize a generic ad-hoc descriptor with strict trustedHosts limited to the target host
-        var syntheticDescriptor = new ProviderDescriptor
-        {
-            Id = "generic-unknown",
-            DisplayName = host,
-            TrustedHosts = new List<string> { host },
-            Capabilities = new ProviderCapabilities
-            {
-                Models = new ProviderCapabilityRecipe
-                {
-                    Status = CapabilityStatus.Supported,
-                    Strategy = "openai-models",
-                    Request = new RecipeRequest { Method = "GET", Path = "/models", Auth = "bearer" }
-                },
-                Balance = new ProviderCapabilityRecipe { Status = CapabilityStatus.Unknown, Strategy = "unknown" },
-                Usage = new ProviderCapabilityRecipe { Status = CapabilityStatus.Unknown, Strategy = "unknown" },
-            }
-        };
-
-        var modelsRecipe = syntheticDescriptor.Capabilities.Models;
-        var modelsResult = await ExecuteModelsProbeAsync(syntheticDescriptor, modelsRecipe, normalizedBase, apiKey, ct);
+        var response = await _transport.SendProbeAsync(plan, syntheticDescriptor, apiKey, ct).ConfigureAwait(false);
+        var (success, models, mapError) = _mapper.MapModelsResponse(response, plan.ModelsPointer);
 
         var capabilities = new Dictionary<string, CapabilityStatus>(StringComparer.OrdinalIgnoreCase)
         {
-            ["models"] = modelsResult.Success ? CapabilityStatus.Supported : CapabilityStatus.Unknown,
+            ["models"] = success ? CapabilityStatus.Supported : CapabilityStatus.Unknown,
             ["balance"] = CapabilityStatus.Unknown,
             ["usage"] = CapabilityStatus.Unknown,
         };
 
         return new ApiProviderSnapshot
         {
-            ConnectionStatus = modelsResult.Success ? HealthStatus.Valid : HealthStatus.Unknown,
-            Models = (IReadOnlyList<string>?)modelsResult.Models ?? Array.Empty<string>(),
+            ConnectionStatus = success ? HealthStatus.Valid : HealthStatus.Unknown,
+            Models = models ?? [],
             Balance = null,
             Currency = null,
             Capabilities = capabilities,
             LastCheckedAt = DateTimeOffset.UtcNow,
-            Error = modelsResult.Error,
+            Error = mapError ?? response.Error,
         };
-    }
-
-    private async Task<(bool Success, List<string>? Models, string? Error)> ExecuteModelsProbeAsync(
-        ProviderDescriptor descriptor,
-        ProviderCapabilityRecipe recipe,
-        string baseUrl,
-        string? apiKey,
-        CancellationToken ct)
-    {
-        var jsonResult = await ExecuteJsonProbeAsync(descriptor, recipe, baseUrl, apiKey, ct);
-        if (!jsonResult.Success || jsonResult.Json == null)
-            return (false, null, jsonResult.Error);
-
-        var root = jsonResult.Json.Value;
-        var pointer = recipe.Response?.Models?.Pointer ?? "/data";
-
-        if (JsonPointerExtractor.TryExtractStringArray(root, pointer, out var models))
-        {
-            return (true, models, null);
-        }
-
-        return (true, new List<string>(), null);
-    }
-
-    private async Task<(bool Success, JsonElement? Json, string? Error)> ExecuteJsonProbeAsync(
-        ProviderDescriptor descriptor,
-        ProviderCapabilityRecipe recipe,
-        string baseUrl,
-        string? apiKey,
-        CancellationToken ct)
-    {
-        var reqConfig = recipe.Request ?? new RecipeRequest { Method = "GET", Path = "/models" };
-
-        // Hard requirement: Only GET and HEAD are permitted for automatic inspection
-        var method = reqConfig.Method?.Trim().ToUpperInvariant() ?? "GET";
-        if (method != "GET" && method != "HEAD")
-        {
-            return (false, null, $"Security violation: Method '{method}' is not allowed for automatic inspection. Only GET and HEAD are permitted.");
-        }
-
-        // Build target URI
-        string targetUrl;
-        if (!string.IsNullOrWhiteSpace(reqConfig.Url))
-        {
-            targetUrl = reqConfig.Url;
-        }
-        else
-        {
-            targetUrl = JoinBaseUrlAndPath(baseUrl, reqConfig.Path, recipe.Strategy);
-        }
-
-        if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var targetUri))
-        {
-            return (false, null, "Invalid target probe URL.");
-        }
-
-        // Security boundary: Scheme check (HTTPS required, except for loopback in test environments)
-        if (!targetUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) && !IsLoopback(targetUri))
-        {
-            return (false, null, $"Security violation: Insecure HTTP is prohibited for credential probes: {targetUri.Host}");
-        }
-
-        // Security boundary: Trusted host check
-        if (!ProviderMatcher.IsHostTrusted(descriptor, targetUri))
-        {
-            return (false, null, $"Security violation: Target host '{targetUri.Host}' is not in the trustedHosts whitelist.");
-        }
-
-        // Execute request with manual redirect handling to defend credentials
-        return await ExecuteWithRedirectDefenseAsync(targetUri, method, reqConfig, descriptor, apiKey, ct);
-    }
-
-    private async Task<(bool Success, JsonElement? Json, string? Error)> ExecuteWithRedirectDefenseAsync(
-        Uri targetUri,
-        string method,
-        RecipeRequest reqConfig,
-        ProviderDescriptor descriptor,
-        string? apiKey,
-        CancellationToken ct)
-    {
-        var currentUri = targetUri;
-        var redirectsRemaining = 3;
-        var shouldAttachCredentials = true;
-
-        while (redirectsRemaining >= 0)
-        {
-            using var request = new HttpRequestMessage(new HttpMethod(method), currentUri);
-
-            // Attach configured authentication credentials if permitted
-            if (shouldAttachCredentials && !string.IsNullOrWhiteSpace(apiKey))
-            {
-                var authScheme = reqConfig.Auth?.Trim().ToLowerInvariant() ?? "none";
-                if (authScheme == "bearer")
-                {
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
-                }
-                else if (authScheme == "x-api-key")
-                {
-                    request.Headers.TryAddWithoutValidation("x-api-key", apiKey.Trim());
-                }
-            }
-
-            // Attach static headers if defined
-            if (reqConfig.Headers != null)
-            {
-                foreach (var (k, v) in reqConfig.Headers)
-                {
-                    request.Headers.TryAddWithoutValidation(k, v);
-                }
-            }
-
-            HttpResponseMessage response;
-            try
-            {
-                response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                return (false, null, $"Probe request failed: {SanitizeException(ex)}");
-            }
-
-            using (response)
-            {
-                // Handle Redirects (301, 302, 307, 308)
-                if (response.StatusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)
-                {
-                    var location = response.Headers.Location;
-                    if (location == null)
-                        return (false, null, "Redirect response missing Location header.");
-
-                    var nextUri = location.IsAbsoluteUri ? location : new Uri(currentUri, location);
-
-                    // Redirect security defense: Verify if redirect destination is trusted
-                    if (!ProviderMatcher.IsHostTrusted(descriptor, nextUri))
-                    {
-                        // CRITICAL: Strip credentials when redirecting outside trusted hosts!
-                        shouldAttachCredentials = false;
-                        return (false, null, $"Security violation: Redirect to untrusted host '{nextUri.Host}' blocked to prevent credential exfiltration.");
-                    }
-
-                    currentUri = nextUri;
-                    redirectsRemaining--;
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return (false, null, $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
-                }
-
-                if (method == "HEAD")
-                {
-                    return (true, null, null);
-                }
-
-                // Enforce response size limit
-                byte[] bodyBytes;
-                try
-                {
-                    await using var stream = await response.Content.ReadAsStreamAsync(ct);
-                    using var ms = new MemoryStream();
-                    var buffer = new byte[8192];
-                    var totalRead = 0;
-                    int read;
-                    while ((read = await stream.ReadAsync(buffer, ct)) > 0)
-                    {
-                        totalRead += read;
-                        if (totalRead > CatalogSecurityConstants.MaxProbeResponseSizeBytes)
-                        {
-                            return (false, null, $"Probe response exceeded maximum allowed size of {CatalogSecurityConstants.MaxProbeResponseSizeBytes} bytes.");
-                        }
-                        ms.Write(buffer, 0, read);
-                    }
-                    bodyBytes = ms.ToArray();
-                }
-                catch (Exception ex)
-                {
-                    return (false, null, $"Error reading response stream: {SanitizeException(ex)}");
-                }
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(bodyBytes);
-                    return (true, doc.RootElement.Clone(), null);
-                }
-                catch (Exception ex)
-                {
-                    return (false, null, $"Malformed JSON response: {SanitizeException(ex)}");
-                }
-            }
-        }
-
-        return (false, null, "Too many HTTP redirects encountered.");
-    }
-
-    private static void ExtractFields(
-        JsonElement root,
-        RecipeResponseMapping? mapping,
-        ref decimal? balance,
-        ref decimal? usedCredits,
-        ref decimal? creditLimit,
-        ref decimal? remainingCredits,
-        ref string? currency)
-    {
-        if (mapping == null)
-            return;
-
-        if (mapping.Balance != null && JsonPointerExtractor.TryExtractDecimal(root, mapping.Balance, out var b))
-            balance = b;
-
-        if (mapping.Used != null && JsonPointerExtractor.TryExtractDecimal(root, mapping.Used, out var u))
-            usedCredits = u;
-
-        if (mapping.Limit != null && JsonPointerExtractor.TryExtractDecimal(root, mapping.Limit, out var l))
-            creditLimit = l;
-
-        if (mapping.Remaining != null && JsonPointerExtractor.TryExtractDecimal(root, mapping.Remaining, out var r))
-            remainingCredits = r;
-
-        if (mapping.Currency != null)
-        {
-            if (!string.IsNullOrWhiteSpace(mapping.Currency.Literal))
-            {
-                currency = mapping.Currency.Literal;
-            }
-            else if (!string.IsNullOrWhiteSpace(mapping.Currency.Pointer) &&
-                     JsonPointerExtractor.TryExtractString(root, mapping.Currency.Pointer, out var c))
-            {
-                currency = c;
-            }
-        }
-    }
-
-    private static bool IsLoopback(Uri uri)
-    {
-        return uri.IsLoopback ||
-               string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string SanitizeException(Exception ex)
-    {
-        // Redact any possible URL parameters or credential tokens in error messages
-        var msg = ex.Message;
-        if (msg.Contains("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            msg = "Request failed (credentials redacted).";
-        }
-        return msg;
     }
 
     /// <summary>
@@ -506,36 +230,14 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
     /// </summary>
     public static string JoinBaseUrlAndPath(string baseUrl, string? path, string? strategy = null)
     {
-        var trimmedBase = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
-        var trimmedPath = (path ?? string.Empty).Trim();
+        return new ProviderProbePlanner().JoinBaseUrlAndPath(baseUrl, path, strategy);
+    }
 
-        if (string.IsNullOrEmpty(trimmedPath))
-            return trimmedBase;
-
-        if (!trimmedPath.StartsWith('/'))
-            trimmedPath = "/" + trimmedPath;
-
-        // Ensure correct URL joining (/v1 + /models != /v1/v1/models)
-        // 1. If baseUrl ends with /v1 and path starts with /v1/, deduplicate the /v1
-        if (trimmedBase.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) &&
-            trimmedPath.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
+    public void Dispose()
+    {
+        if (_transport is IDisposable disposable)
         {
-            trimmedPath = trimmedPath[3..];
+            disposable.Dispose();
         }
-        else if (trimmedBase.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) &&
-                 trimmedPath.Equals("/v1", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmedPath = string.Empty;
-        }
-        // 2. If strategy is openai-models and baseUrl does NOT end with /v1, and path is /models
-        // then ensure /v1 is prefixed (e.g. https://api.openai.com + /models -> https://api.openai.com/v1/models)
-        else if (string.Equals(strategy, "openai-models", StringComparison.OrdinalIgnoreCase) &&
-                 !trimmedBase.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) &&
-                 trimmedPath.Equals("/models", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmedPath = "/v1/models";
-        }
-
-        return trimmedBase + trimmedPath;
     }
 }

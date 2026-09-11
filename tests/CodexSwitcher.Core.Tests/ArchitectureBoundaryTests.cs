@@ -1,4 +1,8 @@
 using System.Reflection;
+using CodexSwitcher.Core.Providers.Contracts;
+using CodexSwitcher.Core.Routing.Contracts;
+using CodexSwitcher.Core.Routing.Models;
+using CodexSwitcher.Core.Routing.Services;
 using CodexSwitcher.Infra.Providers.Inspection;
 using Xunit;
 
@@ -150,5 +154,75 @@ public sealed class ArchitectureBoundaryTests
                 Assert.NotEqual(legacyNs, t.Namespace);
             }
         }
+    }
+
+    [Fact]
+    public void SafeProviderHttpTransport_MustResideInInfraAssembly_AndCoreMustNotReferenceHttpTransport()
+    {
+        var infraAssembly = typeof(DeclarativeProviderInspector).Assembly;
+        var transportType = infraAssembly.GetType("CodexSwitcher.Infra.Providers.Inspection.SafeProviderHttpTransport");
+        Assert.NotNull(transportType);
+        Assert.Equal("CodexSwitcher.Infra", transportType.Assembly.GetName().Name);
+
+        var coreAssembly = typeof(IDeclarativeProviderInspector).Assembly;
+        var coreTransport = coreAssembly.GetType("CodexSwitcher.Core.Providers.Inspection.SafeProviderHttpTransport");
+        Assert.Null(coreTransport);
+
+        // Verify Core contains no types with 'HttpTransport' in name
+        Assert.DoesNotContain(coreAssembly.GetTypes(), t => t.Name.Contains("HttpTransport", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void SwitchPlans_And_ProbePlans_MustNotExposeSecretMaterial()
+    {
+        var planTypes = new[]
+        {
+            typeof(CodexSwitchPlan),
+            typeof(ApiProviderSwitchPlan),
+            typeof(ChatGptAccountSwitchPlan),
+            typeof(ChatGptReturnRoutingSwitchPlan),
+            typeof(ChatGptNoOpSwitchPlan),
+            typeof(ApiRouteSwitchPlan),
+            typeof(InvalidSwitchPlan),
+            typeof(ProviderProbePlan)
+        };
+
+        var sensitiveWords = new[] { "ApiKey", "RawKey", "Secret", "Password", "PrivateToken" };
+
+        foreach (var type in planTypes)
+        {
+            foreach (var prop in type.GetProperties())
+            {
+                foreach (var word in sensitiveWords)
+                {
+                    Assert.False(
+                        prop.Name.Contains(word, StringComparison.OrdinalIgnoreCase) && prop.PropertyType == typeof(string),
+                        $"Plan type '{type.Name}' exposes sensitive property '{prop.Name}'.");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void TargetSwitchAndProviderInspector_PrimaryConstructors_HaveDecomposedResponsibilities()
+    {
+        // CodexTargetSwitchService decomposed constructor has exactly 2 parameters
+        var switchServiceType = typeof(CodexTargetSwitchService);
+        var switchCtors = switchServiceType.GetConstructors();
+        var primarySwitchCtor = switchCtors.MinBy(c => c.GetParameters().Length);
+        Assert.NotNull(primarySwitchCtor);
+        Assert.Equal(2, primarySwitchCtor.GetParameters().Length);
+        Assert.Equal(typeof(ISwitchPlanBuilder), primarySwitchCtor.GetParameters()[0].ParameterType);
+        Assert.Equal(typeof(ISwitchTransactionExecutor), primarySwitchCtor.GetParameters()[1].ParameterType);
+
+        // DeclarativeProviderInspector decomposed constructor has exactly 3 parameters
+        var inspectorType = typeof(DeclarativeProviderInspector);
+        var inspectorCtors = inspectorType.GetConstructors();
+        var primaryInspectorCtor = inspectorCtors.MaxBy(c => c.GetParameters().Length);
+        Assert.NotNull(primaryInspectorCtor);
+        Assert.Equal(3, primaryInspectorCtor.GetParameters().Length);
+        Assert.Equal(typeof(IProviderProbePlanner), primaryInspectorCtor.GetParameters()[0].ParameterType);
+        Assert.Equal(typeof(ISafeProviderHttpTransport), primaryInspectorCtor.GetParameters()[1].ParameterType);
+        Assert.Equal(typeof(IProviderProbeResponseMapper), primaryInspectorCtor.GetParameters()[2].ParameterType);
     }
 }

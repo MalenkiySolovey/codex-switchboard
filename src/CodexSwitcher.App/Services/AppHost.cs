@@ -186,8 +186,13 @@ public static class AppHost
             paths.CatalogPreviousPath,
             paths.LocalCatalogPath,
             "0.1.4"));
-        services.AddSingleton<IProviderCatalogService, ProviderCatalogService>();
-        services.AddSingleton<IDeclarativeProviderInspector>(sp => new DeclarativeProviderInspector());
+        services.AddSingleton<IProviderProbePlanner, ProviderProbePlanner>();
+        services.AddSingleton<ISafeProviderHttpTransport, SafeProviderHttpTransport>();
+        services.AddSingleton<IProviderProbeResponseMapper, ProviderProbeResponseMapper>();
+        services.AddSingleton<IDeclarativeProviderInspector>(sp => new DeclarativeProviderInspector(
+            sp.GetRequiredService<IProviderProbePlanner>(),
+            sp.GetRequiredService<ISafeProviderHttpTransport>(),
+            sp.GetRequiredService<IProviderProbeResponseMapper>()));
         services.AddSingleton<IProviderModelCache, ProviderModelCache>();
         services.AddSingleton<IProviderInspectionService>(sp => new ProviderInspectionService(
             sp.GetRequiredService<IApiProviderStore>(),
