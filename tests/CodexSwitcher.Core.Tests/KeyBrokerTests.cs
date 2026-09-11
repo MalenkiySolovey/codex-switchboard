@@ -1,10 +1,5 @@
 using System.Diagnostics;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

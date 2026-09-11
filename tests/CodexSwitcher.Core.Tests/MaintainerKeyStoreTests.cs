@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using CodexSwitcher.CatalogSigner;
-using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Tests.TestSupport;
 using Xunit;
 

@@ -1,10 +1,6 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Security;
-using CodexSwitcher.Core.Services;
-using CodexSwitcher.Core.Support;
 
 namespace CodexSwitcher.Core.Tests;
 

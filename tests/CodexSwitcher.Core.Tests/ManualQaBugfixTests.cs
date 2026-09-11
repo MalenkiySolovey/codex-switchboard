@@ -1,13 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Security;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

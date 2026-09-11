@@ -1,5 +1,4 @@
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
 
 namespace CodexSwitcher.Core.Tests;
 

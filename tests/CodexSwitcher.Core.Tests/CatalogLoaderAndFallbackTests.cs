@@ -1,9 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Catalog;
-using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

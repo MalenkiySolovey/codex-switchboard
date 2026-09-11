@@ -1,6 +1,5 @@
 using System.Text;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
 
 namespace CodexSwitcher.Core.Tests;
 

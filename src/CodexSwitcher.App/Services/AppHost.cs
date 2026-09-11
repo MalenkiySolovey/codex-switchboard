@@ -1,3 +1,52 @@
+using CodexSwitcher.Core.Accounts.Formatting;
+using CodexSwitcher.Core.Accounts.Models;
+using CodexSwitcher.Core.Common.Dispatcher;
+using CodexSwitcher.Core.Common.Enums;
+using CodexSwitcher.Core.Common.Environment;
+using CodexSwitcher.Core.Common.Errors;
+using CodexSwitcher.Core.Common.Lifecycle;
+using CodexSwitcher.Core.Common.Logging;
+using CodexSwitcher.Core.Common.Storage;
+using CodexSwitcher.Core.Common.Time;
+using CodexSwitcher.Core.Providers.Models;
+using CodexSwitcher.Core.Routing.Models;
+using CodexSwitcher.Core.Security.Secrets;
+using CodexSwitcher.Core.Security.Totp;
+using CodexSwitcher.Core.Security.Verification;
+using CodexSwitcher.Core.Settings.Contracts;
+using CodexSwitcher.Core.Settings.Models;
+using CodexSwitcher.Core.Threads.Contracts;
+using CodexSwitcher.Core.Threads.Models;
+using CodexSwitcher.Core.Transfer.Contracts;
+using CodexSwitcher.Core.Transfer.Models;
+using CodexSwitcher.Core.Transfer.Services;
+using CodexSwitcher.Core.Usage.Formatting;
+using CodexSwitcher.Core.Usage.Models;
+using CodexSwitcher.Infra.Codex.Threads;
+using CodexSwitcher.Infra.Common.Logging;
+using CodexSwitcher.Infra.Common.Paths;
+using CodexSwitcher.Infra.Common.Storage;
+using CodexSwitcher.Infra.Common.Time;
+using CodexSwitcher.Infra.Scheduling;
+using CodexSwitcher.Infra.Security.Dpapi;
+using CodexSwitcher.Infra.Security.Hardening;
+using CodexSwitcher.Infra.Security.Totp;
+using CodexSwitcher.Infra.Settings;
+using CodexSwitcher.Core.Routing.Contracts;
+using CodexSwitcher.Core.Routing.Services;
+using CodexSwitcher.Infra.Codex.Routing;
+using CodexSwitcher.Infra.Codex.Runtime;
+using CodexSwitcher.Core.Providers.Catalog;
+using CodexSwitcher.Core.Providers.Contracts;
+using CodexSwitcher.Core.Providers.Services;
+using CodexSwitcher.Infra.Providers.Secrets;
+using CodexSwitcher.Infra.Providers.Storage;
+using CodexSwitcher.Core.Accounts.Contracts;
+using CodexSwitcher.Core.Accounts.Services;
+using CodexSwitcher.Infra.Accounts.Storage;
+using CodexSwitcher.Core.Usage.Contracts;
+using CodexSwitcher.Core.Usage.Services;
+using CodexSwitcher.Infra.Codex.Usage;
 using CodexSwitcher.App.Dialogs;
 using CodexSwitcher.App.Features.Accounts;
 using CodexSwitcher.App.Features.Providers;
@@ -7,16 +56,7 @@ using CodexSwitcher.App.Shell.Routing;
 using CodexSwitcher.App.Shell.State;
 using CodexSwitcher.App.Shell.Theme;
 using CodexSwitcher.App.Shell.Windowing;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Catalog;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Processes;
 using CodexSwitcher.Infra.Providers.Inspection;
-using CodexSwitcher.Infra.Security;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace CodexSwitcher.App.Services;
@@ -45,6 +85,7 @@ public static class AppHost
         services.AddSingleton<ICodexConfigStore, ConfigTomlStore>();
 
         services.AddSingleton(sp => new SettingsStore(sp.GetRequiredService<IFileSystem>(), paths.SettingsPath));
+        services.AddSingleton<ISettingsStore>(sp => sp.GetRequiredService<SettingsStore>());
         services.AddSingleton(sp => sp.GetRequiredService<SettingsStore>().Load());
         services.AddSingleton<ICodexCli>(sp =>
             new CodexCliRunner(sp.GetRequiredService<AppSettings>().CodexExecutablePathOverride));
@@ -57,6 +98,7 @@ public static class AppHost
             sp.GetRequiredService<IFileSystem>(),
             paths.VaultDir,
             sp.GetRequiredService<IProfileOperationCoordinator>()));
+        services.AddSingleton<IVaultService>(sp => sp.GetRequiredService<VaultService>());
         services.AddSingleton<ITotpCredentialStore>(sp => new TotpCredentialStore(
             sp.GetRequiredService<ISecretProtector>(),
             sp.GetRequiredService<IFileSystem>(),
@@ -73,6 +115,7 @@ public static class AppHost
             sp.GetRequiredService<IWindowsPasswordVerificationService>()));
 
         services.AddSingleton(sp => new ProfileStore(sp.GetRequiredService<IFileSystem>(), paths.ProfilesPath));
+        services.AddSingleton<IProfileStore>(sp => sp.GetRequiredService<ProfileStore>());
         services.AddSingleton(sp => new ReconciliationService(sp.GetRequiredService<IFileSystem>(), paths.Codex));
         services.AddSingleton<ProfileService>();
 

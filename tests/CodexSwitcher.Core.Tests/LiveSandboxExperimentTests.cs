@@ -1,12 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Security;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 using Xunit.Abstractions;
 

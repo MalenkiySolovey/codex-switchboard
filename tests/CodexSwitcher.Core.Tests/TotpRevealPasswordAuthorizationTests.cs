@@ -1,10 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Security;
-using CodexSwitcher.Core.Services;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

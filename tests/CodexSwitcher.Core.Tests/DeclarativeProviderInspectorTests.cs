@@ -1,8 +1,5 @@
 using System.Net;
 using System.Text;
-using CodexSwitcher.Core.Catalog;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Infra.Providers.Inspection;
 using Xunit;
 

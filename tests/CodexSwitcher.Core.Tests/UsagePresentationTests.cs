@@ -1,5 +1,3 @@
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 
 namespace CodexSwitcher.Core.Tests;
 

@@ -38,8 +38,8 @@ public sealed class ShellArchitectureBoundaryTests
     [Fact]
     public void ViewModels_AndCoreInfra_MustNotConstructContentDialog()
     {
-        var coreTypes = typeof(CodexSwitcher.Core.Models.AppSettings).Assembly.GetTypes();
-        var infraTypes = typeof(CodexSwitcher.Infra.FileAuditLog).Assembly.GetTypes();
+        var coreTypes = typeof(AppSettings).Assembly.GetTypes();
+        var infraTypes = typeof(FileAuditLog).Assembly.GetTypes();
 
         foreach (var t in coreTypes.Concat(infraTypes))
         {

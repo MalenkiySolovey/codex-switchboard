@@ -1,5 +1,4 @@
 using System.Reflection;
-using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Infra.Providers.Inspection;
 using Xunit;
 
@@ -66,7 +65,7 @@ public sealed class ArchitectureBoundaryTests
     {
         var iface = typeof(IProviderInspectionService);
         Assert.True(iface.IsInterface);
-        Assert.Equal("CodexSwitcher.Core.Abstractions", iface.Namespace);
+        Assert.Equal("CodexSwitcher.Core.Providers.Contracts", iface.Namespace);
 
         // Verify method signatures: methods should only accept Guid profileId or CancellationToken
         // None of the parameters or return types should be raw string apiKeys
@@ -79,6 +78,77 @@ public sealed class ArchitectureBoundaryTests
             }
 
             Assert.False(method.ReturnType == typeof(string));
+        }
+    }
+
+    [Fact]
+    public void CoreAssembly_MustNotReferenceInfraOrAppAssemblies()
+    {
+        var coreAssembly = typeof(IProviderInspectionService).Assembly;
+        var referencedAssemblies = coreAssembly.GetReferencedAssemblies();
+
+        var forbiddenNames = new[] { "CodexSwitcher.Infra", "CodexSwitcher.App" };
+        foreach (var refAsm in referencedAssemblies)
+        {
+            foreach (var forbidden in forbiddenNames)
+            {
+                Assert.DoesNotContain(forbidden, refAsm.Name, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    [Fact]
+    public void InfraAssembly_MustNotReferenceAppAssembly()
+    {
+        var infraAssembly = typeof(DeclarativeProviderInspector).Assembly;
+        var referencedAssemblies = infraAssembly.GetReferencedAssemblies();
+
+        var forbiddenNames = new[] { "CodexSwitcher.App" };
+        foreach (var refAsm in referencedAssemblies)
+        {
+            foreach (var forbidden in forbiddenNames)
+            {
+                Assert.DoesNotContain(forbidden, refAsm.Name, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+    }
+
+    [Fact]
+    public void LegacyNamespaces_MustNotContainAnyTypesInCore()
+    {
+        var coreAssembly = typeof(IProviderInspectionService).Assembly;
+        var legacyNamespaces = new[]
+        {
+            "CodexSwitcher.Core.Abstractions",
+            "CodexSwitcher.Core.Models",
+            "CodexSwitcher.Core.Services",
+            "CodexSwitcher.Core.Support"
+        };
+
+        foreach (var t in coreAssembly.GetTypes())
+        {
+            foreach (var legacyNs in legacyNamespaces)
+            {
+                Assert.NotEqual(legacyNs, t.Namespace);
+            }
+        }
+    }
+
+    [Fact]
+    public void LegacyNamespaces_MustNotContainAnyTypesInInfra()
+    {
+        var infraAssembly = typeof(DeclarativeProviderInspector).Assembly;
+        var legacyNamespaces = new[]
+        {
+            "CodexSwitcher.Infra.Io"
+        };
+
+        foreach (var t in infraAssembly.GetTypes())
+        {
+            foreach (var legacyNs in legacyNamespaces)
+            {
+                Assert.NotEqual(legacyNs, t.Namespace);
+            }
         }
     }
 }

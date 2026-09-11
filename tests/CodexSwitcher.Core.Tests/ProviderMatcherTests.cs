@@ -1,4 +1,3 @@
-using CodexSwitcher.Core.Catalog;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

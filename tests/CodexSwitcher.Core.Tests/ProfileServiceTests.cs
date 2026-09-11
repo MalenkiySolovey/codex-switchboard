@@ -1,9 +1,4 @@
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
-using CodexSwitcher.Core.Support;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
 
 namespace CodexSwitcher.Core.Tests;
 
@@ -20,7 +15,7 @@ public sealed class ProfileServiceTests
             var fs = new PhysicalFileSystem();
             var vault = new VaultService(new DpapiSecretProtector(), fs, Dir.Combine("vault"));
             var store = new ProfileStore(fs, Dir.Combine("profiles.json"));
-            var paths = CodexSwitcher.Core.Models.CodexPaths.ForHome(Dir.Combine(".codex"));
+            var paths = CodexPaths.ForHome(Dir.Combine(".codex"));
             var recon = new ReconciliationService(fs, paths);
             Service = new ProfileService(vault, store, recon, fs, paths, Clock, new FakeAudit());
         }

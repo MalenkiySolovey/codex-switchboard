@@ -1,7 +1,3 @@
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Catalog;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

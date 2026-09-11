@@ -1,6 +1,4 @@
 using System.Reflection;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Services;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

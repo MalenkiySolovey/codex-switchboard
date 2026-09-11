@@ -1,6 +1,4 @@
 using System.Globalization;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Support;
 
 namespace CodexSwitcher.Core.Tests;
 

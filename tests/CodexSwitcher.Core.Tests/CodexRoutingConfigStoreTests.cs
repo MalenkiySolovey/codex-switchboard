@@ -1,8 +1,4 @@
-using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
