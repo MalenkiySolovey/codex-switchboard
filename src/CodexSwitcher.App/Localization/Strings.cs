@@ -446,8 +446,10 @@ public sealed class Strings
     public string ApiKeyRequired => S("Chave de API necessária", "API key required");
     public string SwitchToProvider => S("Alternar para provedor", "Switch to provider");
     public string SwitchToChatGpt => S("Alternar para ChatGPT", "Switch to ChatGPT");
-    public string ContinueOn => S("Continuar em…", "Continue on…");
-    public string ContinueOnTooltip => S("Bifurcar uma conversa recente do Codex para este provedor", "Fork a recent Codex conversation to this provider");
+    public string ContinueOn => S("Continuar conversa…", "Continue chat…");
+    public string ContinueOnTooltip => S(
+        "Continua a conversa selecionada em uma nova thread usando o provedor de API ativo, preservando o histórico original.",
+        "Continues the selected conversation in a new thread using the active API provider, preserving original history.");
     public string RotateKey => S("Substituir chave de API", "Replace API key");
     public string RemoveCredential => S("Remover credencial", "Remove credential");
     public string RouteLabel => S("Rota", "Route");

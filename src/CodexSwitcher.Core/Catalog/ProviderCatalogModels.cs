@@ -96,6 +96,9 @@ public sealed class ProviderRoute
     [JsonPropertyName("displayName")]
     public string DisplayName { get; set; } = string.Empty;
 
+    [JsonPropertyName("region")]
+    public string? Region { get; set; }
+
     [JsonPropertyName("baseUrl")]
     public string BaseUrl { get; set; } = string.Empty;
 

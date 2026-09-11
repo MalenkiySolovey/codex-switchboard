@@ -296,7 +296,312 @@ public sealed class CodexTargetSwitchServiceTests
         Assert.Equal(TargetSwitchOutcome.Failed, result.Outcome);
         Assert.Contains("missing", result.Message, StringComparison.OrdinalIgnoreCase);
 
-        // config is completely untouched
         Assert.Equal(initialConfig, File.ReadAllText(paths.Codex.ConfigTomlPath));
+    }
+
+    private sealed class TargetSwitchTestEnv : IDisposable
+    {
+        public TempDir Dir { get; } = new();
+        public FaultInjectingFileSystem Fs { get; }
+        public VaultService Vault { get; }
+        public ProfileStore ProfileStore { get; }
+        public FakeProcessManager Proc { get; } = new();
+        public FakeConfigStore Config { get; } = new();
+        public FakeClock Clock { get; } = new();
+        public FakeAudit Audit { get; } = new();
+        public AppPaths Paths { get; }
+        public CodexRoutingConfigStore RoutingStore { get; }
+        public ApiKeySecretStore SecretStore { get; }
+        public ApiProviderStore ApiStore { get; }
+        public KeyBrokerInstaller BrokerInstaller { get; }
+        public SwitchService ChatGptSwitch { get; }
+        public CodexTargetSwitchService TargetSwitch { get; }
+        public List<ProfileMetadata> ChatGptProfiles { get; } = [];
+
+        public TargetSwitchTestEnv()
+        {
+            Fs = new FaultInjectingFileSystem(new PhysicalFileSystem());
+            var brokerExe = TestKeyBrokerLocator.FindKeyBrokerBinary();
+            Paths = new AppPaths(Dir.Root, Path.Combine(Dir.Root, ".codex"));
+            Paths.EnsureDirectories();
+            Directory.CreateDirectory(Paths.Codex.CodexHome);
+
+            var protector = new DpapiSecretProtector();
+            Vault = new VaultService(protector, Fs, Paths.VaultDir);
+            ProfileStore = new ProfileStore(Fs, Paths.ProfilesPath);
+            SecretStore = new ApiKeySecretStore(protector, Fs, Paths.ApiKeysDir);
+            ApiStore = new ApiProviderStore(Fs, Paths.ApiProvidersPath, SecretStore);
+            RoutingStore = new CodexRoutingConfigStore(Fs, Paths);
+            BrokerInstaller = new KeyBrokerInstaller(Paths, Fs, brokerExe);
+
+            ChatGptSwitch = new SwitchService(Vault, ProfileStore, Fs, Proc, Config, Clock, Audit, Paths.Codex, Paths.BackupsDir);
+            TargetSwitch = new CodexTargetSwitchService(
+                ChatGptSwitch, RoutingStore, ApiStore, SecretStore, BrokerInstaller,
+                Proc, Fs, Clock, Audit, Paths.Codex);
+        }
+
+        public ProfileMetadata AddChatGptProfile(string nick, byte[] authBytes, bool active)
+        {
+            var p = new ProfileMetadata
+            {
+                Id = Guid.NewGuid(),
+                Nickname = nick,
+                AccountEmail = $"{nick.ToLowerInvariant()}@example.com",
+                CreatedAt = Clock.UtcNow,
+                IsActive = active,
+                HealthStatus = HealthStatus.Valid,
+            };
+            p.BlobFingerprint = Vault.SaveBlob(p.Id, authBytes);
+            ChatGptProfiles.Add(p);
+            ProfileStore.SaveAll(ChatGptProfiles);
+            return p;
+        }
+
+        public void SetActiveSlot(byte[] bytes) => Fs.WriteAllBytesAtomic(Paths.Codex.ActiveAuthPath, bytes);
+        public byte[] ReadActiveSlot() => Fs.ReadAllBytes(Paths.Codex.ActiveAuthPath);
+
+        public void Dispose() => Dir.Dispose();
+    }
+
+    private static SwitchExecutionOptions AutoOpts =>
+        new(CloseReopenMode.Automatic, TimeSpan.FromSeconds(1), BackupsToKeep: 10);
+
+    private static CodexProcessInfo DesktopApp(int pid = 100) =>
+        new(pid, "Codex", @"C:\Apps\Codex\Codex.exe", null, CodexProcessKind.DesktopApp);
+
+    private static CodexProcessInfo Cli(int pid = 200) =>
+        new(pid, "codex", @"C:\npm\codex.exe", "exec", CodexProcessKind.Cli);
+
+    [Fact]
+    public async Task ChatGptA_To_ChatGptB_SwapsAuth_UpdatesMetadata_AndRelaunchesDesktop()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A", refreshToken: "rt-A");
+        var bBytes = Sample.AuthJson(accountId: "acct_B", refreshToken: "rt-B");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        var b = env.AddChatGptProfile("B", bBytes, active: false);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp(pid: 101)];
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.Equal(bBytes, env.ReadActiveSlot());
+        Assert.True(b.IsActive);
+        Assert.False(a.IsActive);
+        Assert.True(env.Proc.CloseCalled);
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 101 && p.Kind == CodexProcessKind.DesktopApp);
+        Assert.Contains(result.ClosedProcesses!, p => p.Pid == 101);
+
+        var routingState = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.Equal("openai", routingState.ModelProvider);
+    }
+
+    [Fact]
+    public async Task ChatGptA_To_ChatGptB_WriteBack_PreservesRenewedTokensOfOutgoingAccount()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aV1 = Sample.AuthJson(accountId: "acct_A", refreshToken: "rt-A-OLD", lastRefresh: "2026-06-20T00:00:00Z");
+        var aV2 = Sample.AuthJson(accountId: "acct_A", refreshToken: "rt-A-NEW", lastRefresh: "2026-06-30T00:00:00Z");
+        var bBytes = Sample.AuthJson(accountId: "acct_B");
+        var a = env.AddChatGptProfile("A", aV1, active: true);
+        var b = env.AddChatGptProfile("B", bBytes, active: false);
+        env.SetActiveSlot(aV2); // Codex renewed the token in active slot while running
+        env.Proc.Running = [DesktopApp()];
+
+        await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        // Vault of outgoing account A must preserve the renewed token
+        Assert.Equal(aV2, env.Vault.LoadBlob(a.Id));
+        Assert.Equal(new DateTimeOffset(2026, 6, 30, 0, 0, 0, TimeSpan.Zero), a.LastRefreshedAt);
+    }
+
+    [Fact]
+    public async Task ChatGptA_To_ChatGptB_Rollback_OnSlotWriteFailure_RestoresA_AndKeepsAActive()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A", refreshToken: "rt-A");
+        var bBytes = Sample.AuthJson(accountId: "acct_B", refreshToken: "rt-B");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        var b = env.AddChatGptProfile("B", bBytes, active: false);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp()];
+
+        env.Fs.FailAtomicWriteForPath = env.Paths.Codex.ActiveAuthPath; // inject failure on active slot write
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.RolledBack, result.Outcome);
+        Assert.Equal(aBytes, env.ReadActiveSlot()); // original active slot restored
+        Assert.True(a.IsActive);
+        Assert.False(b.IsActive);
+        Assert.Contains(env.Proc.Relaunched, p => p.Kind == CodexProcessKind.DesktopApp);
+    }
+
+    [Fact]
+    public async Task ChatGptA_To_ChatGptB_AntiRace_AbortsWhenCodexCliRemnant_LeavesSlotUntouched()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A");
+        var bBytes = Sample.AuthJson(accountId: "acct_B");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        var b = env.AddChatGptProfile("B", bBytes, active: false);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp(), Cli()];
+        env.Proc.RemnantAfterClose = true; // CLI survives close
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.AbortedProcessRemnant, result.Outcome);
+        Assert.Equal(aBytes, env.ReadActiveSlot()); // auth.json untouched
+        Assert.True(a.IsActive);
+        Assert.False(b.IsActive);
+    }
+
+    [Fact]
+    public async Task TargetUndecryptable_FailsFast_WithoutClosingApps()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        var b = env.AddChatGptProfile("B", Sample.AuthJson(accountId: "acct_B"), active: false);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp()];
+
+        // Corrupt B's blob in vault so DPAPI cannot decrypt it
+        File.WriteAllBytes(env.Vault.BlobPath(b.Id), [1, 2, 3, 4, 5, 6, 7, 8]);
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Failed, result.Outcome);
+        Assert.Equal(ErrorCategory.DecryptionFailed, result.Error!.Category);
+        Assert.False(env.Proc.CloseCalled); // no apps closed
+        Assert.Equal(aBytes, env.ReadActiveSlot()); // active slot intact
+        Assert.True(a.IsActive);
+        Assert.False(b.IsActive);
+    }
+
+    [Fact]
+    public async Task ApiProvider_To_ChatGptB_SwapsAuth_SetsOpenAiRouting_AndRelaunchesDesktop()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A");
+        var bBytes = Sample.AuthJson(accountId: "acct_B");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        var b = env.AddChatGptProfile("B", bBytes, active: false);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp(pid: 301)];
+
+        // Start in API Provider mode
+        File.WriteAllText(env.Paths.Codex.ConfigTomlPath, "model_provider = \"switchboard_1234\"\nmodel = \"gpt-5.6-sol\"\n");
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.Equal(bBytes, env.ReadActiveSlot());
+        Assert.True(b.IsActive);
+        Assert.False(a.IsActive);
+
+        var routing = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.Equal("openai", routing.ModelProvider);
+
+        Assert.True(env.Proc.CloseCalled);
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 301);
+    }
+
+    [Fact]
+    public async Task ApiProvider_To_SameChatGptA_PreservesAuth_SetsOpenAiRouting_AndRelaunchesDesktop()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp(pid: 401)];
+
+        // Start in API Provider mode
+        File.WriteAllText(env.Paths.Codex.ConfigTomlPath, "model_provider = \"switchboard_1234\"\nmodel = \"gpt-5.6-sol\"\n");
+
+        // Switch back to ChatGPT (passing A or null)
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(a.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.Equal(aBytes, env.ReadActiveSlot()); // auth.json preserved
+        Assert.True(a.IsActive);
+
+        var routing = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.Equal("openai", routing.ModelProvider);
+
+        Assert.True(env.Proc.CloseCalled);
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 401);
+    }
+
+    [Fact]
+    public async Task ChatGptA_SameAccount_AlreadyOpenAi_IsNoOp_DoesNotTouchProcesses()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_A");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        env.SetActiveSlot(aBytes);
+        File.WriteAllText(env.Paths.Codex.ConfigTomlPath, "model_provider = \"openai\"\n");
+        env.Proc.Running = [DesktopApp()];
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(a.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.False(env.Proc.CloseCalled);
+        Assert.Empty(env.Proc.Relaunched);
+        Assert.Equal(aBytes, env.ReadActiveSlot());
+    }
+
+    [Fact]
+    public void PathAuthority_ChatGPTMode_WritesExactCodexAuthPath_ReadByCodex()
+    {
+        using var env = new TargetSwitchTestEnv();
+        var expectedAuthPath = Path.Combine(env.Paths.Codex.CodexHome, "auth.json");
+        var expectedConfigPath = Path.Combine(env.Paths.Codex.CodexHome, "config.toml");
+
+        Assert.Equal(expectedAuthPath, env.Paths.Codex.ActiveAuthPath);
+        Assert.Equal(expectedConfigPath, env.Paths.Codex.ConfigTomlPath);
+    }
+
+    [Fact]
+    public async Task ApiProviderIsolation_AddingAndConfiguringProviders_DoesNotAlterChatGptSwitching()
+    {
+        using var env = new TargetSwitchTestEnv();
+
+        // Add API provider
+        var apiId = Guid.NewGuid();
+        var apiProf = new ApiProviderProfile
+        {
+            Id = apiId,
+            CatalogProviderId = "router-cheap",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(apiId),
+            Nickname = "Router.Cheap",
+            BaseUrl = "https://router.cheap/v1",
+            SelectedModel = "gpt-5.6-sol"
+        };
+        env.ApiStore.Save(apiProf);
+        env.SecretStore.SaveApiKey(apiId, "sk-isolated-secret-999");
+
+        // Perform ChatGPT A -> B switch
+        var aBytes = Sample.AuthJson(accountId: "acct_A");
+        var bBytes = Sample.AuthJson(accountId: "acct_B");
+        var a = env.AddChatGptProfile("A", aBytes, active: true);
+        var b = env.AddChatGptProfile("B", bBytes, active: false);
+        env.SetActiveSlot(aBytes);
+        env.Proc.Running = [DesktopApp()];
+
+        var result = await env.TargetSwitch.SwitchToChatGptAsync(b.Id, env.ChatGptProfiles, AutoOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.Equal(bBytes, env.ReadActiveSlot());
+        Assert.True(b.IsActive);
+        Assert.False(a.IsActive);
+
+        // API provider store is unaffected
+        var storedApi = env.ApiStore.GetById(apiId);
+        Assert.NotNull(storedApi);
+        Assert.Equal("Router.Cheap", storedApi.Nickname);
+        Assert.True(env.SecretStore.HasApiKey(apiId));
     }
 }

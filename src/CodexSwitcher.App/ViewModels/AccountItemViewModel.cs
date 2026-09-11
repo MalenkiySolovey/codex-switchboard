@@ -104,7 +104,10 @@ public sealed partial class AccountItemViewModel : ObservableObject
     /// <summary>Marcado como "usado" nas últimas 24h. Ver <see cref="ProfileMetadata.MarkedUsedAt"/>.</summary>
     public bool IsMarkedUsed { get; }
 
-    public bool CanSwitch => (!IsActive || !IsRoutingActive) && Badge != AccountBadge.Unavailable;
+    /// <summary>Fully in use: active in auth.json AND routing in config.toml is set to openai.</summary>
+    public bool IsInUse => IsActive && IsRoutingActive;
+
+    public bool CanSwitch => !IsInUse && Badge != AccountBadge.Unavailable;
     // Rótulos localizados usados dentro do DataTemplate do card.
     public string SwitchLabel => Loc.Switch;
     public string InUseLabel => Loc.InUse;

@@ -245,11 +245,7 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
         }
         else
         {
-            var trimmedBase = baseUrl.TrimEnd('/');
-            var path = reqConfig.Path ?? "";
-            if (!path.StartsWith('/'))
-                path = "/" + path;
-            targetUrl = trimmedBase + path;
+            targetUrl = JoinBaseUrlAndPath(baseUrl, reqConfig.Path, recipe.Strategy);
         }
 
         if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var targetUri))
@@ -455,5 +451,44 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
             msg = "Request failed (credentials redacted).";
         }
         return msg;
+    }
+
+    /// <summary>
+    /// Safely joins a route base URL and a request path without duplication (/v1 + /models != /v1/v1/models).
+    /// Enforces OpenAI-compatible path normalization.
+    /// </summary>
+    public static string JoinBaseUrlAndPath(string baseUrl, string? path, string? strategy = null)
+    {
+        var trimmedBase = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
+        var trimmedPath = (path ?? string.Empty).Trim();
+
+        if (string.IsNullOrEmpty(trimmedPath))
+            return trimmedBase;
+
+        if (!trimmedPath.StartsWith('/'))
+            trimmedPath = "/" + trimmedPath;
+
+        // Ensure correct URL joining (/v1 + /models != /v1/v1/models)
+        // 1. If baseUrl ends with /v1 and path starts with /v1/, deduplicate the /v1
+        if (trimmedBase.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) &&
+            trimmedPath.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmedPath = trimmedPath[3..];
+        }
+        else if (trimmedBase.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) &&
+                 trimmedPath.Equals("/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmedPath = string.Empty;
+        }
+        // 2. If strategy is openai-models and baseUrl does NOT end with /v1, and path is /models
+        // then ensure /v1 is prefixed (e.g. https://api.openai.com + /models -> https://api.openai.com/v1/models)
+        else if (string.Equals(strategy, "openai-models", StringComparison.OrdinalIgnoreCase) &&
+                 !trimmedBase.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) &&
+                 trimmedPath.Equals("/models", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmedPath = "/v1/models";
+        }
+
+        return trimmedBase + trimmedPath;
     }
 }

@@ -74,6 +74,7 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
     public string InUseLabel => Loc.InUse;
     public string SwitchLabel => Loc.Switch;
     public string ContinueOnLabel => Loc.ContinueOn;
+    public string ContinueOnTooltip => Loc.ContinueOnTooltip;
     public string RefreshLabel => Loc.RefreshAll;
     public string MoreActionsLabel => Loc.MoreActions;
     public string EditLabel => Loc.Rename;
@@ -150,6 +151,25 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
         }
     }
 
+    public string RouteTooltip
+    {
+        get
+        {
+            if (Descriptor != null && !string.IsNullOrWhiteSpace(Profile.SelectedRouteId))
+            {
+                var route = Descriptor.Routes.FirstOrDefault(r => string.Equals(r.Id, Profile.SelectedRouteId, StringComparison.OrdinalIgnoreCase));
+                if (route != null)
+                {
+                    var regionPart = !string.IsNullOrWhiteSpace(route.Region) ? $" ({route.Region})" : string.Empty;
+                    return CanToggleRoute
+                        ? $"Route: {route.DisplayName}{regionPart} - Click to cycle route"
+                        : $"Route: {route.DisplayName}{regionPart}";
+                }
+            }
+            return CanToggleRoute ? "Click to switch route" : "Route";
+        }
+    }
+
     private static string ResolveRouteName(ApiProviderProfile profile, ProviderDescriptor? descriptor)
     {
         if (descriptor != null && !string.IsNullOrWhiteSpace(profile.SelectedRouteId))
@@ -159,8 +179,14 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
                 return route.DisplayName;
         }
 
-        return string.Equals(profile.SelectedRouteId, "reserve", StringComparison.OrdinalIgnoreCase)
-            ? "Reserve"
+        if (descriptor != null && descriptor.Routes.Count > 0)
+        {
+            var defaultRoute = descriptor.Routes.FirstOrDefault(r => r.IsDefault) ?? descriptor.Routes[0];
+            return defaultRoute.DisplayName;
+        }
+
+        return !string.IsNullOrWhiteSpace(profile.SelectedRouteId)
+            ? profile.SelectedRouteId
             : "Primary";
     }
 

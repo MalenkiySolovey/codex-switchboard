@@ -199,80 +199,100 @@ public sealed class CodexTargetSwitchService : ICodexTargetSwitchService
             ? allChatGptProfiles.FirstOrDefault(p => p.Id == targetChatGptProfileId.Value)
             : currentActive;
 
-        // If a specific different account is requested
-        if (targetProfile is not null && (currentActive is null || currentActive.Id != targetProfile.Id))
+        if (targetChatGptProfileId.HasValue && targetProfile is null)
         {
-            // Multi-resource transaction:
-            // 1. Close Codex
-            // 2. Backup config.toml
+            return Fail(new ActiveTarget.Unknown(), ErrorCategory.Unknown, $"ChatGPT profile {targetChatGptProfileId.Value} not found.");
+        }
+
+        var routing = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
+        var isApiRoutingActive = !string.IsNullOrWhiteSpace(routing.ModelProvider) &&
+                                 !string.Equals(routing.ModelProvider, "openai", StringComparison.OrdinalIgnoreCase);
+
+        var isAccountSwitch = targetProfile is not null && (currentActive is null || currentActive.Id != targetProfile.Id);
+
+        // Case 1: Switching to a different ChatGPT account (or initial activation)
+        if (isAccountSwitch)
+        {
             byte[]? configOriginalBytes = _fs.FileExists(_paths.ConfigTomlPath)
                 ? _fs.ReadAllBytes(_paths.ConfigTomlPath)
                 : null;
 
-            // Execute credential slot switch
+            // If API provider routing was active, reset config.toml to openai BEFORE SwitchService switches credentials
+            // so that when SwitchService relaunches desktop apps, config.toml already points to openai.
+            if (isApiRoutingActive)
+            {
+                try
+                {
+                    _routingConfig.ReturnToOpenAi(_paths.ConfigTomlPath);
+                }
+                catch (Exception ex)
+                {
+                    return new TargetSwitchResult(
+                        TargetSwitchOutcome.Failed,
+                        $"Failed to reset model_provider to openai: {ex.Message}",
+                        new ActiveTarget.ChatGpt(targetProfile!.Id, targetProfile.AccountEmail),
+                        ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow));
+                }
+            }
+
+            // Execute the full ChatGPT account switch transaction using SwitchService (with full process capture,
+            // fail-fast decryption, write-back, backup, atomic auth.json write, and desktop relaunch).
             var chatGptResult = await _chatGptSwitchService.SwitchAsync(
                 allChatGptProfiles,
-                targetProfile.Id,
-                options with { CloseReopenMode = CloseReopenMode.DoNothing }, // process control coordinated here
+                targetProfile!.Id,
+                options,
                 cancellationToken).ConfigureAwait(false);
 
             if (chatGptResult.Outcome != SwitchOutcome.Success && chatGptResult.Outcome != SwitchOutcome.SuccessWithReopenWarning)
             {
+                // If switch failed or rolled back, restore config.toml if it was previously in API mode
+                if (isApiRoutingActive && configOriginalBytes is not null)
+                {
+                    _routingConfig.RestoreExactBytes(_paths.ConfigTomlPath, configOriginalBytes);
+                }
+
+                var targetOutcome = chatGptResult.Outcome switch
+                {
+                    SwitchOutcome.RolledBack => TargetSwitchOutcome.RolledBack,
+                    SwitchOutcome.AbortedProcessRemnant => TargetSwitchOutcome.AbortedProcessRemnant,
+                    _ => TargetSwitchOutcome.Failed,
+                };
+
                 return new TargetSwitchResult(
-                    TargetSwitchOutcome.Failed,
+                    targetOutcome,
                     chatGptResult.Message,
                     new ActiveTarget.ChatGpt(targetProfile.Id, targetProfile.AccountEmail),
                     chatGptResult.Error,
-                    chatGptResult.ClosedProcesses);
+                    chatGptResult.ClosedProcesses,
+                    chatGptResult.ReopenFailures);
             }
 
-            // Set model_provider = "openai"
+            // Guarantee config.toml has model_provider = openai (idempotent, ensures consistency)
             try
             {
                 _routingConfig.ReturnToOpenAi(_paths.ConfigTomlPath);
             }
-            catch (Exception ex)
+            catch
             {
-                // Rollback config
-                if (configOriginalBytes is not null)
-                {
-                    _routingConfig.RestoreExactBytes(_paths.ConfigTomlPath, configOriginalBytes);
-                }
-                // If previous was active, roll back credential
-                if (currentActive is not null)
-                {
-                    await _chatGptSwitchService.SwitchAsync(
-                        allChatGptProfiles,
-                        currentActive.Id,
-                        options with { CloseReopenMode = CloseReopenMode.DoNothing },
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                return new TargetSwitchResult(
-                    TargetSwitchOutcome.RolledBack,
-                    $"Failed to set model_provider to openai. Rolled back: {ex.Message}",
-                    new ActiveTarget.ChatGpt(targetProfile.Id, targetProfile.AccountEmail),
-                    ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow));
+                // Non-fatal if config is already openai
             }
 
-            var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic;
-            var reopenFailures = new List<CodexProcessInfo>();
-            if (closeApps && chatGptResult.ClosedProcesses is not null)
-            {
-                ReopenDesktop(chatGptResult.ClosedProcesses, out reopenFailures);
-            }
+            _audit.Record("switch-target", "ok", $"-> ChatGPT {targetProfile.DisplayName}");
 
             return new TargetSwitchResult(
-                reopenFailures.Count > 0 ? TargetSwitchOutcome.SuccessWithReopenWarning : TargetSwitchOutcome.Success,
+                chatGptResult.Outcome == SwitchOutcome.SuccessWithReopenWarning
+                    ? TargetSwitchOutcome.SuccessWithReopenWarning
+                    : TargetSwitchOutcome.Success,
                 $"Active inference target switched to ChatGPT account {targetProfile.DisplayName}.",
                 new ActiveTarget.ChatGpt(targetProfile.Id, targetProfile.AccountEmail),
                 null,
                 chatGptResult.ClosedProcesses,
-                reopenFailures);
+                chatGptResult.ReopenFailures);
         }
-        else
+        else if (isApiRoutingActive)
         {
-            // Same account already active in auth.json: simply return model_provider to "openai"
+            // Case 2: Same account already active in auth.json, but routing was on an API Provider:
+            // Must return model_provider to "openai" and restart Codex desktop so it picks up the route change.
             var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic;
             IReadOnlyList<CodexProcessInfo> captured = [];
             IReadOnlyList<CodexProcessInfo> closed = [];
@@ -281,9 +301,44 @@ public sealed class CodexTargetSwitchService : ICodexTargetSwitchService
             {
                 captured = _processes.FindRunningCodexProcesses().Where(p => p.IsClosable).ToList();
                 closed = await _processes.CloseGracefullyThenKillAsync(captured, options.GracefulCloseTimeout, cancellationToken).ConfigureAwait(false);
+
+                if (_processes.AnyCodexCliRunning())
+                {
+                    ReopenDesktop(captured, out _);
+                    _audit.Record("switch", "aborted", "process remnant");
+                    return new TargetSwitchResult(TargetSwitchOutcome.AbortedProcessRemnant,
+                        "A troca foi abortada: ainda há um processo do Codex em execução. Nada foi alterado.",
+                        new ActiveTarget.ChatGpt(targetProfile?.Id, targetProfile?.AccountEmail),
+                        ErrorInfo.Create(ErrorCategory.ProcessRemnant, "Process remnant", _clock.UtcNow),
+                        closed);
+                }
             }
 
-            _routingConfig.ReturnToOpenAi(_paths.ConfigTomlPath);
+            byte[]? configOriginalBytes = _fs.FileExists(_paths.ConfigTomlPath)
+                ? _fs.ReadAllBytes(_paths.ConfigTomlPath)
+                : null;
+
+            try
+            {
+                _routingConfig.ReturnToOpenAi(_paths.ConfigTomlPath);
+            }
+            catch (Exception ex)
+            {
+                if (configOriginalBytes is not null)
+                {
+                    _routingConfig.RestoreExactBytes(_paths.ConfigTomlPath, configOriginalBytes);
+                }
+                if (closeApps)
+                {
+                    ReopenDesktop(captured, out _);
+                }
+
+                return new TargetSwitchResult(
+                    TargetSwitchOutcome.RolledBack,
+                    $"Failed to return model_provider to openai: {ex.Message}",
+                    new ActiveTarget.ChatGpt(targetProfile?.Id, targetProfile?.AccountEmail),
+                    ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow));
+            }
 
             var reopenFailures = new List<CodexProcessInfo>();
             if (closeApps)
@@ -291,13 +346,24 @@ public sealed class CodexTargetSwitchService : ICodexTargetSwitchService
                 ReopenDesktop(captured, out reopenFailures);
             }
 
+            _audit.Record("switch-target", "ok", "-> ChatGPT (routing returned)");
+
             return new TargetSwitchResult(
                 reopenFailures.Count > 0 ? TargetSwitchOutcome.SuccessWithReopenWarning : TargetSwitchOutcome.Success,
-                $"Active inference route returned to ChatGPT.",
+                "Active inference route returned to ChatGPT.",
                 new ActiveTarget.ChatGpt(targetProfile?.Id, targetProfile?.AccountEmail),
                 null,
                 closed,
                 reopenFailures);
+        }
+        else
+        {
+            // Case 3: Same account already active in auth.json AND config.toml is already on OpenAI:
+            // Idempotent no-op.
+            return new TargetSwitchResult(
+                TargetSwitchOutcome.Success,
+                $"{targetProfile?.DisplayName ?? "ChatGPT"} já é a conta ativa.",
+                new ActiveTarget.ChatGpt(targetProfile?.Id, targetProfile?.AccountEmail));
         }
     }
 

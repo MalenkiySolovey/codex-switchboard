@@ -660,7 +660,7 @@ public sealed class UiInteractionService : IUiInteraction
                 {
                     routeCombo.Items.Add(new ComboBoxItem
                     {
-                        Content = $"{r.DisplayName} ({r.Id})",
+                        Content = !string.IsNullOrWhiteSpace(r.Region) ? $"{r.DisplayName} ({r.Region})" : $"{r.DisplayName} ({r.Id})",
                         Tag = r.Id
                     });
                 }
@@ -859,7 +859,7 @@ public sealed class UiInteractionService : IUiInteraction
             {
                 routeCombo.Items.Add(new ComboBoxItem
                 {
-                    Content = $"{r.DisplayName} ({r.Id})",
+                    Content = !string.IsNullOrWhiteSpace(r.Region) ? $"{r.DisplayName} ({r.Region})" : $"{r.DisplayName} ({r.Id})",
                     Tag = r.Id,
                     IsSelected = r.Id.Equals(profile.SelectedRouteId, StringComparison.OrdinalIgnoreCase)
                 });

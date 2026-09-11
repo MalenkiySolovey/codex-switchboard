@@ -261,7 +261,7 @@
                         <DataTemplate x:DataType="vm:AccountItemViewModel">
                             <Border CornerRadius="{StaticResource CardCornerRadius}" BorderThickness="1.5" Padding="16,10"
                                     BorderBrush="{x:Bind Converter={StaticResource CardBorder}}"
-                                    Background="{x:Bind IsActive, Converter={StaticResource ActiveBg}}">
+                                    Background="{x:Bind Converter={StaticResource ActiveBg}}">
                                 <StackPanel Spacing="10">
                                     <!-- Top Row: Identity + Badges + Compact Quota + 2FA + Actions + Expand/Collapse -->
                                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
@@ -469,7 +469,7 @@
                                         </Button>
                                         <Border Grid.Column="6" VerticalAlignment="Center" Padding="10,6"
                                                 CornerRadius="{StaticResource ControlCornerRadius}"
-                                                Visibility="{x:Bind IsActive, Converter={StaticResource BoolToVis}}"
+                                                Visibility="{x:Bind IsInUse, Converter={StaticResource BoolToVis}}"
                                                 Background="{ThemeResource BrandAccentSoftBrush}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="{ThemeResource BrandAccentBrush}" />
@@ -835,23 +835,23 @@
 
                                         <!-- Col 2: Action Buttons -->
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <!-- Toggle Route (Primary / Reserve) -->
+                                            <!-- Route Selection / Cycling -->
                                             <Button Click="OnToggleRouteClick"
                                                     Visibility="{x:Bind CanToggleRoute, Converter={StaticResource BoolToVis}}"
-                                                    ToolTipService.ToolTip="Toggle Route (Primary / Reserve)">
+                                                    ToolTipService.ToolTip="{x:Bind RouteTooltip}">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <FontIcon Glyph="&#xE8AB;" FontSize="13" />
                                                     <TextBlock Text="{x:Bind SelectedRoute}" FontSize="12" />
                                                 </StackPanel>
                                             </Button>
 
-                                            <!-- Continue On... (cross-provider thread fork) -->
+                                            <!-- Continue Chat (cross-provider thread fork) -->
                                             <Button Click="OnContinueOnClick"
                                                     IsEnabled="{x:Bind HasSecret}"
-                                                    ToolTipService.ToolTip="Continue a recent Codex conversation on this provider">
+                                                    ToolTipService.ToolTip="{x:Bind ContinueOnTooltip}">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <FontIcon Glyph="&#xE8BD;" FontSize="13" />
-                                                    <TextBlock Text="Continue on…" FontSize="12" />
+                                                    <TextBlock Text="{x:Bind ContinueOnLabel}" FontSize="12" />
                                                 </StackPanel>
                                             </Button>
 

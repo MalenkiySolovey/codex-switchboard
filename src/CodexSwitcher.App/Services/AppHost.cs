@@ -136,6 +136,7 @@ public static class AppHost
             "0.1.4-preview.1"));
         services.AddSingleton<IProviderCatalogService, ProviderCatalogService>();
         services.AddSingleton<IDeclarativeProviderInspector>(sp => new DeclarativeProviderInspector());
+        services.AddSingleton<IProviderModelCache, ProviderModelCache>();
 
         services.AddSingleton<ICodexRoutingConfigStore>(sp => new CodexRoutingConfigStore(
             sp.GetRequiredService<IFileSystem>(),
@@ -158,9 +159,13 @@ public static class AppHost
         {
             var settings = sp.GetRequiredService<AppSettings>();
             var p = sp.GetRequiredService<AppPaths>();
-            var codexPath = settings.CodexExecutablePathOverride ?? "codex";
+            var resolver = sp.GetRequiredService<ICodexRuntimeResolver>();
             return new CodexThreadHandoffService(async () =>
             {
+                var runtime = resolver.ResolveCurrentRuntime(settings.CodexExecutablePathOverride);
+                var codexPath = !string.IsNullOrWhiteSpace(runtime?.ExecutablePath)
+                    ? runtime.ExecutablePath
+                    : (!string.IsNullOrWhiteSpace(settings.CodexExecutablePathOverride) ? settings.CodexExecutablePathOverride : "codex");
                 var client = new CodexAppServerClient(codexPath, p.Codex.CodexHome);
                 await client.StartAsync();
                 return client;

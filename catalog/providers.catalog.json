@@ -27,7 +27,8 @@
       "routes": [
         {
           "id": "primary",
-          "displayName": "Primary (Hong Kong)",
+          "displayName": "Primary",
+          "region": "Hong Kong",
           "baseUrl": "https://router.cheap/v1",
           "isDefault": true,
           "isReserve": false
@@ -52,6 +53,12 @@
             "method": "GET",
             "path": "/models",
             "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
           }
         },
         "balance": {

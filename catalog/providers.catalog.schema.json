@@ -185,6 +185,10 @@
           "type": "string",
           "minLength": 1
         },
+        "region": {
+          "type": "string",
+          "description": "Optional geographical region or datacenter location (e.g. 'Hong Kong', 'US West')."
+        },
         "baseUrl": {
           "type": "string",
           "format": "uri",

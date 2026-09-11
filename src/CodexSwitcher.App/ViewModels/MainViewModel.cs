@@ -46,6 +46,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IProviderCatalogService? _catalogService;
     private readonly IDeclarativeProviderInspector? _providerInspector;
     private readonly ICodexThreadHandoffService? _threadHandoffService;
+    private readonly IProviderModelCache? _modelCache;
     private readonly AppPaths? _paths;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = [];
@@ -88,7 +89,8 @@ public sealed partial class MainViewModel : ObservableObject
         IProviderCatalogService? catalogService = null,
         IDeclarativeProviderInspector? providerInspector = null,
         ICodexThreadHandoffService? threadHandoffService = null,
-        AppPaths? paths = null)
+        AppPaths? paths = null,
+        IProviderModelCache? modelCache = null)
     {
         _profiles = profiles;
         _switch = switchService;
@@ -110,6 +112,7 @@ public sealed partial class MainViewModel : ObservableObject
         _providerInspector = providerInspector;
         _threadHandoffService = threadHandoffService;
         _paths = paths;
+        _modelCache = modelCache;
 
         _pollingCoordinator.UsageUpdated += OnUsageUpdated;
         _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
@@ -407,8 +410,10 @@ public sealed partial class MainViewModel : ObservableObject
         if (item is null || item.Routes.Count <= 1 || item.Descriptor is null) return;
 
         var currentRouteId = item.Profile.SelectedRouteId;
-        var nextRoute = item.Descriptor.Routes.FirstOrDefault(r => !r.Id.Equals(currentRouteId, StringComparison.OrdinalIgnoreCase))
-            ?? item.Descriptor.Routes[0];
+        var routes = item.Descriptor.Routes;
+        var currentIndex = routes.FindIndex(r => r.Id.Equals(currentRouteId, StringComparison.OrdinalIgnoreCase));
+        var nextIndex = currentIndex >= 0 ? (currentIndex + 1) % routes.Count : 0;
+        var nextRoute = routes[nextIndex];
 
         item.Profile.SelectedRouteId = nextRoute.Id;
         item.Profile.BaseUrl = nextRoute.BaseUrl;
@@ -421,6 +426,32 @@ public sealed partial class MainViewModel : ObservableObject
                 item.Profile.Id,
                 nextRoute.Id,
                 nextRoute.BaseUrl,
+                SwitchExecutionOptions.From(_settings));
+        }
+
+        RebuildList();
+    }
+
+    [RelayCommand]
+    private async Task SwitchRouteAsync((ApiProviderItemViewModel? Item, string RouteId) args)
+    {
+        var (item, routeId) = args;
+        if (item is null || item.Descriptor is null || string.IsNullOrWhiteSpace(routeId)) return;
+
+        var route = item.Descriptor.Routes.FirstOrDefault(r => r.Id.Equals(routeId, StringComparison.OrdinalIgnoreCase));
+        if (route is null || route.Id.Equals(item.Profile.SelectedRouteId, StringComparison.OrdinalIgnoreCase)) return;
+
+        item.Profile.SelectedRouteId = route.Id;
+        item.Profile.BaseUrl = route.BaseUrl;
+
+        _apiProviderStore?.Save(item.Profile);
+
+        if (item.IsTargetActive && _targetSwitchService is not null)
+        {
+            await _targetSwitchService.SwitchApiRouteAsync(
+                item.Profile.Id,
+                route.Id,
+                route.BaseUrl,
                 SwitchExecutionOptions.From(_settings));
         }
 
@@ -550,7 +581,13 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        var selected = await _ui.PromptContinueOnThreadAsync(threads, item.DisplayName, item.SelectedModel);
+        var targetModel = !string.IsNullOrWhiteSpace(item.SelectedModel)
+            ? item.SelectedModel
+            : _modelCache?.GetLatestModels(item.Profile.Id)?.FirstOrDefault()
+              ?? item.Descriptor?.Codex.DefaultModel
+              ?? "gpt-5.6-sol";
+
+        var selected = await _ui.PromptContinueOnThreadAsync(threads, item.DisplayName, targetModel);
         if (selected is null) return;
 
         await RunBusy(_loc.ContinueOn, async () =>
@@ -558,7 +595,7 @@ public sealed partial class MainViewModel : ObservableObject
             var forkResult = await _threadHandoffService.ForkThreadAsync(
                 selected.Id,
                 item.Profile.StableCodexProviderId,
-                item.SelectedModel);
+                targetModel);
 
             if (!item.IsTargetActive && _targetSwitchService is not null)
             {
@@ -581,6 +618,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         string? secret = _secretStore?.GetApiKey(item.Profile.Id);
         var desc = item.Descriptor ?? _catalogService?.GetDescriptor(item.Profile.CatalogProviderId);
+        var routeKey = !string.IsNullOrWhiteSpace(item.Profile.SelectedRouteId) ? item.Profile.SelectedRouteId : item.Profile.BaseUrl;
 
         try
         {
@@ -597,6 +635,7 @@ public sealed partial class MainViewModel : ObservableObject
             if (snapshot.Models.Count > 0)
             {
                 item.SetDiscoveredModels(snapshot.Models);
+                _modelCache?.SetModels(item.Profile.Id, routeKey, 1, snapshot.Models);
             }
             else if (!string.IsNullOrWhiteSpace(snapshot.Error))
             {
@@ -1173,6 +1212,11 @@ public sealed partial class MainViewModel : ObservableObject
                 bool hasSecret = _secretStore?.HasApiKey(prof.Id) ?? false;
                 bool isTargetActive = IsRoutingActiveToApi && activeTarget is ActiveTarget.Api a && a.Profile.Id == prof.Id;
                 var vm = new ApiProviderItemViewModel(prof, desc, hasSecret, isTargetActive);
+                var routeKey = !string.IsNullOrWhiteSpace(prof.SelectedRouteId) ? prof.SelectedRouteId : prof.BaseUrl;
+                if (_modelCache?.TryGetModels(prof.Id, routeKey, 1, out var cachedModels) == true && cachedModels.Count > 0)
+                {
+                    vm.SetDiscoveredModels(cachedModels);
+                }
                 ApiProviders.Add(vm);
             }
         }
