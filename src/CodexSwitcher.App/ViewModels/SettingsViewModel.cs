@@ -22,6 +22,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly IWindowsUserVerificationService _verificationService;
     private readonly ITotpRevealAuthorizationService _authService;
     private readonly IUiInteraction _ui;
+    private readonly IProviderCatalogService? _catalogService;
+    private readonly IKeyBrokerInstaller? _brokerInstaller;
 
     public Strings Loc => Strings.Current;
 
@@ -224,6 +226,63 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         await _ui.OpenWindowsSignInOptionsAsync();
     }
 
+    private string _catalogVersion = string.Empty;
+    public string CatalogVersion
+    {
+        get => _catalogVersion;
+        private set => SetField(ref _catalogVersion, value);
+    }
+
+    private string _catalogSource = string.Empty;
+    public string CatalogSource
+    {
+        get => _catalogSource;
+        private set => SetField(ref _catalogSource, value);
+    }
+
+    private string _keyBrokerStatus = string.Empty;
+    public string KeyBrokerStatus
+    {
+        get => _keyBrokerStatus;
+        private set => SetField(ref _keyBrokerStatus, value);
+    }
+
+    public void RefreshCatalogDiagnostics()
+    {
+        if (_catalogService is not null)
+        {
+            var res = _catalogService.CurrentResult;
+            CatalogVersion = $"{res.Catalog.CatalogVersion} (Schema {res.Catalog.SchemaVersion})";
+            CatalogSource = $"{res.ActiveLayer} ({res.Catalog.Providers.Count} providers)";
+        }
+        else
+        {
+            CatalogVersion = "-";
+            CatalogSource = "-";
+        }
+
+        if (_brokerInstaller is not null)
+        {
+            bool installed = _brokerInstaller.IsInstalledAndValid();
+            KeyBrokerStatus = installed ? "Installed & Verified" : "Available";
+        }
+        else
+        {
+            KeyBrokerStatus = "-";
+        }
+    }
+
+    public void ReloadCatalog()
+    {
+        if (_catalogService is not null)
+        {
+            var res = _catalogService.Reload();
+            RefreshCatalogDiagnostics();
+            StatusMessage = $"Catalog reloaded from {res.ActiveLayer}. Found {res.Catalog.Providers.Count} providers.";
+            StatusSeverity = InfoBarSeverity.Success;
+        }
+    }
+
     public SettingsViewModel(
         AppSettings settings,
         SettingsStore settingsStore,
@@ -233,7 +292,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         AppPaths paths,
         IWindowsUserVerificationService verificationService,
         ITotpRevealAuthorizationService authService,
-        IUiInteraction ui)
+        IUiInteraction ui,
+        IProviderCatalogService? catalogService = null,
+        IKeyBrokerInstaller? brokerInstaller = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
@@ -244,6 +305,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _verificationService = verificationService ?? throw new ArgumentNullException(nameof(verificationService));
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        _catalogService = catalogService;
+        _brokerInstaller = brokerInstaller;
+
+        RefreshCatalogDiagnostics();
 
         var currentMin = _settings.TotpWindowsVerificationDurationMinutes;
         var options = new List<DurationOption>

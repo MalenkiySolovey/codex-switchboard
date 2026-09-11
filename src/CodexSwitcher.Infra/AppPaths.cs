@@ -33,12 +33,81 @@ public sealed class AppPaths
     public string BrokerDir => Path.Combine(Root, "broker");
     public string BrokerExecutablePath => Path.Combine(BrokerDir, "CodexSwitchboard.KeyBroker.exe");
     public string ApiKeysDir => Path.Combine(Root, "api-keys");
+    public string LegacyApiKeysDir => Path.Combine(Root, "keys");
 
     /// <summary>Caminho do arquivo de credencial TOTP cifrado de um perfil.</summary>
     public string GetTotpPath(Guid profileId) => Path.Combine(TotpDir, $"{profileId:N}.bin");
 
-    /// <summary>Caminho do arquivo de chave API cifrada de um perfil de provedor.</summary>
+    /// <summary>Caminho canônico do arquivo de chave API cifrada de um perfil de provedor.</summary>
     public string GetApiKeyPath(Guid profileId) => Path.Combine(ApiKeysDir, $"{profileId:N}.bin");
+
+    /// <summary>Caminho legado (desenvolvimento / builds anteriores) do arquivo de chave API cifrada.</summary>
+    public string GetLegacyApiKeyPath(Guid profileId) => Path.Combine(LegacyApiKeysDir, $"{profileId:N}.bin");
+
+    /// <summary>
+    /// Migra atomicamente um blob de chave API da pasta legada 'keys' para a pasta canônica 'api-keys',
+    /// sem decifrar os dados. Se ambos os arquivos existirem, o canônico é preservado e não sobrescrito.
+    /// </summary>
+    public bool MigrateLegacyApiKeyIfNeeded(Guid profileId)
+    {
+        var canonical = GetApiKeyPath(profileId);
+        var legacy = GetLegacyApiKeyPath(profileId);
+
+        if (!File.Exists(legacy))
+            return false;
+
+        if (File.Exists(canonical))
+            return false; // Ambos existem: não sobrescreve
+
+        try
+        {
+            Directory.CreateDirectory(ApiKeysDir);
+            File.Move(legacy, canonical);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Varre a pasta legada 'keys' e migra atomicamente todos os blobs para 'api-keys' sem decifrar.
+    /// </summary>
+    public int MigrateAllLegacyApiKeys()
+    {
+        if (!Directory.Exists(LegacyApiKeysDir))
+            return 0;
+
+        int migrated = 0;
+        try
+        {
+            Directory.CreateDirectory(ApiKeysDir);
+            foreach (var legacyFile in Directory.EnumerateFiles(LegacyApiKeysDir, "*.bin"))
+            {
+                var fileName = Path.GetFileName(legacyFile);
+                var canonical = Path.Combine(ApiKeysDir, fileName);
+                if (!File.Exists(canonical))
+                {
+                    try
+                    {
+                        File.Move(legacyFile, canonical);
+                        migrated++;
+                    }
+                    catch
+                    {
+                        // Continua para outros arquivos
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignora falhas de enumeração
+        }
+
+        return migrated;
+    }
 
     // Pasta de trabalho isolada para login/refresh (CODEX_HOME efêmero). NÃO usar %TEMP%: o codex
     // recusa criar binários auxiliares sob o diretório temporário do sistema. Ver §5/§6.

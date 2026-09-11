@@ -185,4 +185,57 @@ public sealed partial class AccountsView : UserControl
         var orderedIds = ViewModel.Accounts.Select(a => a.Id).ToList();
         ViewModel.ReorderCommand.Execute(orderedIds);
     }
+
+    private static ApiProviderItemViewModel? ApiItemOf(object sender) =>
+        (sender as FrameworkElement)?.DataContext as ApiProviderItemViewModel;
+
+    private void OnSwitchApiClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.SwitchToApiProviderCommand.Execute(item);
+    }
+
+    private void OnToggleRouteClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ToggleRouteCommand.Execute(item);
+    }
+
+    private void OnContinueOnClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ContinueOnCommand.Execute(item);
+    }
+
+    private void OnDiscoverModelsClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.DiscoverModelsCommand.Execute(item);
+    }
+
+    private void OnEditApiProviderClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.EditApiProviderCommand.Execute(item);
+    }
+
+    private void OnRotateApiKeyClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.RotateApiKeyCommand.Execute(item);
+    }
+
+    private void OnRemoveApiCredentialClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.RemoveCredentialCommand.Execute(item);
+    }
+
+    private void OnRemoveApiProviderClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.RemoveApiProviderCommand.Execute(item);
+    }
+
+    private void OnSelectChatGptTabClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedTab = 0;
+    }
+
+    private void OnSelectApiProvidersTabClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel.SelectedTab = 1;
+    }
 }

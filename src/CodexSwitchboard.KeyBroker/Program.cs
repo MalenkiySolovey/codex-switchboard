@@ -40,6 +40,11 @@ public static class Program
 
             if (!File.Exists(keyPath))
             {
+                appPaths.MigrateLegacyApiKeyIfNeeded(keyId);
+            }
+
+            if (!File.Exists(keyPath))
+            {
                 Console.Error.WriteLine("Error: API key credential not found.");
                 return 3;
             }

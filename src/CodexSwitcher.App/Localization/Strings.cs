@@ -426,8 +426,64 @@ public sealed class Strings
     public string WindowsHelloAvailable => S("Disponível", "Available");
     public string WindowsVerificationStatusAvailable => S("Disponível", "Available");
     public string WindowsVerificationStatusDeviceNotPresent => S("Windows Hello/PIN não está configurado — senha do Windows será usada", "Windows Hello/PIN is not configured — Windows password will be used");
-    public string WindowsVerificationStatusNotConfigured => S("Windows Hello/PIN não está configurado — senha do Windows será usada", "Windows Hello/PIN is not configured — Windows password will be used");
+    public string WindowsVerificationStatusNotConfigured => S("Windows Hello/PIN não está configurado - senha do Windows será usada", "Windows Hello/PIN is not configured - Windows password will be used");
     public string WindowsVerificationStatusDisabledByPolicy => S("Desativada por política do Windows", "Disabled by Windows policy");
     public string WindowsVerificationStatusDeviceBusy => S("Temporariamente ocupado", "Temporarily busy");
     public string WindowsVerificationStatusUnsupported => S("Não compatível nesta versão do Windows", "Not supported on this Windows version");
+
+    // Phase 10C: Provedores de API personalizados, rotas e bifurcação de conversas
+    public string ChatGPTAccountsTab => S("Contas ChatGPT", "ChatGPT Accounts");
+    public string ApiProvidersTab => S("Provedores de API", "API Providers");
+    public string ApiProvidersHeader => S("Provedores de API", "API Providers");
+    public string ApiProvidersSubtitle => S("Alterne modelos e rotas de API personalizadas no Codex.", "Switch custom API models and routes in Codex.");
+    public string AddApiProvider => S("Adicionar provedor", "Add API Provider");
+    public string AddApiProviderTooltip => S("Adicionar chave de API OpenAI-compatível", "Add an OpenAI-compatible API key");
+    public string ApiProvidersEmptyTitle => S("Nenhum provedor de API ainda", "No API providers yet");
+    public string ApiProvidersEmptyBody => S("Adicione uma chave de API para usar um provedor compatível com OpenAI no Codex.", "Add an API key to use an OpenAI-compatible provider with Codex.");
+    public string ActiveRoutingTitle => S("Roteamento ativo", "Active routing");
+    public string CredentialSlotTitle => S("Credencial ativa", "Active credential");
+    public string CredentialActiveBadge => S("Credencial ativa", "Credential active");
+    public string ApiKeyRequired => S("Chave de API necessária", "API key required");
+    public string SwitchToProvider => S("Alternar para provedor", "Switch to provider");
+    public string SwitchToChatGpt => S("Alternar para ChatGPT", "Switch to ChatGPT");
+    public string ContinueOn => S("Continuar em…", "Continue on…");
+    public string ContinueOnTooltip => S("Bifurcar uma conversa recente do Codex para este provedor", "Fork a recent Codex conversation to this provider");
+    public string RotateKey => S("Substituir chave de API", "Replace API key");
+    public string RemoveCredential => S("Remover credencial", "Remove credential");
+    public string RouteLabel => S("Rota", "Route");
+    public string PrimaryRoute => S("Principal", "Primary");
+    public string ReserveRoute => S("Reserva", "Reserve");
+    public string ModelsCountLabel => S("Modelos", "Models");
+    public string BalanceLabel => S("Saldo", "Balance");
+    public string UsageLabel => S("Uso", "Usage");
+    public string UnknownValue => S("Desconhecido", "Unknown");
+    public string DiscoverModels => S("Descobrir modelos", "Discover models");
+    public string DiscoveringModels => S("Descobrindo modelos…", "Discovering models…");
+    public string ProviderDialogTitle => S("Adicionar Provedor de API", "Add API Provider");
+    public string EditProviderDialogTitle => S("Editar Provedor de API", "Edit API Provider");
+    public string RotateKeyDialogTitle => S("Substituir Chave de API", "Replace API Key");
+    public string ProviderLabel => S("Provedor", "Provider");
+    public string ApiKeyLabel => S("Chave de API", "API Key");
+    public string NameLabel => S("Nome / Rótulo", "Name / Label");
+    public string ModelLabel => S("Modelo", "Model");
+    public string BaseUrlLabel => S("URL Base", "Base URL");
+    public string SaveAndSwitch => S("Salvar e alternar", "Save and switch");
+    public string SaveOnly => S("Salvar", "Save");
+    public string ThreadPickerTitle => S("Continuar conversa", "Continue conversation");
+    public string ThreadPickerSubtitle => S("Escolha uma conversa do Codex para bifurcar com segurança.", "Choose a Codex conversation to fork safely.");
+    public string SourceThread => S("Conversa de origem", "Source conversation");
+    public string TargetProvider => S("Continuar em", "Continue on");
+    public string ForkAndSwitch => S("Continuar", "Continue");
+    public string CatalogVersionLabel => S("Versão do Catálogo", "Catalog Version");
+    public string CatalogSourceLabel => S("Fonte do Catálogo", "Catalog Source");
+    public string ReloadCatalog => S("Recarregar catálogo", "Reload catalog");
+    public string KeyBrokerStatusLabel => S("Key Broker", "Key Broker");
+    public string RemoveCredentialConfirmTitle(string name) => S($"Remover chave de API de {name}?", $"Remove API key for {name}?");
+    public string RemoveCredentialConfirmMessage => S(
+        "A chave de API criptografada será removida deste computador. O registro do provedor e o histórico de conversas continuarão identificáveis como 'Chave de API necessária'. Você pode adicionar uma nova chave a qualquer momento.",
+        "The encrypted API key will be removed from this computer. The provider entry and conversation history will remain identifiable as 'API key required'. You can attach a new key at any time.");
+    public string ForkSuccessTitle => S("Conversa bifurcada", "Conversation continued");
+    public string ForkSuccessMessage(string provider, string threadTitle) => S(
+        $"Conversa bifurcada com sucesso no {provider} ({threadTitle}). O roteamento do Codex foi atualizado.",
+        $"Conversation successfully continued on {provider} ({threadTitle}). Codex routing was updated.");
 }

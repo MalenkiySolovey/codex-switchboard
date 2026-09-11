@@ -71,10 +71,28 @@ $publishArgs = @(
 dotnet @publishArgs
 if ($LASTEXITCODE -ne 0) { throw "Publish failed with exit code $LASTEXITCODE" }
 
+Write-Host "Publishing self-contained KeyBroker payload..." -ForegroundColor Yellow
+$brokerPublishArgs = @(
+    "publish",
+    "$RepoRoot\src\CodexSwitchboard.KeyBroker\CodexSwitchboard.KeyBroker.csproj",
+    "-c", "Release",
+    "-r", "win-x64",
+    "--self-contained", "true",
+    "-p:PublishSingleFile=true",
+    "-o", $StagingDir
+)
+dotnet @brokerPublishArgs
+if ($LASTEXITCODE -ne 0) { throw "Broker publish failed with exit code $LASTEXITCODE" }
+
 # Verify primary executable name
 $expectedExe = Join-Path $StagingDir "CodexSwitchboard.exe"
 if (-not (Test-Path $expectedExe)) {
     throw "Expected binary '$expectedExe' not found in publish staging directory."
+}
+
+$expectedBrokerExe = Join-Path $StagingDir "CodexSwitchboard.KeyBroker.exe"
+if (-not (Test-Path $expectedBrokerExe)) {
+    throw "Expected binary '$expectedBrokerExe' not found in publish staging directory."
 }
 
 # 5. Bundle legal & documentation files

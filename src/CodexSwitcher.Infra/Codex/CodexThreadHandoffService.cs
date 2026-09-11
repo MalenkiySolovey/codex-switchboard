@@ -22,7 +22,22 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         CancellationToken cancellationToken = default)
     {
         var client = await _clientFactory().ConfigureAwait(false);
-        var result = await client.RequestAsync("thread/list", new { limit }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+        JsonElement result;
+        try
+        {
+            // Per official Codex app-server schema, modelProviders: [] explicitly requests sessions across ALL providers
+            var allProvidersParams = new
+            {
+                limit,
+                modelProviders = Array.Empty<string>()
+            };
+            result = await client.RequestAsync("thread/list", allProvidersParams, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Fallback for older Codex app-server versions that may not accept empty modelProviders array
+            result = await client.RequestAsync("thread/list", new { limit }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+        }
 
         var list = new List<CodexThreadSummary>();
         if (result.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array)

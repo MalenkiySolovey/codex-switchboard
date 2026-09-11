@@ -77,4 +77,57 @@ public sealed class ApiProviderStoreTests
         Assert.Equal("sk-proj...9999", ApiProviderProfile.ComputeKeyPreview("sk-project-super-secret-key-9999"));
         Assert.Equal("key...abcd", ApiProviderProfile.ComputeKeyPreview("key1234567890abcd"));
     }
+
+    [Fact]
+    public void ApiKeySecretStore_MigratesLegacyKey_WhenCanonicalMissing()
+    {
+        using var temp = new TempDir();
+        var apiKeysDir = Path.Combine(temp.Root, "api-keys");
+        var legacyKeysDir = Path.Combine(temp.Root, "keys");
+        Directory.CreateDirectory(legacyKeysDir);
+
+        var profileId = Guid.NewGuid();
+        var legacyFile = Path.Combine(legacyKeysDir, $"{profileId:N}.bin");
+
+        // Save into legacy directory first using a temporary secretStore pointing directly to legacy
+        var tempStore = new ApiKeySecretStore(_protector, _fs, legacyKeysDir);
+        tempStore.SaveApiKey(profileId, "sk-synthetic-legacy-key-1234");
+        Assert.True(File.Exists(legacyFile));
+
+        // Now initialize store pointing to canonical apiKeysDir, with legacyKeysDir specified
+        var canonicalStore = new ApiKeySecretStore(_protector, _fs, apiKeysDir, legacyKeysDir: legacyKeysDir);
+        Assert.True(canonicalStore.HasApiKey(profileId));
+
+        // Verify key was moved to canonical and is readable
+        var canonicalFile = Path.Combine(apiKeysDir, $"{profileId:N}.bin");
+        Assert.True(File.Exists(canonicalFile));
+        Assert.False(File.Exists(legacyFile)); // moved atomically
+        Assert.Equal("sk-synthetic-legacy-key-1234", canonicalStore.GetApiKey(profileId));
+    }
+
+    [Fact]
+    public void ApiKeySecretStore_DoesNotOverwriteCanonical_WhenBothExist()
+    {
+        using var temp = new TempDir();
+        var apiKeysDir = Path.Combine(temp.Root, "api-keys");
+        var legacyKeysDir = Path.Combine(temp.Root, "keys");
+        Directory.CreateDirectory(apiKeysDir);
+        Directory.CreateDirectory(legacyKeysDir);
+
+        var profileId = Guid.NewGuid();
+        var legacyFile = Path.Combine(legacyKeysDir, $"{profileId:N}.bin");
+        var canonicalFile = Path.Combine(apiKeysDir, $"{profileId:N}.bin");
+
+        var legacyStore = new ApiKeySecretStore(_protector, _fs, legacyKeysDir);
+        legacyStore.SaveApiKey(profileId, "sk-synthetic-legacy-val");
+
+        var canonicalStore = new ApiKeySecretStore(_protector, _fs, apiKeysDir, legacyKeysDir: legacyKeysDir);
+        canonicalStore.SaveApiKey(profileId, "sk-synthetic-canonical-val");
+
+        // Trigger migration check on canonical store
+        Assert.True(canonicalStore.HasApiKey(profileId));
+        Assert.Equal("sk-synthetic-canonical-val", canonicalStore.GetApiKey(profileId));
+        // Legacy file must still be present and not overwritten or deleted
+        Assert.True(File.Exists(legacyFile));
+    }
 }

@@ -175,6 +175,26 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Provider Catalog & Security Card -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="Provider Catalog &amp; Security" FontSize="16" FontWeight="SemiBold" />
+                        <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*" RowSpacing="8" ColumnSpacing="16">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{x:Bind ViewModel.Loc.CatalogVersionLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.CatalogVersion, Mode=OneWay}" FontWeight="SemiBold" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{x:Bind ViewModel.Loc.CatalogSourceLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.CatalogSource, Mode=OneWay}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{x:Bind ViewModel.Loc.KeyBrokerStatusLabel}" FontWeight="Medium" Opacity="0.8" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind ViewModel.KeyBrokerStatus, Mode=OneWay}" />
+                        </Grid>
+                        <Button Content="{x:Bind ViewModel.Loc.ReloadCatalog}" Click="OnReloadCatalogClick" />
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Grid>

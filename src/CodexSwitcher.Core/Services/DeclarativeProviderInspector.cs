@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Models;
 
@@ -11,7 +12,7 @@ namespace CodexSwitcher.Core.Services;
 /// Strictly enforces GET/HEAD-only, exact trusted-host validation, redirect credential stripping,
 /// response size capping, and normalized snapshot extraction.
 /// </summary>
-public sealed class DeclarativeProviderInspector
+public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
 {
     private readonly HttpClient _httpClient;
 

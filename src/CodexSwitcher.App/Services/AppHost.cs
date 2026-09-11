@@ -1,5 +1,6 @@
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
+using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Services;
 using CodexSwitcher.Infra;
@@ -113,6 +114,58 @@ public static class AppHost
             sp.GetRequiredService<IFileSystem>(),
             paths.LegacyRoot,
             paths.Root));
+
+        // Phase 10B/10C: Provider Catalog, DPAPI Secret Store, Routing Config, Target Switching & Thread Handoff
+        services.AddSingleton<IKeyBrokerInstaller>(sp => new KeyBrokerInstaller(paths, sp.GetRequiredService<IFileSystem>()));
+        services.AddSingleton<IApiKeySecretStore>(sp => new ApiKeySecretStore(
+            sp.GetRequiredService<ISecretProtector>(),
+            sp.GetRequiredService<IFileSystem>(),
+            paths.ApiKeysDir,
+            sp.GetRequiredService<IProfileOperationCoordinator>()));
+        services.AddSingleton<IApiProviderStore>(sp => new ApiProviderStore(
+            sp.GetRequiredService<IFileSystem>(),
+            paths.ApiProvidersPath,
+            sp.GetRequiredService<IApiKeySecretStore>()));
+
+        services.AddSingleton(sp => new ProviderCatalogLoader(
+            sp.GetRequiredService<IFileSystem>(),
+            paths.CatalogPath,
+            paths.CatalogSigPath,
+            paths.CatalogPreviousPath,
+            paths.LocalCatalogPath,
+            "0.1.4-preview.1"));
+        services.AddSingleton<IProviderCatalogService, ProviderCatalogService>();
+        services.AddSingleton<IDeclarativeProviderInspector>(sp => new DeclarativeProviderInspector());
+
+        services.AddSingleton<ICodexRoutingConfigStore>(sp => new CodexRoutingConfigStore(
+            sp.GetRequiredService<IFileSystem>(),
+            paths));
+        services.AddSingleton<ICodexActiveTargetResolver, CodexActiveTargetResolver>();
+
+        services.AddSingleton<ICodexTargetSwitchService>(sp => new CodexTargetSwitchService(
+            sp.GetRequiredService<SwitchService>(),
+            sp.GetRequiredService<ICodexRoutingConfigStore>(),
+            sp.GetRequiredService<IApiProviderStore>(),
+            sp.GetRequiredService<IApiKeySecretStore>(),
+            sp.GetRequiredService<IKeyBrokerInstaller>(),
+            sp.GetRequiredService<IProcessManager>(),
+            sp.GetRequiredService<IFileSystem>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<IAuditLog>(),
+            paths.Codex));
+
+        services.AddSingleton<ICodexThreadHandoffService>(sp =>
+        {
+            var settings = sp.GetRequiredService<AppSettings>();
+            var p = sp.GetRequiredService<AppPaths>();
+            var codexPath = settings.CodexExecutablePathOverride ?? "codex";
+            return new CodexThreadHandoffService(async () =>
+            {
+                var client = new CodexAppServerClient(codexPath, p.Codex.CodexHome);
+                await client.StartAsync();
+                return client;
+            });
+        });
 
         services.AddSingleton<IUiInteraction, UiInteractionService>();
         services.AddTransient<MainViewModel>();

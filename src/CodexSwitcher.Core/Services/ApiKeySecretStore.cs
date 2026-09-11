@@ -16,25 +16,57 @@ public sealed class ApiKeySecretStore : IApiKeySecretStore
     private readonly ISecretProtector _protector;
     private readonly IFileSystem _fs;
     private readonly string _apiKeysDir;
+    private readonly string? _legacyKeysDir;
     private readonly IProfileOperationCoordinator _coordinator;
 
     public ApiKeySecretStore(
         ISecretProtector protector,
         IFileSystem fs,
         string apiKeysDir,
-        IProfileOperationCoordinator? coordinator = null)
+        IProfileOperationCoordinator? coordinator = null,
+        string? legacyKeysDir = null)
     {
         _protector = protector ?? throw new ArgumentNullException(nameof(protector));
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _apiKeysDir = apiKeysDir ?? throw new ArgumentNullException(nameof(apiKeysDir));
         _coordinator = coordinator ?? new ProfileOperationCoordinator();
+        _legacyKeysDir = legacyKeysDir ?? (Path.GetFileName(apiKeysDir) == "api-keys"
+            ? Path.Combine(Path.GetDirectoryName(apiKeysDir) ?? "", "keys")
+            : null);
+    }
+
+    private void EnsureMigrated(Guid profileId)
+    {
+        if (string.IsNullOrEmpty(_legacyKeysDir)) return;
+        var canonical = KeyPath(profileId);
+        if (_fs.FileExists(canonical)) return;
+
+        var legacy = Path.Combine(_legacyKeysDir, $"{profileId:N}.bin");
+        if (_fs.FileExists(legacy))
+        {
+            var dir = Path.GetDirectoryName(canonical);
+            if (!string.IsNullOrEmpty(dir))
+                _fs.CreateDirectory(dir);
+            try
+            {
+                _fs.Move(legacy, canonical, overwrite: false);
+            }
+            catch
+            {
+                // Silently ignore if move fails
+            }
+        }
     }
 
     /// <summary>Resolves the file path of the encrypted secret blob for a given profile.</summary>
     public string KeyPath(Guid profileId) => Path.Combine(_apiKeysDir, $"{profileId:N}.bin");
 
     /// <inheritdoc/>
-    public bool HasApiKey(Guid profileId) => _fs.FileExists(KeyPath(profileId));
+    public bool HasApiKey(Guid profileId)
+    {
+        EnsureMigrated(profileId);
+        return _fs.FileExists(KeyPath(profileId));
+    }
 
     /// <inheritdoc/>
     public void SaveApiKey(Guid profileId, string apiKey)
@@ -75,6 +107,7 @@ public sealed class ApiKeySecretStore : IApiKeySecretStore
     /// <inheritdoc/>
     public string? GetApiKey(Guid profileId)
     {
+        EnsureMigrated(profileId);
         var path = KeyPath(profileId);
 
         using (_coordinator.Lock(profileId))
@@ -121,6 +154,7 @@ public sealed class ApiKeySecretStore : IApiKeySecretStore
     /// <inheritdoc/>
     public bool DeleteApiKey(Guid profileId)
     {
+        EnsureMigrated(profileId);
         var path = KeyPath(profileId);
         using (_coordinator.Lock(profileId))
         {

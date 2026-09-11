@@ -9,6 +9,7 @@ namespace CodexSwitcher.App.ViewModels;
 public enum AccountBadge
 {
     ActiveNow,
+    CredentialActive,
     Healthy,
     NeedsReLogin,
     Error,
@@ -23,12 +24,19 @@ public sealed partial class AccountItemViewModel : ObservableObject
 {
     private static Strings Loc => Strings.Current;
 
-    public AccountItemViewModel(ProfileMetadata profile, DateTimeOffset now, AppSettings settings, AccountUsageViewModel? usage = null, bool isCompact = false)
+    public AccountItemViewModel(
+        ProfileMetadata profile,
+        DateTimeOffset now,
+        AppSettings settings,
+        AccountUsageViewModel? usage = null,
+        bool isCompact = false,
+        bool isRoutingActive = true)
     {
         Profile = profile;
         Id = profile.Id;
         DisplayName = profile.DisplayName;
         IsActive = profile.IsActive;
+        IsRoutingActive = isRoutingActive;
         Usage = usage ?? new AccountUsageViewModel(profile.Id);
         IsCompact = isCompact;
 
@@ -37,7 +45,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
             : profile.AuthMode is { Length: > 0 } mode ? Loc.ModeFormat(mode) : Loc.CodexAccount;
 
         Initials = ComputeInitials(profile);
-        Badge = ComputeBadge(profile);
+        Badge = ComputeBadge(profile, isRoutingActive);
         PlanText = profile.PlanType;
 
         LastSwitchedText = profile.LastSwitchedAt is null
@@ -80,6 +88,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
     public string Subtitle { get; }
     public string Initials { get; }
     public bool IsActive { get; }
+    public bool IsRoutingActive { get; }
     public AccountBadge Badge { get; }
     public string? PlanText { get; }
     public string? SubscriptionDisplayText { get; }
@@ -95,7 +104,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
     /// <summary>Marcado como "usado" nas últimas 24h. Ver <see cref="ProfileMetadata.MarkedUsedAt"/>.</summary>
     public bool IsMarkedUsed { get; }
 
-    public bool CanSwitch => !IsActive && Badge != AccountBadge.Unavailable;
+    public bool CanSwitch => (!IsActive || !IsRoutingActive) && Badge != AccountBadge.Unavailable;
     // Rótulos localizados usados dentro do DataTemplate do card.
     public string SwitchLabel => Loc.Switch;
     public string InUseLabel => Loc.InUse;
@@ -154,12 +163,14 @@ public sealed partial class AccountItemViewModel : ObservableObject
         IsDegradedReveal = false;
     }
 
-    private static AccountBadge ComputeBadge(ProfileMetadata p) => p.HealthStatus switch
+    private static AccountBadge ComputeBadge(ProfileMetadata p, bool isRoutingActive) => p.HealthStatus switch
     {
         HealthStatus.Unknown => AccountBadge.Unavailable,
         HealthStatus.Error => AccountBadge.Error,
         HealthStatus.NeedsReLogin => AccountBadge.NeedsReLogin,
-        _ => p.IsActive ? AccountBadge.ActiveNow : AccountBadge.Healthy,
+        _ => p.IsActive
+            ? (isRoutingActive ? AccountBadge.ActiveNow : AccountBadge.CredentialActive)
+            : AccountBadge.Healthy,
     };
 
     private static string ComputeHealthText(ProfileMetadata p, DateTimeOffset now, AppSettings settings)

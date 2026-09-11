@@ -1,3 +1,5 @@
+using CodexSwitcher.Core.Abstractions;
+using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Models;
 
 namespace CodexSwitcher.App.Services;
@@ -43,6 +45,21 @@ public interface IUiInteraction
 
     /// <summary>Abre a tela de opções de entrada do Windows (ms-settings:signinoptions).</summary>
     Task OpenWindowsSignInOptionsAsync();
+
+    /// <summary>Abre o diálogo para adicionar um novo provedor de API.</summary>
+    Task<AddApiProviderResult?> PromptAddApiProviderAsync(IReadOnlyList<ProviderDescriptor> descriptors);
+
+    /// <summary>Abre o diálogo para editar um provedor de API existente.</summary>
+    Task<EditApiProviderResult?> PromptEditApiProviderAsync(ApiProviderProfile profile, ProviderDescriptor? descriptor);
+
+    /// <summary>Abre o diálogo para substituir a chave de API de um provedor.</summary>
+    Task<string?> PromptRotateApiKeyAsync(string providerDisplayName);
+
+    /// <summary>Abre o diálogo de escolha de conversa para bifurcação entre provedores.</summary>
+    Task<CodexThreadSummary?> PromptContinueOnThreadAsync(IReadOnlyList<CodexThreadSummary> threads, string targetProviderName, string targetModel);
+
+    /// <summary>Confirmação para alternar para um provedor de API.</summary>
+    Task<bool> ConfirmSwitchToApiAsync(string providerName, string model, string route);
 }
 
 public enum TransientVerificationChoice
