@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodexSwitcher.Core\CodexSwitcher.Core.csproj" />
     <ProjectReference Include="..\..\src\CodexSwitcher.Infra\CodexSwitcher.Infra.csproj" />
+    <ProjectReference Include="..\..\tools\CodexSwitcher.CatalogSigner\CodexSwitcher.CatalogSigner.csproj" />
   </ItemGroup>
 
 </Project>

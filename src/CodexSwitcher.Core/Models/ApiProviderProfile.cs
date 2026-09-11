@@ -37,6 +37,12 @@ public sealed class ApiProviderProfile
     /// <summary>Wire API protocol for Codex inference (strictly "responses").</summary>
     public string WireApi { get; set; } = "responses";
 
+    /// <summary>Safe key preview for UI (e.g. "sk-...1234"). NEVER store plaintext secret.</summary>
+    public string KeyPreview { get; set; } = string.Empty;
+
+    /// <summary>Status of the profile credentials.</summary>
+    public ApiProviderProfileStatus Status { get; set; } = ApiProviderProfileStatus.Active;
+
     /// <summary>Creation timestamp (UTC).</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
@@ -54,4 +60,26 @@ public sealed class ApiProviderProfile
 
     public static string GenerateStableCodexProviderId(Guid id) =>
         $"switchboard_{id:N}"[..24];
+
+    public static string ComputeKeyPreview(string? rawKey)
+    {
+        if (string.IsNullOrWhiteSpace(rawKey)) return string.Empty;
+        var trimmed = rawKey.Trim();
+        if (trimmed.Length <= 8)
+        {
+            return $"{trimmed[..Math.Min(2, trimmed.Length)]}...";
+        }
+        var prefix = trimmed.Length >= 7 && trimmed.StartsWith("sk-", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[..7]
+            : trimmed[..3];
+        var suffix = trimmed[^4..];
+        return $"{prefix}...{suffix}";
+    }
+}
+
+public enum ApiProviderProfileStatus
+{
+    Active = 0,
+    CredentialMissing = 1,
+    Archived = 2,
 }

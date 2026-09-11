@@ -5,8 +5,12 @@
     </Project>
     <Project Path="src/CodexSwitcher.Core/CodexSwitcher.Core.csproj" />
     <Project Path="src/CodexSwitcher.Infra/CodexSwitcher.Infra.csproj" />
+    <Project Path="src/CodexSwitchboard.KeyBroker/CodexSwitchboard.KeyBroker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CodexSwitcher.Core.Tests/CodexSwitcher.Core.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/CodexSwitcher.CatalogSigner/CodexSwitcher.CatalogSigner.csproj" />
   </Folder>
 </Solution>

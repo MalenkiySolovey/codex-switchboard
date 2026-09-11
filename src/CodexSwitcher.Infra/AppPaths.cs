@@ -29,6 +29,9 @@ public sealed class AppPaths
     public string CatalogSigPath => Path.Combine(CatalogDir, "providers.catalog.sig");
     public string CatalogPreviousPath => Path.Combine(CatalogDir, "providers.catalog.previous.json");
     public string LocalCatalogPath => Path.Combine(CatalogDir, "providers.local.json");
+    public string ApiProvidersPath => Path.Combine(Root, "api-providers.json");
+    public string BrokerDir => Path.Combine(Root, "broker");
+    public string BrokerExecutablePath => Path.Combine(BrokerDir, "CodexSwitchboard.KeyBroker.exe");
     public string ApiKeysDir => Path.Combine(Root, "api-keys");
 
     /// <summary>Caminho do arquivo de credencial TOTP cifrado de um perfil.</summary>
@@ -67,6 +70,7 @@ public sealed class AppPaths
         Directory.CreateDirectory(TempRoot);
         Directory.CreateDirectory(TotpDir);
         Directory.CreateDirectory(CatalogDir);
+        Directory.CreateDirectory(BrokerDir);
         Directory.CreateDirectory(ApiKeysDir);
     }
 }
