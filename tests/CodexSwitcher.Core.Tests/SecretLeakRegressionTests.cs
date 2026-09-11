@@ -10,8 +10,6 @@ public sealed class SecretLeakRegressionTests
     private readonly PhysicalFileSystem _fs = new();
     private readonly DpapiSecretProtector _protector = new();
 
-    
-
     [Fact]
     public async Task FullApiSwitchLifecycle_LeavesZeroPlaintextSecretLeaks()
     {

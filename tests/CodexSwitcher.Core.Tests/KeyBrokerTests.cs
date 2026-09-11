@@ -9,8 +9,6 @@ public sealed class KeyBrokerTests
     private readonly PhysicalFileSystem _fs = new();
     private readonly DpapiSecretProtector _protector = new();
 
-    
-
     [Fact]
     public void KeyBroker_WithValidKey_OutputsRawTokenAndReturnsZero()
     {

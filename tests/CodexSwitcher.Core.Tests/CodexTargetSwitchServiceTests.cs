@@ -9,8 +9,6 @@ public sealed class CodexTargetSwitchServiceTests
     private readonly PhysicalFileSystem _fs = new();
     private readonly DpapiSecretProtector _protector = new();
 
-    
-
     [Fact]
     public async Task SwitchToApiProvider_LeavesAuthJsonBytesUnchanged()
     {
