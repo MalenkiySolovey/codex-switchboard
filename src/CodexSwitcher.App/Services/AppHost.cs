@@ -1,3 +1,4 @@
+using CodexSwitcher.App.Features.Accounts;
 using CodexSwitcher.App.Features.Providers;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
@@ -181,6 +182,9 @@ public static class AppHost
         });
 
         services.AddSingleton<IUiInteraction, UiInteractionService>();
+        services.AddTransient<TotpPresentationCoordinator>();
+        services.AddTransient<AccountUsageCoordinator>();
+        services.AddTransient<AccountsViewModel>();
         services.AddTransient<ApiProvidersViewModel>();
         services.AddTransient<MainViewModel>();
         services.AddTransient<SettingsViewModel>();

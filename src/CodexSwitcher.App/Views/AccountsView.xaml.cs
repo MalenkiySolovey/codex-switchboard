@@ -1,4 +1,5 @@
 using System.Linq;
+using CodexSwitcher.App.Features.Accounts;
 using CodexSwitcher.App.Features.Providers;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
@@ -112,79 +113,79 @@ public sealed partial class AccountsView : UserControl
 
     private void OnSwitchClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.SwitchCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.SwitchCommand.Execute(item);
     }
 
     private void OnRefreshAccountClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.RefreshAccountCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.RefreshAccountCommand.Execute(item);
     }
 
     private void OnRevealTotpClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.RevealTotpCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.RevealTotpCommand.Execute(item);
     }
 
     private void OnHideTotpClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.HideTotpCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.HideTotpCommand.Execute(item);
     }
 
     private void OnCopyTotpClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.CopyTotpCodeCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.CopyTotpCodeCommand.Execute(item);
     }
 
     private void OnAddOrManageTotpClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.AddOrManageTotpCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.AddOrManageTotpCommand.Execute(item);
     }
 
     private void OnToggleCollapseClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.ToggleAccountCollapseCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.ToggleAccountCollapseCommand.Execute(item);
     }
 
     private void OnExportItemClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.ExportOneCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.ExportOneCommand.Execute(item);
     }
 
     private void OnRenameItemClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.RenameCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.RenameCommand.Execute(item);
     }
 
     private void OnSubscriptionTrackingClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.EditSubscriptionTrackingCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.EditSubscriptionTrackingCommand.Execute(item);
     }
 
     private void OnRemoveItemClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.RemoveCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.RemoveCommand.Execute(item);
     }
 
     private void OnMarkReLoginClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.MarkNeedsReLoginCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.MarkNeedsReLoginCommand.Execute(item);
     }
 
     private void OnMarkUsedClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.MarkUsedCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.MarkUsedCommand.Execute(item);
     }
 
     private void OnUnmarkUsedClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.UnmarkUsedCommand.Execute(item);
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.UnmarkUsedCommand.Execute(item);
     }
 
     private void OnAccountsReordered(object sender, DragItemsCompletedEventArgs e)
     {
         if (e.DropResult != DataPackageOperation.Move) return;
-        var orderedIds = ViewModel.Accounts.Select(a => a.Id).ToList();
-        ViewModel.ReorderCommand.Execute(orderedIds);
+        var orderedIds = ViewModel.Accounts.Items.Select(a => a.Id).ToList();
+        ViewModel.Accounts.ReorderCommand.Execute(orderedIds);
     }
 
     private static ApiProviderItemViewModel? ApiItemOf(object sender) =>
