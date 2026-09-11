@@ -45,7 +45,7 @@ public sealed class ApiProviderHardeningTests
             catalogSig,
             temp.Combine("none.prev.json"),
             temp.Combine("none.local.json"),
-            "0.1.4-preview.1");
+            "0.1.4");
 
         var result = loader.LoadCatalog();
         Assert.NotNull(result.Catalog);
@@ -171,7 +171,7 @@ public sealed class ApiProviderHardeningTests
             temp.Combine("nonexistent.sig"),
             temp.Combine("nonexistent.prev.json"),
             localFile,
-            "0.1.4-preview.1");
+            "0.1.4");
 
         var result = loader.LoadCatalog();
         Assert.NotNull(result.Catalog);

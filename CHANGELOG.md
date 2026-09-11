@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.4] - 2026-09-11
+
+### Added
+- **Custom API Provider Profiles:** Add and manage OpenAI Responses-compatible API providers directly in Codex Switchboard.
+- **Encrypted DPAPI API-Key Storage:** API keys are encrypted at rest using Windows DPAPI (`CurrentUser` scope) and isolated from the catalog and configuration files.
+- **Signed Declarative Provider Catalog:** Cryptographically signed official provider catalog with runtime detached signature verification and fallback ladder (Official External -> Last-Known-Good -> Embedded Bootstrap).
+- **Router.Cheap Integration:** First-class provider descriptor supporting configurable routes (Primary and reserve endpoints) without altering provider or thread identity.
+- **Dynamic N-Way Provider Routes:** Data-driven routing engine supporting arbitrary N-way route definitions dynamically loaded from catalog JSON.
+- **Provider Model Discovery:** Inspect and discover supported models via declarative capability recipes, with isolated per-route caching.
+- **Cross-Provider "Continue chat…":** Fork an existing Codex conversation via `thread/fork` and continue the copy through another provider/model while preserving the original thread intact.
+- **Active Routing vs. Active Credential Distinction:** Clean architectural separation between the ChatGPT account occupying the live authentication slot and the active inference routing destination in `config.toml`.
+
+### Fixed
+- **ChatGPT Account Switching:** Restored reliable ChatGPT-to-ChatGPT account switching following API-provider integration.
+- **Process Lifecycle Transaction:** Codex desktop now reliably terminates, updates credential state atomically, and relaunches under the target account.
+- **Canonical Runtime Resolution:** "Continue chat…" resolves the full canonical Codex CLI executable path via `ICodexRuntimeResolver`, resolving failures on systems where `codex` is not in `PATH`.
+- **Card Action State Mutual Exclusivity:** ChatGPT account "Switch" button no longer visually overlaps with the "In Use" badge while an API provider holds active routing.
+- **Clean Route Labels:** Separated optional region metadata from route display names (e.g. displaying compact `"Primary"` rather than `"Primary (Hong Kong)"`).
+- **Safe Model URL Joining:** Deduplicated `/v1` endpoint prefixes to avoid malformed `/v1/v1/models` paths.
+- **Extensible Route State:** Eliminated binary Primary/Reserve hardcoded state and UI branching.
+
+### Security / Reliability
+- **At-Rest Secret Protection:** API keys remain strictly outside catalog and configuration plaintext, secured by Windows DPAPI.
+- **Trusted-Host Enforcement:** Target endpoints are validated against catalog-authorized trusted hosts before credentials are delivered.
+- **Catalog Signature Integrity:** Off-line and runtime RSA cryptographic signature verification prevents tampered catalog injection.
+- **Thread Immutability:** Cross-provider continuation never directly mutates or overwrites existing Codex SQLite thread databases.
+
+---
+
 ## [0.1.3] - 2026-09-11
 
 ### Added

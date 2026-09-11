@@ -8,9 +8,9 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
-![Tests](https://img.shields.io/badge/tests-468%20passing-3DDC84)
+![Tests](https://img.shields.io/badge/tests-596%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
-![Release](https://img.shields.io/badge/release-v0.1.3-brightgreen)
+![Release](https://img.shields.io/badge/release-v0.1.4-brightgreen)
 
 ---
 
@@ -192,7 +192,7 @@ All configuration, credentials, and cache files reside strictly on your local co
 
 Pre-built Windows x64 binaries are available under [GitHub Releases](../../releases).
 
-1. Download **`CodexSwitchboard-0.1.3-win-x64.zip`** from the latest release.
+1. Download **`CodexSwitchboard-0.1.4-win-x64.zip`** from the latest release.
 2. Extract the archive to any folder.
 3. Run **`CodexSwitchboard.exe`**.
 
@@ -215,16 +215,16 @@ dotnet restore CodexSwitcher.slnx
 # Build solution in Release configuration
 dotnet build CodexSwitcher.slnx -c Release
 
-# Run the complete offline test suite (468 tests)
+# Run the complete offline test suite (596 tests)
 dotnet test CodexSwitcher.slnx -c Release --no-build
 ```
 
 ### 2. Package Local Release Candidate
 Execute the packaging script to build, test, sanitize, and produce an unpackaged release archive:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.3"
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.4"
 ```
-Output artifact: `dist/CodexSwitchboard-0.1.3-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
+Output artifact: `dist/CodexSwitchboard-0.1.4-win-x64.zip` and its accompanying `dist/SHA256SUMS.txt`.
 
 ---
 

@@ -133,7 +133,7 @@ public static class AppHost
             paths.CatalogSigPath,
             paths.CatalogPreviousPath,
             paths.LocalCatalogPath,
-            "0.1.4-preview.1"));
+            "0.1.4"));
         services.AddSingleton<IProviderCatalogService, ProviderCatalogService>();
         services.AddSingleton<IDeclarativeProviderInspector>(sp => new DeclarativeProviderInspector());
         services.AddSingleton<IProviderModelCache, ProviderModelCache>();

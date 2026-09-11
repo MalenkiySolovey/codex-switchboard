@@ -34,7 +34,7 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
             {
                 Timeout = TimeSpan.FromSeconds(15),
             };
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("CodexSwitchboard/0.1.3");
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("CodexSwitchboard/0.1.4");
         }
     }
 

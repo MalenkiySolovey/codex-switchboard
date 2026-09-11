@@ -31,14 +31,14 @@ public sealed class ProviderCatalogLoader
         string catalogSigPath,
         string catalogPreviousPath,
         string localCatalogPath,
-        string currentAppVersion = "0.1.3")
+        string currentAppVersion = "0.1.4")
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _catalogPath = catalogPath ?? throw new ArgumentNullException(nameof(catalogPath));
         _catalogSigPath = catalogSigPath ?? throw new ArgumentNullException(nameof(catalogSigPath));
         _catalogPreviousPath = catalogPreviousPath ?? throw new ArgumentNullException(nameof(catalogPreviousPath));
         _localCatalogPath = localCatalogPath ?? throw new ArgumentNullException(nameof(localCatalogPath));
-        _currentAppVersion = currentAppVersion ?? "0.1.3";
+        _currentAppVersion = currentAppVersion ?? "0.1.4";
     }
 
     /// <summary>
