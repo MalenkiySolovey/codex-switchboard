@@ -1,0 +1,4 @@
+﻿# Ensure cryptographically signed catalog and schema files strictly preserve LF line endings
+catalog/providers.catalog.json text eol=lf
+catalog/providers.catalog.schema.json text eol=lf
+catalog/providers.catalog.sig text eol=lf
