@@ -71,13 +71,22 @@ public sealed partial class MainWindow : Window
     private readonly WindowChromeService _chromeService;
     private readonly WindowLifecycleCoordinator _lifecycleCoordinator;
 
-    public MainWindow()
+    public MainWindow(
+        WindowChromeService chromeService,
+        WindowLifecycleCoordinator lifecycleCoordinator,
+        IThemeService themeService,
+        WindowHandleProvider handleProvider,
+        CodexSwitcher.App.Dialogs.Shared.IDialogHost dialogHost,
+        CodexSwitcher.App.Shell.ShellViewModel shellViewModel,
+        CodexSwitcher.Infra.Common.Paths.AppPaths paths,
+        Func<CodexSwitcher.App.Features.Settings.SettingsViewModel> settingsVmFactory)
     {
         InitializeComponent();
 
-        _chromeService = (AppHost.Services.GetService(typeof(WindowChromeService)) as WindowChromeService) ?? new WindowChromeService();
-        _lifecycleCoordinator = (AppHost.Services.GetService(typeof(WindowLifecycleCoordinator)) as WindowLifecycleCoordinator)
-            ?? new WindowLifecycleCoordinator(AppHost.Services.GetService(typeof(ITotpRevealAuthorizationService)) as ITotpRevealAuthorizationService);
+        _chromeService = chromeService ?? throw new ArgumentNullException(nameof(chromeService));
+        _lifecycleCoordinator = lifecycleCoordinator ?? throw new ArgumentNullException(nameof(lifecycleCoordinator));
+
+        Root.Initialize(shellViewModel, paths, settingsVmFactory);
 
         _chromeService.ConfigureTitleBar(this, Root.TitleBarElement);
 
@@ -90,30 +99,27 @@ public sealed partial class MainWindow : Window
         VisibilityChanged += OnVisibilityChanged;
         Activated += OnWindowActivated;
 
-        if (AppHost.Services.GetService(typeof(IThemeService)) is IThemeService themeService && Content is FrameworkElement rootVisual)
+        if (Content is FrameworkElement rootVisual)
         {
             themeService.Initialize(rootVisual);
         }
 
-        if (AppHost.Services.GetService(typeof(WindowHandleProvider)) is WindowHandleProvider handleProvider)
-            handleProvider.MainWindowHandle = hwnd;
-
-        if (AppHost.Services.GetService(typeof(CodexSwitcher.App.Dialogs.Shared.IDialogHost)) is CodexSwitcher.App.Dialogs.Shared.IDialogHost dialogHost)
-            dialogHost.Attach(this);
+        handleProvider.MainWindowHandle = hwnd;
+        dialogHost.Attach(this);
 
         Closed += OnWindowClosed;
     }
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
-        _lifecycleCoordinator.HandleActivation(args.WindowActivationState, () => Root.ViewModel.HideAllRevealedTotp());
+        _lifecycleCoordinator.HandleActivation(args.WindowActivationState, () => Root.ViewModel?.HideAllRevealedTotp());
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         _lifecycleCoordinator.HandleWindowClosed(
-            () => Root.ViewModel.HideAllRevealedTotp(),
-            () => Root.ViewModel.Cleanup());
+            () => Root.ViewModel?.HideAllRevealedTotp(),
+            () => Root.ViewModel?.Cleanup());
     }
 
     public void BringToFront()

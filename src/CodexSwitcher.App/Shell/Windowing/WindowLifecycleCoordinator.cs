@@ -107,9 +107,5 @@ public sealed class WindowLifecycleCoordinator
         {
             // Best effort cleanup during process exit
         }
-
-        AppHost.Shutdown();
-        Application.Current?.Exit();
-        Environment.Exit(0);
     }
 }

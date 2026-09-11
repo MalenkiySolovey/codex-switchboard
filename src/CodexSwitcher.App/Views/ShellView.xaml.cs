@@ -64,7 +64,10 @@ namespace CodexSwitcher.App.Views;
 
 public sealed partial class ShellView : UserControl
 {
-    public ShellViewModel ViewModel { get; }
+    private AppPaths? _paths;
+    private Func<SettingsViewModel>? _settingsVmFactory;
+
+    public ShellViewModel ViewModel { get; private set; } = null!;
     public Strings Loc => Strings.Current;
 
     /// <summary>Elemento usado como região de arraste da barra de título (Mica).</summary>
@@ -73,10 +76,15 @@ public sealed partial class ShellView : UserControl
     public ShellView()
     {
         InitializeComponent();
-        ViewModel = AppHost.Services.GetService(typeof(ShellViewModel)) as ShellViewModel
-                    ?? throw new InvalidOperationException("ShellViewModel não registrado.");
         TrySetTitleBarIcon();
         Loaded += OnLoaded;
+    }
+
+    public void Initialize(ShellViewModel viewModel, AppPaths paths, Func<SettingsViewModel> settingsVmFactory)
+    {
+        ViewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+        _settingsVmFactory = settingsVmFactory ?? throw new ArgumentNullException(nameof(settingsVmFactory));
     }
 
     private void TrySetTitleBarIcon()
@@ -96,7 +104,10 @@ public sealed partial class ShellView : UserControl
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         Loaded -= OnLoaded;
-        await ViewModel.LoadCommand.ExecuteAsync(null);
+        if (ViewModel is not null)
+        {
+            await ViewModel.LoadCommand.ExecuteAsync(null);
+        }
     }
 
     private TotpWindow? _totpWindow;
@@ -126,8 +137,7 @@ public sealed partial class ShellView : UserControl
             return;
         }
 
-        var paths = AppHost.Services.GetService(typeof(AppPaths)) as AppPaths
-                    ?? throw new InvalidOperationException("AppPaths não registrado.");
+        var paths = _paths ?? throw new InvalidOperationException("AppPaths não inicializado.");
         _browserWindow = new PrivateBrowserWindow(paths);
         _browserWindow.Closed += (_, _) => _browserWindow = null;
         _browserWindow.Activate();
@@ -143,14 +153,17 @@ public sealed partial class ShellView : UserControl
             return;
         }
 
-        var vm = AppHost.Services.GetService(typeof(SettingsViewModel)) as SettingsViewModel
-                 ?? throw new InvalidOperationException("SettingsViewModel não registrado.");
+        var factory = _settingsVmFactory ?? throw new InvalidOperationException("SettingsViewModel factory não inicializada.");
+        var vm = factory();
 
         vm.OnMigrationCompleted = () =>
         {
             DispatcherQueue.TryEnqueue(async () =>
             {
-                await ViewModel.LoadCommand.ExecuteAsync(null);
+                if (ViewModel is not null)
+                {
+                    await ViewModel.LoadCommand.ExecuteAsync(null);
+                }
             });
         };
 

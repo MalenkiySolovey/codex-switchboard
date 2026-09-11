@@ -225,4 +225,93 @@ public sealed class ArchitectureBoundaryTests
         Assert.Equal(typeof(ISafeProviderHttpTransport), primaryInspectorCtor.GetParameters()[1].ParameterType);
         Assert.Equal(typeof(IProviderProbeResponseMapper), primaryInspectorCtor.GetParameters()[2].ParameterType);
     }
+
+    [Fact]
+    public void CoreAssembly_MustNotReferenceHostingFramework()
+    {
+        var coreAssembly = typeof(ICodexTargetSwitchService).Assembly;
+        var referencedAssemblies = coreAssembly.GetReferencedAssemblies();
+
+        foreach (var refAsm in referencedAssemblies)
+        {
+            Assert.DoesNotContain("Microsoft.Extensions.Hosting", refAsm.Name, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void ProductionSource_MustNotExposeStaticServiceProvider()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var srcDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", "src"));
+
+        if (!Directory.Exists(srcDir))
+            return;
+
+        var csFiles = Directory.EnumerateFiles(srcDir, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains("\\obj\\") && !f.Contains("/obj/"))
+            .ToList();
+
+        foreach (var file in csFiles)
+        {
+            var content = File.ReadAllText(file);
+            Assert.False(
+                content.Contains("AppHost.Services"),
+                $"File '{file}' contains forbidden reference to 'AppHost.Services'.");
+            Assert.False(
+                content.Contains("static IServiceProvider"),
+                $"File '{file}' exposes forbidden 'static IServiceProvider'.");
+        }
+    }
+
+    [Fact]
+    public void ServiceRegistrationModules_MustNotCallBuildServiceProvider()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var srcDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", "src"));
+
+        if (!Directory.Exists(srcDir))
+            return;
+
+        var registrationFile = Path.Combine(srcDir, "CodexSwitcher.App", "Composition", "ServiceCollectionExtensions.cs");
+        if (File.Exists(registrationFile))
+        {
+            var codeLines = File.ReadAllLines(registrationFile)
+                .Select(l => l.Trim())
+                .Where(l => !l.StartsWith("//") && !l.StartsWith("///") && !l.StartsWith("*"));
+
+            foreach (var line in codeLines)
+            {
+                Assert.False(
+                    line.Contains("BuildServiceProvider("),
+                    $"ServiceCollectionExtensions.cs must not call BuildServiceProvider() in executable code: '{line}'.");
+            }
+        }
+    }
+
+    [Fact]
+    public void ViewModels_MustNotDependOnHostOrServiceProvider()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var srcDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", "src", "CodexSwitcher.App"));
+
+        if (!Directory.Exists(srcDir))
+            return;
+
+        var vmFiles = Directory.EnumerateFiles(srcDir, "*ViewModel*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains("\\obj\\") && !f.Contains("/obj/"))
+            .ToList();
+
+        var forbiddenTokens = new[] { "IServiceProvider", "IHost ", "IHost,", "IHost>", "IHostApplicationLifetime" };
+
+        foreach (var file in vmFiles)
+        {
+            var content = File.ReadAllText(file);
+            foreach (var token in forbiddenTokens)
+            {
+                Assert.False(
+                    content.Contains(token),
+                    $"ViewModel '{Path.GetFileName(file)}' must not depend on '{token}'.");
+            }
+        }
+    }
 }

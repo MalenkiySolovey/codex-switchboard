@@ -1,73 +1,56 @@
-using CodexSwitcher.Core.Accounts.Contracts;
-using CodexSwitcher.Core.Accounts.Formatting;
-using CodexSwitcher.Core.Accounts.Models;
-using CodexSwitcher.Core.Accounts.Services;
-using CodexSwitcher.Core.Common.Dispatcher;
-using CodexSwitcher.Core.Common.Enums;
-using CodexSwitcher.Core.Common.Environment;
-using CodexSwitcher.Core.Common.Errors;
-using CodexSwitcher.Core.Common.Lifecycle;
-using CodexSwitcher.Core.Common.Logging;
-using CodexSwitcher.Core.Common.Storage;
-using CodexSwitcher.Core.Common.Time;
-using CodexSwitcher.Core.Providers.Catalog;
-using CodexSwitcher.Core.Providers.Contracts;
-using CodexSwitcher.Core.Providers.Models;
-using CodexSwitcher.Core.Providers.Services;
-using CodexSwitcher.Core.Routing.Contracts;
-using CodexSwitcher.Core.Routing.Models;
-using CodexSwitcher.Core.Routing.Services;
-using CodexSwitcher.Core.Security.Secrets;
-using CodexSwitcher.Core.Security.Totp;
-using CodexSwitcher.Core.Security.Verification;
-using CodexSwitcher.Core.Settings.Contracts;
-using CodexSwitcher.Core.Settings.Models;
-using CodexSwitcher.Core.Threads.Contracts;
-using CodexSwitcher.Core.Threads.Models;
-using CodexSwitcher.Core.Transfer.Contracts;
-using CodexSwitcher.Core.Transfer.Models;
-using CodexSwitcher.Core.Transfer.Services;
-using CodexSwitcher.Core.Usage.Contracts;
-using CodexSwitcher.Core.Usage.Formatting;
-using CodexSwitcher.Core.Usage.Models;
-using CodexSwitcher.Core.Usage.Services;
-using CodexSwitcher.Infra.Accounts.Storage;
-using CodexSwitcher.Infra.Codex.Routing;
-using CodexSwitcher.Infra.Codex.Runtime;
-using CodexSwitcher.Infra.Codex.Threads;
-using CodexSwitcher.Infra.Codex.Usage;
-using CodexSwitcher.Infra.Common.Logging;
-using CodexSwitcher.Infra.Common.Paths;
-using CodexSwitcher.Infra.Common.Storage;
-using CodexSwitcher.Infra.Common.Time;
-using CodexSwitcher.Infra.Providers.Inspection;
-using CodexSwitcher.Infra.Providers.Secrets;
-using CodexSwitcher.Infra.Providers.Storage;
-using CodexSwitcher.Infra.Security.Dpapi;
-using CodexSwitcher.Infra.Security.Hardening;
-using CodexSwitcher.Infra.Security.Totp;
-using CodexSwitcher.Infra.Settings;
-using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Composition;
 using CodexSwitcher.Infra.Scheduling;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 
 namespace CodexSwitcher.App;
 
+/// <summary>
+/// Application entry point and Generic Host lifetime owner.
+/// Coordinates host startup and bounded graceful shutdown upon main window closure.
+/// </summary>
 public partial class App : Application
 {
-    private Window? _window;
+    private IHost? _host;
+    private MainWindow? _window;
 
     public static MainWindow? MainWindowInstance { get; private set; }
 
     public App() => InitializeComponent();
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        AppHost.Build();
+        _host = SwitchboardHostBuilder.CreateHost();
+        await _host.StartAsync();
+
         LegacyRefreshTask.Remove();
 
-        _window = new MainWindow();
-        MainWindowInstance = (MainWindow)_window;
+        _window = _host.Services.GetRequiredService<MainWindow>();
+        MainWindowInstance = _window;
+
+        _window.Closed += OnMainWindowClosed;
         _window.Activate();
+    }
+
+    private async void OnMainWindowClosed(object sender, WindowEventArgs args)
+    {
+        if (_host is not null)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _host.StopAsync(cts.Token);
+            }
+            catch
+            {
+                // Best-effort graceful host shutdown
+            }
+            finally
+            {
+                _host.Dispose();
+                _host = null;
+            }
+        }
     }
 }
