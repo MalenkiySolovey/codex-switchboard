@@ -49,8 +49,8 @@ public sealed partial class MainWindow : Window
         if (AppHost.Services.GetService(typeof(WindowHandleProvider)) is WindowHandleProvider handleProvider)
             handleProvider.MainWindowHandle = hwnd;
 
-        if (AppHost.Services.GetService(typeof(IUiInteraction)) is UiInteractionService ui)
-            ui.Attach(this);
+        if (AppHost.Services.GetService(typeof(CodexSwitcher.App.Dialogs.Shared.IDialogHost)) is CodexSwitcher.App.Dialogs.Shared.IDialogHost dialogHost)
+            dialogHost.Attach(this);
 
         Closed += OnWindowClosed;
     }

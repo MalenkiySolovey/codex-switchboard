@@ -187,13 +187,12 @@ public static class AppHost
             });
         });
 
-        services.AddSingleton<UiInteractionService>();
-        services.AddSingleton<IUiInteraction>(sp => sp.GetRequiredService<UiInteractionService>());
-        services.AddSingleton<IAccountDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
-        services.AddSingleton<ITotpDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
-        services.AddSingleton<IProviderDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
-        services.AddSingleton<ISettingsDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
-        services.AddSingleton<ICommonDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
+        services.AddSingleton<CodexSwitcher.App.Dialogs.Shared.IDialogHost, CodexSwitcher.App.Dialogs.Shared.DialogHostContext>();
+        services.AddSingleton<ICommonDialogService, CodexSwitcher.App.Dialogs.Common.CommonDialogService>();
+        services.AddSingleton<IAccountDialogService, CodexSwitcher.App.Dialogs.Accounts.AccountDialogService>();
+        services.AddSingleton<ITotpDialogService, CodexSwitcher.App.Dialogs.Totp.TotpDialogService>();
+        services.AddSingleton<IProviderDialogService, CodexSwitcher.App.Dialogs.Providers.ProviderDialogService>();
+        services.AddSingleton<ISettingsDialogService, CodexSwitcher.App.Dialogs.Settings.SettingsDialogService>();
 
         services.AddSingleton<IAppNotificationService, AppNotificationService>();
         services.AddSingleton<IAppBusyService, AppBusyService>();

@@ -11,3 +11,19 @@ public interface ITotpDialogService : ICommonDialogService
     Task<TransientVerificationChoice> PromptTransientVerificationFallbackAsync(string message);
     Task OpenWindowsSignInOptionsAsync();
 }
+
+public enum TransientVerificationChoice
+{
+    TryAgain,
+    ShowCodeOnce,
+    Cancel
+}
+
+public enum TotpSetupAction
+{
+    SaveNewKey,
+    RemoveKey,
+    Cancel
+}
+
+public sealed record TotpSetupResult(TotpSetupAction Action, string? ProvisioningKey = null);
