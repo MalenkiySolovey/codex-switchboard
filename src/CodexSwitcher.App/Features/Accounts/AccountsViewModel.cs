@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using CodexSwitcher.App.Dialogs;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Shell.State;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Models;
@@ -25,10 +27,12 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
     private readonly IClock _clock;
-    private readonly IUiInteraction _ui;
+    private readonly IAccountDialogService _ui;
     private readonly TotpPresentationCoordinator _totp;
     private readonly AccountUsageCoordinator _usage;
     private readonly ICodexTargetSwitchService? _targetSwitchService;
+    private readonly IAppNotificationService _notifications;
+    private readonly IAppBusyService _busy;
 
     private readonly List<AccountItemViewModel> _all = [];
     private ActiveTarget? _lastActiveTarget;
@@ -62,8 +66,6 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
     public IReadOnlyList<ProfileMetadata> Profiles => _profiles.Profiles;
 
     public event EventHandler? TargetStateChanged;
-    public event Action<string, string, InfoBarSeverity>? InfoRequested;
-    public event Func<string, Func<Task>, Task>? RunBusyRequested;
 
     public AccountsViewModel(
         ProfileService profiles,
@@ -71,9 +73,11 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         SettingsStore settingsStore,
         AppSettings settings,
         IClock clock,
-        IUiInteraction ui,
+        IAccountDialogService ui,
         TotpPresentationCoordinator totpCoordinator,
         AccountUsageCoordinator usageCoordinator,
+        IAppNotificationService notifications,
+        IAppBusyService busy,
         ICodexTargetSwitchService? targetSwitchService = null)
     {
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
@@ -84,10 +88,10 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _totp = totpCoordinator ?? throw new ArgumentNullException(nameof(totpCoordinator));
         _usage = usageCoordinator ?? throw new ArgumentNullException(nameof(usageCoordinator));
+        _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
+        _busy = busy ?? throw new ArgumentNullException(nameof(busy));
         _targetSwitchService = targetSwitchService;
 
-        _totp.InfoRequested += (t, m, s) => ShowInfo(t, m, s);
-        _usage.InfoRequested += (t, m, s) => ShowInfo(t, m, s);
         _usage.RefreshingStateChanged += r => IsRefreshingUsage = r;
 
         SearchText = string.Empty;
@@ -523,25 +527,18 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
 
     private void ShowInfo(string title, string message, InfoBarSeverity severity)
     {
-        InfoRequested?.Invoke(title, message, severity);
+        _notifications.Show(title, message, severity);
     }
 
     private async Task RunBusy(string text, Func<Task> action)
     {
-        if (RunBusyRequested != null)
+        try
         {
-            await RunBusyRequested.Invoke(text, action);
+            await _busy.RunAsync(text, action);
         }
-        else
+        catch (Exception ex)
         {
-            try
-            {
-                await action();
-            }
-            catch (Exception ex)
-            {
-                ShowInfo(Loc.ErrorTitle, ex.Message, InfoBarSeverity.Error);
-            }
+            ShowInfo(Loc.ErrorTitle, ex.Message, InfoBarSeverity.Error);
         }
     }
 }

@@ -1,6 +1,12 @@
+using CodexSwitcher.App.Dialogs;
 using CodexSwitcher.App.Features.Accounts;
 using CodexSwitcher.App.Features.Providers;
-using CodexSwitcher.App.ViewModels;
+using CodexSwitcher.App.Features.Settings;
+using CodexSwitcher.App.Shell;
+using CodexSwitcher.App.Shell.Routing;
+using CodexSwitcher.App.Shell.State;
+using CodexSwitcher.App.Shell.Theme;
+using CodexSwitcher.App.Shell.Windowing;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Catalog;
 using CodexSwitcher.Core.Models;
@@ -181,12 +187,26 @@ public static class AppHost
             });
         });
 
-        services.AddSingleton<IUiInteraction, UiInteractionService>();
+        services.AddSingleton<UiInteractionService>();
+        services.AddSingleton<IUiInteraction>(sp => sp.GetRequiredService<UiInteractionService>());
+        services.AddSingleton<IAccountDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
+        services.AddSingleton<ITotpDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
+        services.AddSingleton<IProviderDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
+        services.AddSingleton<ISettingsDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
+        services.AddSingleton<ICommonDialogService>(sp => sp.GetRequiredService<UiInteractionService>());
+
+        services.AddSingleton<IAppNotificationService, AppNotificationService>();
+        services.AddSingleton<IAppBusyService, AppBusyService>();
+        services.AddTransient<ActiveTargetPresentationCoordinator>();
+        services.AddSingleton<IThemeService, WinUiThemeService>();
+        services.AddSingleton<WindowChromeService>();
+        services.AddSingleton<WindowLifecycleCoordinator>();
+
         services.AddTransient<TotpPresentationCoordinator>();
         services.AddTransient<AccountUsageCoordinator>();
         services.AddTransient<AccountsViewModel>();
         services.AddTransient<ApiProvidersViewModel>();
-        services.AddTransient<MainViewModel>();
+        services.AddTransient<ShellViewModel>();
         services.AddTransient<SettingsViewModel>();
 
         Services = services.BuildServiceProvider();

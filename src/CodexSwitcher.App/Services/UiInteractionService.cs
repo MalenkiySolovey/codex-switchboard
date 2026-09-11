@@ -1,3 +1,4 @@
+using CodexSwitcher.App.Dialogs;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Catalog;
@@ -11,7 +12,13 @@ using Windows.Storage.Pickers;
 namespace CodexSwitcher.App.Services;
 
 /// <summary>Implementa as interações de UI com ContentDialogs Fluent e a janela de login efêmero.</summary>
-public sealed class UiInteractionService : IUiInteraction
+public sealed class UiInteractionService :
+    IUiInteraction,
+    IAccountDialogService,
+    ITotpDialogService,
+    IProviderDialogService,
+    ISettingsDialogService,
+    ICommonDialogService
 {
     private readonly ICodexCli _codex;
     private readonly AppPaths _paths;

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <UserControl
-    x:Class="CodexSwitcher.App.Views.AccountsView"
+    x:Class="CodexSwitcher.App.Views.ShellView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:shell="using:CodexSwitcher.App.Shell"
     xmlns:vm="using:CodexSwitcher.App.ViewModels"
     xmlns:accounts="using:CodexSwitcher.App.Features.Accounts"
     xmlns:providers="using:CodexSwitcher.App.Features.Providers"
@@ -116,10 +117,10 @@
 
         <!-- InfoBar -->
         <InfoBar Grid.Row="2" Margin="24,4"
-                 IsOpen="{x:Bind ViewModel.InfoOpen, Mode=TwoWay}"
-                 Severity="{x:Bind ViewModel.InfoSeverity, Mode=OneWay}"
-                 Title="{x:Bind ViewModel.InfoTitle, Mode=OneWay}"
-                 Message="{x:Bind ViewModel.InfoMessage, Mode=OneWay}" />
+                 IsOpen="{x:Bind ViewModel.Notifications.IsOpen, Mode=TwoWay}"
+                 Severity="{x:Bind ViewModel.Notifications.Severity, Mode=OneWay}"
+                 Title="{x:Bind ViewModel.Notifications.Title, Mode=OneWay}"
+                 Message="{x:Bind ViewModel.Notifications.Message, Mode=OneWay}" />
 
         <!-- Content -->
         <Grid Grid.Row="3" Margin="0,4,0,0">
@@ -141,17 +142,17 @@
                         <FontIcon Glyph="&#xE753;" FontSize="14" Foreground="{ThemeResource BrandAccentBrush}" />
                         <TextBlock Text="{x:Bind Loc.ActiveRoutingTitle}" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12" />
                         <TextBlock Text=":" VerticalAlignment="Center" FontSize="12" />
-                        <TextBlock Text="{x:Bind ViewModel.ActiveTargetSummary, Mode=OneWay}" FontWeight="Medium" VerticalAlignment="Center" FontSize="12" />
+                        <TextBlock Text="{x:Bind ViewModel.Routing.ActiveTargetSummary, Mode=OneWay}" FontWeight="Medium" VerticalAlignment="Center" FontSize="12" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="24,0,0,0">
                         <FontIcon Glyph="&#xE77B;" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
                         <TextBlock Text="{x:Bind Loc.CredentialSlotTitle}" Opacity="0.7" VerticalAlignment="Center" FontSize="12" />
                         <TextBlock Text=":" Opacity="0.7" VerticalAlignment="Center" FontSize="12" />
-                        <TextBlock Text="{x:Bind ViewModel.ActiveTargetCredentialSlot, Mode=OneWay}" Opacity="0.9" VerticalAlignment="Center" FontSize="12" />
+                        <TextBlock Text="{x:Bind ViewModel.Routing.ActiveTargetCredentialSlot, Mode=OneWay}" Opacity="0.9" VerticalAlignment="Center" FontSize="12" />
                     </StackPanel>
                     <Button Grid.Column="2"
                             Click="OnSelectChatGptTabClick"
-                            Visibility="{x:Bind ViewModel.IsRoutingActiveToApi, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                            Visibility="{x:Bind ViewModel.Routing.IsRoutingActiveToApi, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                             FontSize="11"
                             Padding="8,3">
                         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -947,13 +948,13 @@
 
     <!-- Busy overlay -->
     <Grid Grid.RowSpan="3" Background="#80000000"
-          Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+          Visibility="{x:Bind ViewModel.Busy.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                         CornerRadius="{StaticResource CardCornerRadius}" Padding="28"
                         HorizontalAlignment="Center" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="16">
                         <ProgressRing IsActive="True" Width="28" Height="28" />
-                        <TextBlock Text="{x:Bind ViewModel.BusyText, Mode=OneWay}" VerticalAlignment="Center" />
+                        <TextBlock Text="{x:Bind ViewModel.Busy.BusyText, Mode=OneWay}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Border>
             </Grid>

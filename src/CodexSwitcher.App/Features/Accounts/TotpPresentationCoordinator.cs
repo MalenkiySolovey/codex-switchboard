@@ -1,5 +1,7 @@
+using CodexSwitcher.App.Dialogs;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Shell.State;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
 using Microsoft.UI.Xaml;
@@ -19,22 +21,22 @@ public sealed class TotpPresentationCoordinator : IDisposable
     private readonly ITotpCredentialStore? _totpStore;
     private readonly ITotpRevealAuthorizationService? _authService;
     private readonly IClock _clock;
-    private readonly IUiInteraction _ui;
+    private readonly ITotpDialogService _ui;
     private readonly IUiDispatcher _dispatcher;
     private readonly IAppLifetime _appLifetime;
+    private readonly IAppNotificationService _notifications;
 
     private DispatcherTimer? _totpPresentationTimer;
     private bool _hasShownDegradedNoticeThisSession;
-
-    public event Action<string, string, InfoBarSeverity>? InfoRequested;
 
     public TotpPresentationCoordinator(
         ITotpCredentialStore? totpStore,
         ITotpRevealAuthorizationService? authService,
         IClock clock,
-        IUiInteraction ui,
+        ITotpDialogService ui,
         IUiDispatcher dispatcher,
-        IAppLifetime appLifetime)
+        IAppLifetime appLifetime,
+        IAppNotificationService notifications)
     {
         _totpStore = totpStore;
         _authService = authService;
@@ -42,6 +44,7 @@ public sealed class TotpPresentationCoordinator : IDisposable
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _appLifetime = appLifetime ?? throw new ArgumentNullException(nameof(appLifetime));
+        _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
     }
 
     public bool HasCredential(Guid profileId) => _totpStore?.HasCredential(profileId) ?? false;
@@ -329,7 +332,7 @@ public sealed class TotpPresentationCoordinator : IDisposable
 
     private void ShowInfo(string title, string message, InfoBarSeverity severity)
     {
-        InfoRequested?.Invoke(title, message, severity);
+        _notifications.Show(title, message, severity);
     }
 
     public void Dispose()

@@ -3,6 +3,8 @@ using CodexSwitcher.App.Features.Accounts;
 using CodexSwitcher.App.Features.Providers;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Shell;
+using CodexSwitcher.App.Features.Settings;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Infra;
 using Microsoft.UI.Xaml;
@@ -11,19 +13,19 @@ using Windows.ApplicationModel.DataTransfer;
 
 namespace CodexSwitcher.App.Views;
 
-public sealed partial class AccountsView : UserControl
+public sealed partial class ShellView : UserControl
 {
-    public MainViewModel ViewModel { get; }
+    public ShellViewModel ViewModel { get; }
     public Strings Loc => Strings.Current;
 
     /// <summary>Elemento usado como região de arraste da barra de título (Mica).</summary>
     public UIElement TitleBarElement => AppTitleBar;
 
-    public AccountsView()
+    public ShellView()
     {
         InitializeComponent();
-        ViewModel = AppHost.Services.GetService(typeof(MainViewModel)) as MainViewModel
-                    ?? throw new InvalidOperationException("MainViewModel não registrado.");
+        ViewModel = AppHost.Services.GetService(typeof(ShellViewModel)) as ShellViewModel
+                    ?? throw new InvalidOperationException("ShellViewModel não registrado.");
         TrySetTitleBarIcon();
         Loaded += OnLoaded;
     }

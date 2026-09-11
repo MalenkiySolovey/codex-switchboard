@@ -9,7 +9,9 @@ using CodexSwitcher.Core.Services;
 using CodexSwitcher.Infra;
 using Microsoft.UI.Xaml.Controls;
 
-namespace CodexSwitcher.App.ViewModels;
+using CodexSwitcher.App.Dialogs;
+
+namespace CodexSwitcher.App.Features.Settings;
 
 public sealed class SettingsViewModel : INotifyPropertyChanged
 {
@@ -21,7 +23,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly AppPaths _paths;
     private readonly IWindowsUserVerificationService _verificationService;
     private readonly ITotpRevealAuthorizationService _authService;
-    private readonly IUiInteraction _ui;
+    private readonly ISettingsDialogService _ui;
     private readonly IProviderCatalogService? _catalogService;
     private readonly IKeyBrokerInstaller? _brokerInstaller;
 
@@ -292,7 +294,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         AppPaths paths,
         IWindowsUserVerificationService verificationService,
         ITotpRevealAuthorizationService authService,
-        IUiInteraction ui,
+        ISettingsDialogService ui,
         IProviderCatalogService? catalogService = null,
         IKeyBrokerInstaller? brokerInstaller = null)
     {

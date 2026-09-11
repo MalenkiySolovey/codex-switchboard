@@ -1,5 +1,6 @@
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Shell.State;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Models;
@@ -22,6 +23,7 @@ public sealed class AccountUsageCoordinator : IDisposable
     private readonly IClock _clock;
     private readonly IUiDispatcher _dispatcher;
     private readonly IAppLifetime _appLifetime;
+    private readonly IAppNotificationService _notifications;
 
     private readonly Dictionary<Guid, AccountUsageViewModel> _usages = [];
     private DispatcherTimer? _countdownTimer;
@@ -31,20 +33,21 @@ public sealed class AccountUsageCoordinator : IDisposable
     public bool IsRefreshingUsage { get; private set; }
 
     public event Action<bool>? RefreshingStateChanged;
-    public event Action<string, string, InfoBarSeverity>? InfoRequested;
 
     public AccountUsageCoordinator(
         IUsageService usageService,
         UsagePollingCoordinator pollingCoordinator,
         IClock clock,
         IUiDispatcher dispatcher,
-        IAppLifetime appLifetime)
+        IAppLifetime appLifetime,
+        IAppNotificationService notifications)
     {
         _usageService = usageService ?? throw new ArgumentNullException(nameof(usageService));
         _pollingCoordinator = pollingCoordinator ?? throw new ArgumentNullException(nameof(pollingCoordinator));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _appLifetime = appLifetime ?? throw new ArgumentNullException(nameof(appLifetime));
+        _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
 
         _pollingCoordinator.UsageUpdated += OnUsageUpdated;
         _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
@@ -189,7 +192,7 @@ public sealed class AccountUsageCoordinator : IDisposable
 
     private void ShowInfo(string title, string message, InfoBarSeverity severity)
     {
-        InfoRequested?.Invoke(title, message, severity);
+        _notifications.Show(title, message, severity);
     }
 
     public void Dispose()

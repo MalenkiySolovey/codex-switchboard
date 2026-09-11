@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using CodexSwitcher.App.Dialogs;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Shell.State;
 using CodexSwitcher.App.ViewModels;
 using CodexSwitcher.Core.Abstractions;
 using CodexSwitcher.Core.Catalog;
@@ -29,9 +31,11 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     private readonly IProviderCatalogService _catalogService;
     private readonly IProviderModelCache _modelCache;
     private readonly ProfileService _profileService;
-    private readonly IUiInteraction _ui;
+    private readonly IProviderDialogService _ui;
     private readonly IClock _clock;
     private readonly AppSettings _settings;
+    private readonly IAppNotificationService _notifications;
+    private readonly IAppBusyService _busyService;
     private readonly CancellationTokenSource _cts = new();
 
     public ObservableCollection<ApiProviderItemViewModel> Items { get; } = [];
@@ -46,8 +50,6 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     public partial string? BusyText { get; set; }
 
     public event EventHandler? TargetStateChanged;
-    public event Action<string, string, InfoBarSeverity>? InfoRequested;
-    public event Func<string, Func<Task>, Task>? RunBusyRequested;
 
     public ApiProvidersViewModel(
         IApiProviderStore apiProviderStore,
@@ -58,9 +60,11 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         IProviderCatalogService catalogService,
         IProviderModelCache modelCache,
         ProfileService profileService,
-        IUiInteraction ui,
+        IProviderDialogService ui,
         IClock clock,
         AppSettings settings,
+        IAppNotificationService notifications,
+        IAppBusyService busyService,
         IAppLifetime? appLifetime = null)
     {
         _apiProviderStore = apiProviderStore ?? throw new ArgumentNullException(nameof(apiProviderStore));
@@ -74,6 +78,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
+        _busyService = busyService ?? throw new ArgumentNullException(nameof(busyService));
 
         appLifetime?.ApplicationStopping.Register(() => CancelOperations());
     }
@@ -121,28 +127,21 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
     private void ShowInfo(string title, string message, InfoBarSeverity severity)
     {
-        InfoRequested?.Invoke(title, message, severity);
+        _notifications.Show(title, message, severity);
     }
 
     private async Task RunBusyAsync(string text, Func<Task> action)
     {
-        if (RunBusyRequested != null)
+        IsBusy = true;
+        BusyText = text;
+        try
         {
-            await RunBusyRequested.Invoke(text, action);
+            await _busyService.RunAsync(text, action);
         }
-        else
+        finally
         {
-            IsBusy = true;
-            BusyText = text;
-            try
-            {
-                await action();
-            }
-            finally
-            {
-                IsBusy = false;
-                BusyText = null;
-            }
+            IsBusy = false;
+            BusyText = null;
         }
     }
 

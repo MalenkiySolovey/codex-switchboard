@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using CodexSwitcher.App.Services;
+using CodexSwitcher.App.Shell.Theme;
+using CodexSwitcher.App.Shell.Windowing;
 using CodexSwitcher.Core.Abstractions;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -17,21 +19,32 @@ public sealed partial class MainWindow : Window
     private const int SW_RESTORE = 9;
 
     private readonly AppWindow _appWindow;
+    private readonly WindowChromeService _chromeService;
+    private readonly WindowLifecycleCoordinator _lifecycleCoordinator;
 
     public MainWindow()
     {
         InitializeComponent();
 
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(Root.TitleBarElement);
-        TrySetIcon();
+        _chromeService = (AppHost.Services.GetService(typeof(WindowChromeService)) as WindowChromeService) ?? new WindowChromeService();
+        _lifecycleCoordinator = (AppHost.Services.GetService(typeof(WindowLifecycleCoordinator)) as WindowLifecycleCoordinator)
+            ?? new WindowLifecycleCoordinator(AppHost.Services.GetService(typeof(ITotpRevealAuthorizationService)) as ITotpRevealAuthorizationService);
+
+        _chromeService.ConfigureTitleBar(this, Root.TitleBarElement);
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         _appWindow = AppWindow.GetFromWindowId(id);
+        _chromeService.TrySetWindowIcon(this, _appWindow);
+
         _appWindow.Changed += OnAppWindowChanged;
         VisibilityChanged += OnVisibilityChanged;
         Activated += OnWindowActivated;
+
+        if (AppHost.Services.GetService(typeof(IThemeService)) is IThemeService themeService && Content is FrameworkElement rootVisual)
+        {
+            themeService.Initialize(rootVisual);
+        }
 
         if (AppHost.Services.GetService(typeof(WindowHandleProvider)) is WindowHandleProvider handleProvider)
             handleProvider.MainWindowHandle = hwnd;
@@ -44,25 +57,14 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated)
-        {
-            Root.ViewModel.HideAllRevealedTotp();
-        }
+        _lifecycleCoordinator.HandleActivation(args.WindowActivationState, () => Root.ViewModel.HideAllRevealedTotp());
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
-        try
-        {
-            Root.ViewModel.HideAllRevealedTotp();
-            (AppHost.Services.GetService(typeof(ITotpRevealAuthorizationService)) as ITotpRevealAuthorizationService)?.Invalidate();
-            Root.ViewModel.Cleanup();
-        }
-        catch { }
-
-        AppHost.Shutdown();
-        Microsoft.UI.Xaml.Application.Current?.Exit();
-        Environment.Exit(0);
+        _lifecycleCoordinator.HandleWindowClosed(
+            () => Root.ViewModel.HideAllRevealedTotp(),
+            () => Root.ViewModel.Cleanup());
     }
 
     public void BringToFront()
@@ -94,28 +96,10 @@ public sealed partial class MainWindow : Window
             isMinimized = presenter.State == OverlappedPresenterState.Minimized;
         }
 
-        bool active = isVisible && !isMinimized;
-        if (!active)
-        {
-            Root.ViewModel.HideAllRevealedTotp();
-        }
-        Root.ViewModel.SetForegroundActive(active);
-    }
-
-    private void TrySetIcon()
-    {
-        try
-        {
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
-            if (!File.Exists(iconPath))
-                return;
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-            AppWindow.GetFromWindowId(id).SetIcon(iconPath);
-        }
-        catch (Exception)
-        {
-            // Ícone é cosmético; falha não deve impedir a janela de abrir.
-        }
+        _lifecycleCoordinator.HandleForegroundChange(
+            isVisible,
+            isMinimized,
+            active => Root.ViewModel.SetForegroundActive(active),
+            () => Root.ViewModel.HideAllRevealedTotp());
     }
 }

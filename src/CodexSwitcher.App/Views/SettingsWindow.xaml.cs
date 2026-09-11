@@ -1,4 +1,4 @@
-using CodexSwitcher.App.ViewModels;
+using CodexSwitcher.App.Features.Settings;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;

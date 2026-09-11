@@ -39,16 +39,20 @@ public sealed class AccountsArchitectureBoundaryTests
     }
 
     [Fact]
-    public void MainViewModel_MustNotDependOnAccountsOrTotpBackendServices()
+    public void ShellViewModel_MustNotDependOnBackendOrPathServices_AndMainViewModelMustNotExist()
     {
         var appAssembly = LoadAppAssembly();
         if (appAssembly is null)
             return; // Skip if app assembly is not accessible in this test environment
 
-        var mainVmType = appAssembly.GetType("CodexSwitcher.App.ViewModels.MainViewModel");
-        Assert.NotNull(mainVmType);
+        // Verify MainViewModel has been completely removed (no dead alias)
+        var oldMainVmType = appAssembly.GetType("CodexSwitcher.App.ViewModels.MainViewModel");
+        Assert.Null(oldMainVmType);
 
-        var ctors = mainVmType.GetConstructors();
+        var shellVmType = appAssembly.GetType("CodexSwitcher.App.Shell.ShellViewModel");
+        Assert.NotNull(shellVmType);
+
+        var ctors = shellVmType.GetConstructors();
         Assert.NotEmpty(ctors);
 
         var forbiddenTypes = new[]
@@ -60,7 +64,11 @@ public sealed class AccountsArchitectureBoundaryTests
             "ITotpCredentialStore",
             "ITotpRevealAuthorizationService",
             "SettingsStore",
-            "ICodexTargetSwitchService"
+            "ICodexTargetSwitchService",
+            "AppPaths",
+            "IFileSystem",
+            "IApiKeySecretStore",
+            "ICodexActiveTargetResolver"
         };
 
         foreach (var ctor in ctors)
@@ -71,7 +79,7 @@ public sealed class AccountsArchitectureBoundaryTests
                 {
                     Assert.False(
                         p.ParameterType.Name == forbidden,
-                        $"MainViewModel constructor must not depend on {forbidden}, but found parameter '{p.Name}' of type '{p.ParameterType.Name}'");
+                        $"ShellViewModel constructor must not depend on {forbidden}, but found parameter '{p.Name}' of type '{p.ParameterType.Name}'");
                 }
             }
         }
