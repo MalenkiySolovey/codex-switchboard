@@ -528,7 +528,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var title = !string.IsNullOrWhiteSpace(t.Name) ? t.Name : t.Id;
             var prov = !string.IsNullOrWhiteSpace(t.ModelProvider) ? t.ModelProvider : "ChatGPT";
             var model = !string.IsNullOrWhiteSpace(t.Model) ? t.Model : "-";
-            var dateStr = t.UpdatedAt.ToLocalTime().ToString("g");
+            var dateStr = t.UpdatedAt.ToLocalTime().ToString("g", System.Globalization.CultureInfo.CurrentCulture);
 
             var itemStack = new StackPanel { Spacing = 2, Padding = new Thickness(0, 4, 0, 4) };
             itemStack.Children.Add(new TextBlock

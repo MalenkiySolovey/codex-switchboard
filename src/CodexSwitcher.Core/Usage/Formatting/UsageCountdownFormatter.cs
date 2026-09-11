@@ -128,7 +128,7 @@ public static class UsageCountdownFormatter
             return pt ? "Horário de reinício: desconhecido" : "Reset time: unknown";
 
         var local = resetsAt.Value.ToLocalTime();
-        var datePart = local.ToString("dd/MM/yyyy HH:mm");
+        var datePart = local.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
         return pt ? $"Reinício programado: {datePart}" : $"Scheduled reset: {datePart}";
     }
 
@@ -142,7 +142,7 @@ public static class UsageCountdownFormatter
 
         var local = resetsAt.Value.ToLocalTime();
         var effectiveCulture = culture ?? (pt ? new CultureInfo("pt-BR") : CultureInfo.InvariantCulture);
-        var timeStr = local.ToString("HH:mm:ss");
+        var timeStr = local.ToString("HH:mm:ss", effectiveCulture);
 
         if (pt)
         {

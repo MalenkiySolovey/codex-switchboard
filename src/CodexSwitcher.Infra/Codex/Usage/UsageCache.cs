@@ -60,7 +60,7 @@ namespace CodexSwitcher.Infra.Codex.Usage;
 /// Contains strictly non-sensitive metadata (rate limits, quotas, statuses).
 /// Never persists tokens, passwords, or auth.json content.
 /// </summary>
-public sealed class UsageCache : IUsageCache
+public sealed class UsageCache : IUsageCache, IDisposable
 {
     public const int CurrentSchemaVersion = 3;
 
@@ -208,6 +208,11 @@ public sealed class UsageCache : IUsageCache
         {
             _ioLock.Release();
         }
+    }
+
+    public void Dispose()
+    {
+        _ioLock.Dispose();
     }
 
     internal sealed class UsageCacheDocument

@@ -3,6 +3,7 @@ using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1861:Avoid constant arrays as arguments", Justification = "Unit test fixture data.")]
 public sealed class CodexRoutingConfigStoreTests
 {
     private readonly PhysicalFileSystem _fs = new();

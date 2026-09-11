@@ -57,5 +57,5 @@ public interface ICodexRuntimeResolver
     /// <summary>
     /// Validates whether a given executable path is a valid Codex runtime.
     /// </summary>
-    bool ValidateExecutable(string path, out string? version, out string? error);
+    bool ValidateExecutable(string path, out string? version, out string? errorMessage);
 }

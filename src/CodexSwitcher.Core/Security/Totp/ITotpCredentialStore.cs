@@ -59,7 +59,7 @@ public interface ITotpCredentialStore
     /// Decifra o segredo sob demanda, gera o código TOTP atual e descarta buffers intermediários.
     /// Nunca expõe a semente de 2FA à camada de apresentação.
     /// </summary>
-    bool TryComputeCode(Guid profileId, DateTimeOffset now, out TotpCode code, out string? error);
+    bool TryComputeCode(Guid profileId, DateTimeOffset now, out TotpCode code, out string? errorMessage);
 
     /// <summary>Exclui o arquivo cifrado do segredo TOTP do perfil.</summary>
     bool Delete(Guid profileId);

@@ -167,9 +167,9 @@ public sealed class LiveSandboxExperimentTests
         var sandboxMutated = fetchResult?.SandboxAuthMutated ?? false;
 
         _output.WriteLine("=== SANDBOX MUTATION EXPERIMENT ===");
-        _output.WriteLine($"sandbox beforeHash == afterHash: {sandboxHashMatches.ToString().ToLowerInvariant()}");
-        _output.WriteLine($"sandbox LastWriteUtc before == after: {sandboxLastWriteMatches.ToString().ToLowerInvariant()}");
-        _output.WriteLine($"SandboxAuthMutated boolean: {sandboxMutated.ToString().ToLowerInvariant()}");
+        _output.WriteLine($"sandbox beforeHash == afterHash: {sandboxHashMatches.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
+        _output.WriteLine($"sandbox LastWriteUtc before == after: {sandboxLastWriteMatches.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
+        _output.WriteLine($"SandboxAuthMutated boolean: {sandboxMutated.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
 
         if (sandboxHashMatches)
         {
@@ -191,7 +191,7 @@ public sealed class LiveSandboxExperimentTests
         _output.WriteLine($"Status: {snap.Status}");
         _output.WriteLine($"PlanType: {snap.PlanType ?? "null"}");
         _output.WriteLine($"PrimaryLimitId: {snap.PrimaryLimitId ?? "null"}");
-        _output.WriteLine($"ResetCreditsAvailable: {snap.ResetCreditsAvailable?.ToString() ?? "null"}");
+        _output.WriteLine($"ResetCreditsAvailable: {snap.ResetCreditsAvailable?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}");
         _output.WriteLine($"Buckets count: {snap.Limits.Count}");
 
         foreach (var b in snap.Limits)
@@ -206,11 +206,11 @@ public sealed class LiveSandboxExperimentTests
         if (fetchResult.Activity is { } act)
         {
             _output.WriteLine("=== NORMALIZED ACCOUNT ACTIVITY SNAPSHOT ===");
-            _output.WriteLine($"LifetimeTokens: {act.Summary?.LifetimeTokens?.ToString() ?? "null"}");
-            _output.WriteLine($"PeakDailyTokens: {act.Summary?.PeakDailyTokens?.ToString() ?? "null"}");
-            _output.WriteLine($"LongestTurnSec: {act.Summary?.LongestRunningTurnSeconds?.ToString() ?? "null"}");
-            _output.WriteLine($"CurrentStreakDays: {act.Summary?.CurrentStreakDays?.ToString() ?? "null"}");
-            _output.WriteLine($"LongestStreakDays: {act.Summary?.LongestStreakDays?.ToString() ?? "null"}");
+            _output.WriteLine($"LifetimeTokens: {act.Summary?.LifetimeTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}");
+            _output.WriteLine($"PeakDailyTokens: {act.Summary?.PeakDailyTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}");
+            _output.WriteLine($"LongestTurnSec: {act.Summary?.LongestRunningTurnSeconds?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}");
+            _output.WriteLine($"CurrentStreakDays: {act.Summary?.CurrentStreakDays?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}");
+            _output.WriteLine($"LongestStreakDays: {act.Summary?.LongestStreakDays?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"}");
             _output.WriteLine($"DailyBuckets Count: {act.DailyBuckets.Count}");
             foreach (var bucket in act.DailyBuckets.Take(5))
             {
@@ -246,7 +246,7 @@ public sealed class LiveSandboxExperimentTests
             {
                 lastRefreshChanged = bLr.GetString() != aLr.GetString();
             }
-            _output.WriteLine($"last_refresh changed: {lastRefreshChanged.ToString().ToLowerInvariant()}");
+            _output.WriteLine($"last_refresh changed: {lastRefreshChanged.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
 
             if (beforeRoot.TryGetProperty("tokens", out var bTok) &&
                 afterRoot.TryGetProperty("tokens", out var aTok))
@@ -269,9 +269,9 @@ public sealed class LiveSandboxExperimentTests
                 }
 
                 _output.WriteLine($"Changed fields below tokens: [{string.Join(", ", changedTokenFields)}]");
-                _output.WriteLine($"access-token field changed: {accessTokenChanged.ToString().ToLowerInvariant()}");
-                _output.WriteLine($"refresh-token field changed: {refreshTokenChanged.ToString().ToLowerInvariant()}");
-                _output.WriteLine($"id-token field changed: {idTokenChanged.ToString().ToLowerInvariant()}");
+                _output.WriteLine($"access-token field changed: {accessTokenChanged.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
+                _output.WriteLine($"refresh-token field changed: {refreshTokenChanged.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
+                _output.WriteLine($"id-token field changed: {idTokenChanged.ToString(System.Globalization.CultureInfo.InvariantCulture).ToLowerInvariant()}");
             }
         }
         catch (Exception ex)
@@ -332,7 +332,7 @@ public sealed class LiveSandboxExperimentTests
                     {
                         availableCount = countEl.GetInt32();
                     }
-                    _output.WriteLine($"availableCount: {(availableCount.HasValue ? availableCount.Value.ToString() : "absent/null")}");
+                    _output.WriteLine($"availableCount: {(availableCount.HasValue ? availableCount.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "absent/null")}");
 
                     if (resetCreditsEl.TryGetProperty("credits", out var creditsEl))
                     {

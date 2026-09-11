@@ -77,7 +77,7 @@ public sealed class DeclarativeProviderInspectorTests
         {
             ResponseFactory = req =>
             {
-                if (req.RequestUri!.AbsolutePath.EndsWith("/models"))
+                if (req.RequestUri!.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new StringContent("{ \"data\": [{ \"id\": \"gpt-5.6-sol\" }] }", Encoding.UTF8, "application/json")
@@ -252,7 +252,7 @@ public sealed class DeclarativeProviderInspectorTests
             var snapshot = await inspector.InspectAsync(descriptor, "https://api.provider.test/v1", "test-token");
 
             Assert.NotNull(snapshot.Error);
-            Assert.Contains(((int)code).ToString(), snapshot.Error);
+            Assert.Contains(((int)code).ToString(System.Globalization.CultureInfo.InvariantCulture), snapshot.Error);
         }
     }
 

@@ -277,7 +277,7 @@ public sealed class ArchitectureBoundaryTests
         {
             var codeLines = File.ReadAllLines(registrationFile)
                 .Select(l => l.Trim())
-                .Where(l => !l.StartsWith("//") && !l.StartsWith("///") && !l.StartsWith("*"));
+                .Where(l => !l.StartsWith("//", StringComparison.Ordinal) && !l.StartsWith("///", StringComparison.Ordinal) && !l.StartsWith('*'));
 
             foreach (var line in codeLines)
             {

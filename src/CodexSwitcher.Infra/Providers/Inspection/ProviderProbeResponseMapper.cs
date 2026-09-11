@@ -12,7 +12,7 @@ public sealed class ProviderProbeResponseMapper : IProviderProbeResponseMapper
 {
     public (bool Success, List<string>? Models, string? Error) MapModelsResponse(
         ProbeHttpResponse response,
-        string? pointer)
+        string? jsonPointer)
     {
         ArgumentNullException.ThrowIfNull(response);
 
@@ -22,7 +22,7 @@ public sealed class ProviderProbeResponseMapper : IProviderProbeResponseMapper
         }
 
         var root = response.Json.Value;
-        var effectivePointer = pointer ?? "/data";
+        var effectivePointer = jsonPointer ?? "/data";
 
         if (JsonPointerExtractor.TryExtractStringArray(root, effectivePointer, out var models))
         {

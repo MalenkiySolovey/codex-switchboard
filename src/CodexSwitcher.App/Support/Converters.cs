@@ -92,7 +92,7 @@ public sealed class BadgeToTextConverter : IValueConverter
             _ => loc.BadgeUnavailable,
         } : string.Empty;
     }
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class BadgeToBrushConverter : IValueConverter
@@ -107,7 +107,7 @@ public sealed class BadgeToBrushConverter : IValueConverter
             AccountBadge.Error => "HealthDangerBrush",
             _ => "TextFillColorTertiaryBrush",
         } : "TextFillColorTertiaryBrush");
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class ActiveToBackgroundConverter : IValueConverter
@@ -118,7 +118,7 @@ public sealed class ActiveToBackgroundConverter : IValueConverter
             AccountItemViewModel { IsActive: true, IsRoutingActive: true } => Brushes.Resource("BrandAccentSoftBrush"),
             _ => Brushes.Resource("CardBackgroundFillColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 /// <summary>Borda do card: ativa (acento) > marcada como usada nas últimas 24h (verde) > padrão.</summary>
@@ -132,7 +132,7 @@ public sealed class CardBorderBrushConverter : IValueConverter
             AccountItemViewModel { IsMarkedUsed: true } => Brushes.Resource("HealthOkBrush"),
             _ => Brushes.Resource("CardStrokeColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class IntToVisibilityConverter : IValueConverter
@@ -158,7 +158,7 @@ public sealed class QuotaProgressBrushConverter : IValueConverter
             UsageWindowViewModel { IsLowQuota: true } => Brushes.Resource("HealthWarnBrush"),
             _ => Brushes.Resource("BrandAccentBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class StringToVisibilityConverter : IValueConverter
@@ -194,7 +194,7 @@ public sealed class ApiCardBorderBrushConverter : IValueConverter
             ApiProviderItemViewModel { HasSecret: false } => Brushes.Resource("HealthWarnBrush"),
             _ => Brushes.Resource("CardStrokeColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class ApiCardBackgroundConverter : IValueConverter
@@ -205,5 +205,5 @@ public sealed class ApiCardBackgroundConverter : IValueConverter
             ApiProviderItemViewModel { IsTargetActive: true } => Brushes.Resource("BrandAccentSoftBrush"),
             _ => Brushes.Resource("CardBackgroundFillColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }

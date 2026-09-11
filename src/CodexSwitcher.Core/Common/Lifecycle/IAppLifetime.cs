@@ -1,4 +1,4 @@
-﻿namespace CodexSwitcher.Core.Common.Lifecycle;
+namespace CodexSwitcher.Core.Common.Lifecycle;
 
 /// <summary>
 /// Controls and observes the application-level shutdown lifecycle.

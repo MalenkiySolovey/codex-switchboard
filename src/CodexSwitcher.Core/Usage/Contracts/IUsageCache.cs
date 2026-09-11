@@ -43,6 +43,7 @@ public interface IUsageCache
     /// <summary>
     /// Gets the cached usage entry for a profile, if present.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Get and Set are standard cache method names in internal C# interface.")]
     UsageCacheEntry? Get(Guid profileId);
 
     /// <summary>
@@ -53,6 +54,7 @@ public interface IUsageCache
     /// <summary>
     /// Updates or inserts a cached usage entry in memory.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Get and Set are standard cache method names in internal C# interface.")]
     void Set(
         Guid profileId,
         RateLimitsSnapshot? snapshot,

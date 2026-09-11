@@ -132,7 +132,7 @@ public sealed partial class TotpPanel : UserControl
         var code = _secret.Compute(DateTimeOffset.UtcNow);
         _currentCode = code.Code;
         CodeText.Text = code.Formatted;
-        SecondsText.Text = code.SecondsRemaining.ToString();
+        SecondsText.Text = code.SecondsRemaining.ToString(System.Globalization.CultureInfo.InvariantCulture);
         ExpiryText.Text = _loc.TotpExpiresIn(code.SecondsRemaining);
         Countdown.Value = code.Period <= 0 ? 0 : code.SecondsRemaining * 100.0 / code.Period;
 

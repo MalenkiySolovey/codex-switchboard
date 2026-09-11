@@ -210,6 +210,7 @@ public sealed class RecipeResponseMapping
 
 public sealed class JsonFieldMapping
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1720:Identifiers should not contain type names", Justification = "Matches RFC 6901 JSON pointer property name in catalog schema.")]
     [JsonPropertyName("pointer")]
     public string Pointer { get; set; } = string.Empty;
 
@@ -228,6 +229,7 @@ public sealed class CurrencyMapping
     [JsonPropertyName("literal")]
     public string? Literal { get; set; }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1720:Identifiers should not contain type names", Justification = "Matches RFC 6901 JSON pointer property name in catalog schema.")]
     [JsonPropertyName("pointer")]
     public string? Pointer { get; set; }
 }

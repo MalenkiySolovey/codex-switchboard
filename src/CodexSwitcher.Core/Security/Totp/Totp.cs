@@ -96,12 +96,13 @@ public sealed class TotpSecret
             (hash[offset + 3] & 0xFF);
 
         var modulo = (int)Math.Pow(10, Digits);
-        var code = (binary % modulo).ToString().PadLeft(Digits, '0');
+        var code = (binary % modulo).ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(Digits, '0');
 
         var remaining = (int)(Period - (unixSeconds % Period));
         return new TotpCode(code, remaining, Period);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5350:Do Not Use Weak Cryptographic Algorithms", Justification = "RFC 6238 standard TOTP requires HMACSHA1.")]
     private byte[] ComputeHmac(byte[] message)
     {
         using HMAC hmac = Algorithm switch

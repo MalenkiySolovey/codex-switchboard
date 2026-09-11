@@ -99,7 +99,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
         LastSwitchedText = profile.LastSwitchedAt is null
             ? Loc.NeverUsedHere
             : Loc.SwitchedFormat(RelativeTime.Humanize(profile.LastSwitchedAt, now, Loc.Pt));
-        LastSwitchedTooltip = profile.LastSwitchedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "-";
+        LastSwitchedTooltip = profile.LastSwitchedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "-";
 
         HealthText = ComputeHealthText(profile, now, settings);
         NeedsAttention = Badge is AccountBadge.NeedsReLogin or AccountBadge.Error;

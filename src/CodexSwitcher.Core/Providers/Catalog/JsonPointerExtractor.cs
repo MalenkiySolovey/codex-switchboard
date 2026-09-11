@@ -45,20 +45,20 @@ public static class JsonPointerExtractor
     /// <summary>
     /// Navigates a JSON document using an RFC 6901 pointer.
     /// </summary>
-    public static bool TryResolvePointer(JsonElement root, string pointer, out JsonElement target)
+    public static bool TryResolvePointer(JsonElement root, string jsonPointer, out JsonElement target)
     {
         target = default;
-        if (string.IsNullOrEmpty(pointer))
+        if (string.IsNullOrEmpty(jsonPointer))
         {
             target = root;
             return true;
         }
 
-        if (!pointer.StartsWith('/'))
+        if (!jsonPointer.StartsWith('/'))
             return false;
 
         var current = root;
-        var tokens = pointer[1..].Split('/');
+        var tokens = jsonPointer[1..].Split('/');
 
         foreach (var rawToken in tokens)
         {
@@ -148,14 +148,14 @@ public static class JsonPointerExtractor
     /// </summary>
     public static bool TryExtractString(
         JsonElement root,
-        string pointer,
+        string jsonPointer,
         out string? value)
     {
         value = null;
-        if (string.IsNullOrWhiteSpace(pointer))
+        if (string.IsNullOrWhiteSpace(jsonPointer))
             return false;
 
-        if (!TryResolvePointer(root, pointer, out var element))
+        if (!TryResolvePointer(root, jsonPointer, out var element))
             return false;
 
         if (element.ValueKind == JsonValueKind.String)
@@ -179,11 +179,11 @@ public static class JsonPointerExtractor
     /// </summary>
     public static bool TryExtractStringArray(
         JsonElement root,
-        string pointer,
+        string jsonPointer,
         out List<string> items)
     {
         items = new List<string>();
-        if (!TryResolvePointer(root, pointer, out var element) || element.ValueKind != JsonValueKind.Array)
+        if (!TryResolvePointer(root, jsonPointer, out var element) || element.ValueKind != JsonValueKind.Array)
             return false;
 
         foreach (var item in element.EnumerateArray())

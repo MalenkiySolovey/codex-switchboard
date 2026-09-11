@@ -62,8 +62,10 @@ namespace CodexSwitcher.App.Dialogs.Common;
 /// </summary>
 public class CommonDialogService : ICommonDialogService
 {
-    protected readonly IDialogHost Host;
-    protected readonly Strings Loc = Strings.Current;
+    protected IDialogHost Host { get; }
+    protected Strings Loc { get; } = Strings.Current;
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Compatibility alias for derived dialog services.")]
     protected Strings _loc => Loc;
 
     public CommonDialogService(IDialogHost host)

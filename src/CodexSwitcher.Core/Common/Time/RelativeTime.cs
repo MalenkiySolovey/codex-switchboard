@@ -81,6 +81,6 @@ public static class RelativeTime
                 : (w == 1 ? "1 week ago" : $"{w} weeks ago");
         }
 
-        return v.ToLocalTime().ToString("dd/MM/yyyy");
+        return v.ToLocalTime().ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
     }
 }

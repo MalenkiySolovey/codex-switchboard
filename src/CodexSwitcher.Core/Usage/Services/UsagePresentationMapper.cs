@@ -154,7 +154,7 @@ public static class UsagePresentationMapper
             return Array.Empty<UsageWindow>();
 
         var primary = snapshot.Limits.FirstOrDefault(b => b.LimitId == (snapshot.PrimaryLimitId ?? "codex"))
-                      ?? snapshot.Limits.FirstOrDefault();
+                      ?? (snapshot.Limits.Count > 0 ? snapshot.Limits[0] : null);
 
         if (primary is not null && primary.Windows.Count > 0)
             return primary.Windows;

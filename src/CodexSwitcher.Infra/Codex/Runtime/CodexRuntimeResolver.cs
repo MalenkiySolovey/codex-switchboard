@@ -173,20 +173,20 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
         return candidates;
     }
 
-    public bool ValidateExecutable(string path, out string? version, out string? error)
+    public bool ValidateExecutable(string path, out string? version, out string? errorMessage)
     {
         version = null;
-        error = null;
+        errorMessage = null;
 
         if (string.IsNullOrWhiteSpace(path))
         {
-            error = "Path is empty or null.";
+            errorMessage = "Path is empty or null.";
             return false;
         }
 
         if (!File.Exists(path))
         {
-            error = $"File not found: {path}";
+            errorMessage = $"File not found: {path}";
             return false;
         }
 
@@ -195,7 +195,7 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
             var (ver, _) = InspectCandidate(path);
             if (string.IsNullOrWhiteSpace(ver) || ver == "unknown")
             {
-                error = "Could not extract Codex version from executable.";
+                errorMessage = "Could not extract Codex version from executable.";
                 return false;
             }
 
@@ -204,7 +204,7 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            errorMessage = ex.Message;
             return false;
         }
     }

@@ -106,7 +106,7 @@ public sealed class ProviderCatalogLoader
     /// Loads the embedded bootstrap catalog compiled into the assembly.
     /// This is guaranteed to be available and safe.
     /// </summary>
-    public CatalogLoadResult LoadBootstrapCatalog()
+    public static CatalogLoadResult LoadBootstrapCatalog()
     {
         try
         {

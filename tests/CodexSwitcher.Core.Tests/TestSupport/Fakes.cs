@@ -122,10 +122,10 @@ public sealed class FaultInjectingFileSystem : IFileSystem
         return _inner.ReadAllBytes(path);
     }
     public string ReadAllText(string path) => _inner.ReadAllText(path);
-    public void Copy(string s, string d, bool o) => _inner.Copy(s, d, o);
-    public void Move(string s, string d, bool o) => _inner.Move(s, d, o);
+    public void Copy(string sourcePath, string destPath, bool overwrite) => _inner.Copy(sourcePath, destPath, overwrite);
+    public void Move(string sourcePath, string destPath, bool overwrite) => _inner.Move(sourcePath, destPath, overwrite);
     public void Delete(string path) => _inner.Delete(path);
-    public IReadOnlyList<string> EnumerateFiles(string dir, string pattern) => _inner.EnumerateFiles(dir, pattern);
+    public IReadOnlyList<string> EnumerateFiles(string directory, string searchPattern) => _inner.EnumerateFiles(directory, searchPattern);
 
     private static bool SamePath(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);

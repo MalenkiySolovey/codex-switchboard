@@ -64,6 +64,7 @@ namespace CodexSwitcher.App.Views;
 /// Ao fim, captura o auth.json gerado, descarta o WebView2 e apaga as pastas temporárias.
 /// Ver BUSINESS_RULES.md §5 e a memória [[login-clean-guest-session]].
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "WinUI Window lifecycle manages disposal in OnClosed.")]
 public sealed partial class LoginWindow : Window
 {
     private readonly ICodexCli _codex;
@@ -247,10 +248,11 @@ public sealed partial class LoginWindow : Window
     {
         _completed = true; // impede atualizações de UI após o fechamento (ex.: ShowFailure tardio).
         _cts.Cancel();
+        _cts.Dispose();
         _tcs.TrySetResult(null);
         // Encerra a sessão do app-server (cancela o login e mata o processo).
         if (_session is not null)
-            _ = _session.DisposeAsync();
+            _ = _session.DisposeAsync().AsTask();
         // Descartar handles do WebView2 antes de apagar (ponto 8).
         try { Web.Close(); } catch (Exception) { /* já fechando */ }
         // O popup de 2FA é só ocultado ao perder foco (não recriado), então o timer sobreviveria à

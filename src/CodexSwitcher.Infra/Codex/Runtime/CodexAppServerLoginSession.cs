@@ -98,8 +98,8 @@ internal sealed class CodexAppServerLoginSession : ICodexLoginSession
         session._stdin = process.StandardInput;
         session._stdout = process.StandardOutput;
         session._stderr = process.StandardError;
-        _ = Task.Run(session.ReadLoopAsync);
-        _ = Task.Run(session.DrainStderrAsync);
+        _ = Task.Run(session.ReadLoopAsync, CancellationToken.None);
+        _ = Task.Run(session.DrainStderrAsync, CancellationToken.None);
 
         try
         {

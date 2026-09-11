@@ -100,7 +100,7 @@ public sealed class AccountsArchitectureBoundaryTests
             types = ex.Types.Where(t => t != null).Select(t => t!).ToArray();
         }
 
-        var vmTypes = types.Where(t => t.Name.EndsWith("ViewModel") || t.Name.EndsWith("Coordinator")).ToList();
+        var vmTypes = types.Where(t => t.Name.EndsWith("ViewModel", StringComparison.Ordinal) || t.Name.EndsWith("Coordinator", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(vmTypes);
 
         var forbiddenPropertySubstrings = new[]

@@ -1,4 +1,4 @@
-﻿namespace CodexSwitcher.Core.Common.Dispatcher;
+namespace CodexSwitcher.Core.Common.Dispatcher;
 
 /// <summary>
 /// Abstraction for dispatching presentation updates to the UI thread.

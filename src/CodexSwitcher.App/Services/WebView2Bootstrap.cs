@@ -61,7 +61,7 @@ public static class WebView2Bootstrap
 {
     public const string OfficialInfoUrl = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/";
 
-    private static readonly IWebView2AvailabilityService Detector =
+    private static readonly WebView2AvailabilityService Detector =
         new WebView2AvailabilityService(DefaultVersionProvider);
 
     private static string? DefaultVersionProvider()

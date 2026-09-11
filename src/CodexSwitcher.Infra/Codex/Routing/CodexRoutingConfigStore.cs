@@ -162,7 +162,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
         }
 
         var updated = string.Join(newline, lines);
-        if (raw.EndsWith(newline) && !updated.EndsWith(newline))
+        if (raw.EndsWith(newline, StringComparison.Ordinal) && !updated.EndsWith(newline, StringComparison.Ordinal))
         {
             updated += newline;
         }
@@ -221,7 +221,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
         }
 
         var updated = string.Join(newline, lines);
-        if (raw.EndsWith(newline) && !updated.EndsWith(newline))
+        if (raw.EndsWith(newline, StringComparison.Ordinal) && !updated.EndsWith(newline, StringComparison.Ordinal))
         {
             updated += newline;
         }
@@ -248,7 +248,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
         }
 
         var updated = string.Join(newline, lines);
-        if (raw.EndsWith(newline) && !updated.EndsWith(newline))
+        if (raw.EndsWith(newline, StringComparison.Ordinal) && !updated.EndsWith(newline, StringComparison.Ordinal))
         {
             updated += newline;
         }
@@ -392,7 +392,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 default:
                     if (char.IsControl(c))
                     {
-                        sb.Append($@"\u{(int)c:X4}");
+                        sb.Append(System.Globalization.CultureInfo.InvariantCulture, $@"\u{(int)c:X4}");
                     }
                     else
                     {
@@ -404,11 +404,11 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
         return sb.ToString();
     }
 
-    private static Dictionary<string, CodexProviderBlock> ParseSwitchboardProviders(IReadOnlyList<string> lines)
+    private static Dictionary<string, CodexProviderBlock> ParseSwitchboardProviders(string[] lines)
     {
         var map = new Dictionary<string, CodexProviderBlock>(StringComparer.OrdinalIgnoreCase);
 
-        for (var i = 0; i < lines.Count; i++)
+        for (var i = 0; i < lines.Length; i++)
         {
             var match = ProviderTableHeaderRegex().Match(lines[i]);
             if (match.Success)
@@ -425,7 +425,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 int timeoutMs = 5000;
 
                 var inAuth = false;
-                for (var j = i + 1; j < lines.Count; j++)
+                for (var j = i + 1; j < lines.Length; j++)
                 {
                     if (TableHeaderRegex().IsMatch(lines[j]))
                     {

@@ -51,15 +51,15 @@ public sealed record RateLimitsSnapshot(
 {
     private LimitBucket? PrimaryBucket =>
         Limits.FirstOrDefault(b => b.LimitId == (PrimaryLimitId ?? "codex"))
-        ?? Limits.FirstOrDefault();
+        ?? (Limits.Count > 0 ? Limits[0] : null);
 
     /// <summary>The first window in the primary bucket (or null if none).</summary>
     public UsageWindow? PrimaryWindow =>
-        PrimaryBucket?.Windows.FirstOrDefault();
+        PrimaryBucket?.Windows is { Count: > 0 } windows ? windows[0] : null;
 
     /// <summary>The secondary window in the primary bucket (or null if none).</summary>
     public UsageWindow? SecondaryWindow =>
-        PrimaryBucket?.Windows.Skip(1).FirstOrDefault();
+        PrimaryBucket?.Windows is { Count: > 1 } sWindows ? sWindows[1] : null;
 
     /// <summary>Finds a window by exact duration in minutes (e.g. 300 for 5h, 10080 for 7d).</summary>
     public UsageWindow? FindWindowByDuration(int durationMinutes) =>

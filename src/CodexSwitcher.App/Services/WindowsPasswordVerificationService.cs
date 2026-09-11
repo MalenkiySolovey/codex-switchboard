@@ -181,7 +181,7 @@ public sealed class WindowsPasswordVerificationService : IWindowsPasswordVerific
         {
             if (preLsaHandle != IntPtr.Zero)
             {
-                LsaDeregisterLogonProcess(preLsaHandle);
+                _ = LsaDeregisterLogonProcess(preLsaHandle);
             }
         }
 
@@ -352,7 +352,7 @@ public sealed class WindowsPasswordVerificationService : IWindowsPasswordVerific
                     {
                         if (pProfileBuffer != IntPtr.Zero)
                         {
-                            LsaFreeReturnBuffer(pProfileBuffer);
+                            _ = LsaFreeReturnBuffer(pProfileBuffer);
                         }
 
                         using var authenticatedIdentity = new WindowsIdentity(tokenHandle.DangerousGetHandle());
@@ -415,7 +415,7 @@ public sealed class WindowsPasswordVerificationService : IWindowsPasswordVerific
         {
             if (lsaHandle != IntPtr.Zero)
             {
-                LsaDeregisterLogonProcess(lsaHandle);
+                _ = LsaDeregisterLogonProcess(lsaHandle);
             }
         }
     }
@@ -583,6 +583,7 @@ public sealed class WindowsPasswordVerificationService : IWindowsPasswordVerific
     /// Executa uma investigação estritamente sanitizada do ambiente de autenticação local.
     /// Nunca expõe senhas, emails, nomes de usuário completos ou segredos.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Globalization", "CA1305:Specify IFormatProvider", Justification = "Diagnostic probe logging uses invariant hex formatting.")]
     public static string RunSanitizedDiagnosticProbe()
     {
         var sb = new StringBuilder();
@@ -669,7 +670,7 @@ public sealed class WindowsPasswordVerificationService : IWindowsPasswordVerific
                         sb.AppendLine($"PACKAGE [{pkg}]: NOT_FOUND");
                     }
                 }
-                LsaDeregisterLogonProcess(lsaHandle);
+                _ = LsaDeregisterLogonProcess(lsaHandle);
             }
         }
         catch (Exception ex)

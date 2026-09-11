@@ -29,7 +29,7 @@ public sealed class TotpTests
     [Fact]
     public void Compute_SecondsRemaining_CountsDownWithinPeriod()
     {
-        Totp.TryParse(Rfc6238Base32, out var secret, out _);
+        Assert.True(Totp.TryParse(Rfc6238Base32, out var secret, out _));
 
         // 10s dentro de uma janela de 30s => faltam 20s.
         var code = secret!.Compute(DateTimeOffset.FromUnixTimeSeconds(10));

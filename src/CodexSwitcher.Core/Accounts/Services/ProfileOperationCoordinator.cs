@@ -1,4 +1,4 @@
-﻿
+
 using CodexSwitcher.Core.Accounts.Formatting;
 using CodexSwitcher.Core.Accounts.Models;
 using CodexSwitcher.Core.Accounts.Services;
@@ -43,10 +43,15 @@ namespace CodexSwitcher.Core.Accounts.Services;
 /// </summary>
 public sealed class ProfileOperationCoordinator : IProfileOperationCoordinator
 {
-    private sealed class RefCountedSemaphore
+    private sealed class RefCountedSemaphore : IDisposable
     {
         public readonly SemaphoreSlim Semaphore = new(1, 1);
         public int RefCount = 1;
+
+        public void Dispose()
+        {
+            Semaphore.Dispose();
+        }
     }
 
     private readonly Dictionary<Guid, RefCountedSemaphore> _semaphores = new();

@@ -13,7 +13,7 @@ public interface IProviderProbeResponseMapper
     /// </summary>
     (bool Success, List<string>? Models, string? Error) MapModelsResponse(
         ProbeHttpResponse response,
-        string? pointer);
+        string? jsonPointer);
 
     /// <summary>
     /// Maps a JSON probe response into balance, usage, limit, and currency facts.

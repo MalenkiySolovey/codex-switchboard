@@ -98,7 +98,7 @@ public sealed class ResetCreditsTests : IDisposable
         var parsed = CodexUsageResponseParser.ParseResetCreditsDetail(doc.RootElement);
 
         Assert.NotNull(parsed);
-        Assert.Equal(DateTimeOffset.Parse("2026-09-22T12:00:00Z"), parsed.Credits![0].ExpiresAt);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-22T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture), parsed.Credits![0].ExpiresAt);
     }
 
     [Fact]

@@ -130,10 +130,10 @@ public sealed class TotpCredentialStore : ITotpCredentialStore
     }
 
     /// <inheritdoc/>
-    public bool TryComputeCode(Guid profileId, DateTimeOffset now, out TotpCode code, out string? error)
+    public bool TryComputeCode(Guid profileId, DateTimeOffset now, out TotpCode code, out string? errorMessage)
     {
         code = default;
-        error = null;
+        errorMessage = null;
 
         var path = CredentialPath(profileId);
 
@@ -141,7 +141,7 @@ public sealed class TotpCredentialStore : ITotpCredentialStore
         {
             if (!_fs.FileExists(path))
             {
-                error = "2FA não configurado para esta conta.";
+                errorMessage = "2FA não configurado para esta conta.";
                 return false;
             }
 
@@ -152,7 +152,7 @@ public sealed class TotpCredentialStore : ITotpCredentialStore
             }
             catch (Exception)
             {
-                error = "Falha ao ler a credencial 2FA do disco.";
+                errorMessage = "Falha ao ler a credencial 2FA do disco.";
                 return false;
             }
 
@@ -163,12 +163,12 @@ public sealed class TotpCredentialStore : ITotpCredentialStore
             }
             catch (SecretDecryptionException)
             {
-                error = "A chave de 2FA não pôde ser decifrada neste dispositivo.";
+                errorMessage = "A chave de 2FA não pôde ser decifrada neste dispositivo.";
                 return false;
             }
             catch (Exception)
             {
-                error = "Falha na decifragem da credencial 2FA.";
+                errorMessage = "Falha na decifragem da credencial 2FA.";
                 return false;
             }
 
@@ -188,13 +188,13 @@ public sealed class TotpCredentialStore : ITotpCredentialStore
 
             if (record is null || record.SchemaVersion != 1 || record.Kind != "profile-totp" || record.ProfileId != profileId)
             {
-                error = "Registro de credencial 2FA inválido ou corrompido.";
+                errorMessage = "Registro de credencial 2FA inválido ou corrompido.";
                 return false;
             }
 
             if (!TotpGenerator.TryParse(record.Provisioning, out var secret, out var parseError))
             {
-                error = parseError ?? "Chave de 2FA armazenada inválida.";
+                errorMessage = parseError ?? "Chave de 2FA armazenada inválida.";
                 return false;
             }
 

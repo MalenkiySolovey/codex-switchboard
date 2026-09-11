@@ -449,7 +449,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
         var targetModel = !string.IsNullOrWhiteSpace(item.SelectedModel)
             ? item.SelectedModel
-            : _modelCache.GetLatestModels(item.Profile.Id)?.FirstOrDefault()
+            : _modelCache.GetLatestModels(item.Profile.Id) is { Count: > 0 } cachedModels ? cachedModels[0] : null
               ?? item.Descriptor?.Codex.DefaultModel
               ?? "gpt-5.6-sol";
 

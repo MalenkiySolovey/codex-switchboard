@@ -277,7 +277,7 @@ public sealed class ProviderInspectionDecompositionTests
         {
             ResponseFactory = req =>
             {
-                if (req.RequestUri!.AbsolutePath.EndsWith("/models"))
+                if (req.RequestUri!.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {

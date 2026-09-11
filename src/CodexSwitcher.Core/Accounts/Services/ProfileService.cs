@@ -418,11 +418,10 @@ public sealed class ProfileService
         AuthJsonBase64 = Convert.ToBase64String(_vault.LoadBlob(profile.Id)),
     };
 
+    private static readonly JsonSerializerOptions s_transferJsonOptions = new() { WriteIndented = true };
+
     private static string SerializeTransfer(IReadOnlyList<TransferredAccount> accounts) =>
-        JsonSerializer.Serialize(new AccountTransferDocument { Accounts = accounts.ToList() }, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-        });
+        JsonSerializer.Serialize(new AccountTransferDocument { Accounts = accounts.ToList() }, s_transferJsonOptions);
 
     private static bool IsRecognizableAuthFile(AuthFileInfo? file) =>
         file is not null && (!string.IsNullOrWhiteSpace(file.AuthMode) || !string.IsNullOrWhiteSpace(file.IdToken));

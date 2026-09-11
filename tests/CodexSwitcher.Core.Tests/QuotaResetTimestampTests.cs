@@ -56,7 +56,7 @@ public sealed class QuotaResetTimestampTests
         var local = reset.ToLocalTime();
 
         var tooltipEn = UsageCountdownFormatter.FormatFullResetTooltip(reset, EnCulture, pt: false);
-        Assert.Contains(local.ToString("HH:mm:ss"), tooltipEn);
+        Assert.Contains(local.ToString("HH:mm:ss", EnCulture), tooltipEn);
         Assert.Contains("2026", tooltipEn);
         Assert.EndsWith("(local time)", tooltipEn);
     }
@@ -72,7 +72,7 @@ public sealed class QuotaResetTimestampTests
         Assert.StartsWith("Reinicia em 5h 30m (", pt);
 
         var tooltipPt = UsageCountdownFormatter.FormatFullResetTooltip(future, PtCulture, pt: true);
-        Assert.Contains(local.ToString("HH:mm:ss"), tooltipPt);
+        Assert.Contains(local.ToString("HH:mm:ss", PtCulture), tooltipPt);
         Assert.EndsWith("(horário local)", tooltipPt);
     }
 

@@ -7,6 +7,7 @@ namespace CodexSwitcher.Core.Tests;
 
 public sealed class ReleaseHardeningTests
 {
+    private static readonly JsonSerializerOptions s_testOptions = new() { WriteIndented = true };
     #region 1. Data Root Isolation & Precedence
 
     [Fact]
@@ -281,7 +282,7 @@ public sealed class ReleaseHardeningTests
         var legacyVault = Path.Combine(legacyRoot, "vault");
         Directory.CreateDirectory(legacyVault);
 
-        var originalProfilesJson = JsonSerializer.Serialize(profiles, new JsonSerializerOptions { WriteIndented = true });
+        var originalProfilesJson = JsonSerializer.Serialize(profiles, s_testOptions);
         var originalBlobBytes = Encoding.UTF8.GetBytes("DPAPI_ENCRYPTED_MOCK_CIPHERTEXT_BLOB_BYTE_STREAM");
 
         File.WriteAllText(Path.Combine(legacyRoot, "profiles.json"), originalProfilesJson);
@@ -723,7 +724,7 @@ public sealed class ReleaseHardeningTests
             var name = Path.GetFileName(file);
             foreach (var pattern in forbiddenPatterns)
             {
-                if (pattern.StartsWith("*."))
+                if (pattern.StartsWith("*.", StringComparison.Ordinal))
                 {
                     var ext = pattern.Substring(1);
                     if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
