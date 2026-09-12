@@ -10,7 +10,7 @@
 ![Интерфейс](https://img.shields.io/badge/интерфейс-WinUI%203%20Fluent-2E9BFF)
 ![Тесты](https://img.shields.io/badge/тесты-653%20пройдены-3DDC84)
 ![Архитектура](https://img.shields.io/badge/архитектура-x64-blue)
-![Релиз](https://img.shields.io/badge/релиз-v0.1.4-brightgreen)
+![Релиз](https://img.shields.io/badge/релиз-v0.2.0-brightgreen)
 
 ---
 
@@ -193,7 +193,7 @@ Codex Switchboard построен по модульной многослойн�
 
 Готовые исполняемые сборки для Windows x64 доступны в разделе [GitHub Releases](../../releases).
 
-1. Скачайте архив **`CodexSwitchboard-0.1.4-win-x64.zip`** из последнего релиза.
+1. Скачайте архив **`CodexSwitchboard-0.2.0-win-x64.zip`** из последнего релиза.
 2. Распакуйте архив в любую удобную папку.
 3. Запустите **`CodexSwitchboard.exe`**.
 
@@ -229,9 +229,9 @@ dotnet test CodexSwitcher.slnx -c Release --no-build --no-restore
 ### 3. Создание детерминированного установочного архива
 Запустите скрипт сборки, тестирования, санитарной очистки и упаковки:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.4"
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.2.0"
 ```
-Файлы сборки: `dist/CodexSwitchboard-0.1.4-win-x64.zip`, контрольная сумма `dist/SHA256SUMS.txt` и манифест содержимого `dist/manifest-sha256.txt`.
+Файлы сборки: `dist/CodexSwitchboard-0.2.0-win-x64.zip`, контрольная сумма `dist/SHA256SUMS.txt` и манифест содержимого `dist/manifest-sha256.txt`.
 
 ---
 

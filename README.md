@@ -10,7 +10,7 @@
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
 ![Tests](https://img.shields.io/badge/tests-653%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
-![Release](https://img.shields.io/badge/release-v0.1.4-brightgreen)
+![Release](https://img.shields.io/badge/release-v0.2.0-brightgreen)
 
 ---
 
@@ -192,7 +192,7 @@ All configuration, credentials, and cache files reside strictly on your local co
 
 Pre-built Windows x64 binaries are available under [GitHub Releases](../../releases).
 
-1. Download **`CodexSwitchboard-0.1.4-win-x64.zip`** from the latest release.
+1. Download **`CodexSwitchboard-0.2.0-win-x64.zip`** from the latest release.
 2. Extract the archive to any folder.
 3. Run **`CodexSwitchboard.exe`**.
 
@@ -228,9 +228,9 @@ dotnet test CodexSwitcher.slnx -c Release --no-build --no-restore
 ### 3. Package Local Release Candidate
 Execute the packaging script to build, test, sanitize, and produce a deterministic release archive:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.4"
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.2.0"
 ```
-Output artifact: `dist/CodexSwitchboard-0.1.4-win-x64.zip`, accompanying `dist/SHA256SUMS.txt`, and payload manifest `dist/manifest-sha256.txt`.
+Output artifact: `dist/CodexSwitchboard-0.2.0-win-x64.zip`, accompanying `dist/SHA256SUMS.txt`, and payload manifest `dist/manifest-sha256.txt`.
 
 ---
 
