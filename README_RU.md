@@ -8,7 +8,7 @@
 ![Платформа](https://img.shields.io/badge/платформа-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![Интерфейс](https://img.shields.io/badge/интерфейс-WinUI%203%20Fluent-2E9BFF)
-![Тесты](https://img.shields.io/badge/тесты-596%20пройдены-3DDC84)
+![Тесты](https://img.shields.io/badge/тесты-653%20пройдены-3DDC84)
 ![Архитектура](https://img.shields.io/badge/архитектура-x64-blue)
 ![Релиз](https://img.shields.io/badge/релиз-v0.1.4-brightgreen)
 
@@ -202,30 +202,36 @@ Codex Switchboard построен по модульной многослойн�
 ## Сборка из исходного кода
 
 ### Предварительные требования
-Установите [.NET 10 SDK (x64)](https://dotnet.microsoft.com/download/dotnet/10.0).
+- [.NET 10 SDK (x64)](https://dotnet.microsoft.com/download/dotnet/10.0), зафиксированный через `global.json` (`10.0.102` с `latestPatch`).
 
-### 1. Клонирование и сборка
+### 1. Проверка качества (одна команда разработчика)
+Запуск всех пороговых шлюзов качества (восстановление по lock-файлам, проверка форматирования, аудит уязвимостей зависимостей, Release-сборка с предупреждениями как ошибками и полный набор из 653+ тестов):
+```powershell
+powershell -ExecutionPolicy Bypass -File eng/quality/verify.ps1
+```
+
+### 2. Клонирование, восстановление по lock-файлам и сборка
 ```powershell
 # Клонирование репозитория
 git clone https://github.com/MalenkiySolovey/codex-switchboard.git
 cd codex-switchboard
 
-# Восстановление зависимостей NuGet
-dotnet restore CodexSwitcher.slnx
+# Восстановление зависимостей NuGet в заблокированном режиме
+dotnet restore CodexSwitcher.slnx --locked-mode
 
 # Сборка проекта в конфигурации Release
-dotnet build CodexSwitcher.slnx -c Release
+dotnet build CodexSwitcher.slnx -c Release --no-restore
 
-# Запуск полного набора офлайн-тестов (596 тестов)
-dotnet test CodexSwitcher.slnx -c Release --no-build
+# Запуск полного набора офлайн-тестов (653 теста)
+dotnet test CodexSwitcher.slnx -c Release --no-build --no-restore
 ```
 
-### 2. Создание локального установочного архива
-Запустите скрипт сборки и упаковки:
+### 3. Создание детерминированного установочного архива
+Запустите скрипт сборки, тестирования, санитарной очистки и упаковки:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "0.1.4"
 ```
-Файлы сборки: `dist/CodexSwitchboard-0.1.4-win-x64.zip` и контрольная сумма `dist/SHA256SUMS.txt`.
+Файлы сборки: `dist/CodexSwitchboard-0.1.4-win-x64.zip`, контрольная сумма `dist/SHA256SUMS.txt` и манифест содержимого `dist/manifest-sha256.txt`.
 
 ---
 

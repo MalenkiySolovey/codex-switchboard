@@ -1,5 +1,6 @@
 # ==============================================================================
 # Codex Switchboard Release Build & Packaging Script
+# ARCH-R6 Deterministic Packaging & Quality Gates
 # ==============================================================================
 [CmdletBinding()]
 param(
@@ -16,6 +17,8 @@ $StagingDir = Join-Path $DistDir "staging"
 $ZipName = "CodexSwitchboard-$Version-win-x64.zip"
 $ZipPath = Join-Path $DistDir $ZipName
 $SumsPath = Join-Path $DistDir "SHA256SUMS.txt"
+$ManifestPath = Join-Path $DistDir "manifest-sha256.txt"
+$SanitizerScript = Join-Path $RepoRoot "eng\quality\Invoke-ReleaseSanitizer.ps1"
 
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host " Building Codex Switchboard v$Version (win-x64)" -ForegroundColor Cyan
@@ -37,28 +40,31 @@ if ($PublicRelease) {
 
 # 1. Clean previous dist
 if (Test-Path $DistDir) {
-    Write-Host "[1/7] Cleaning dist directory..." -ForegroundColor Yellow
+    Write-Host "[1/8] Cleaning dist directory..." -ForegroundColor Yellow
     Remove-Item -Path $DistDir -Recurse -Force
 }
 New-Item -Path $DistDir -ItemType Directory -Force | Out-Null
 New-Item -Path $StagingDir -ItemType Directory -Force | Out-Null
 
-# 2. Build solution
-Write-Host "[2/7] Building CodexSwitcher.slnx in Release mode..." -ForegroundColor Yellow
-dotnet build "$RepoRoot\CodexSwitcher.slnx" -c Release
+# 2. Restore and build solution
+Write-Host "[2/8] Restoring and building CodexSwitcher.slnx in Release mode..." -ForegroundColor Yellow
+dotnet restore "$RepoRoot\CodexSwitcher.slnx" --locked-mode
+if ($LASTEXITCODE -ne 0) { throw "Locked restore failed with exit code $LASTEXITCODE" }
+
+dotnet build "$RepoRoot\CodexSwitcher.slnx" -c Release --no-restore
 if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE" }
 
 # 3. Run unit tests
 if (-not $SkipTests) {
-    Write-Host "[3/7] Executing offline test suite..." -ForegroundColor Yellow
-    dotnet test "$RepoRoot\CodexSwitcher.slnx" -c Release --no-build
+    Write-Host "[3/8] Executing offline test suite..." -ForegroundColor Yellow
+    dotnet test "$RepoRoot\CodexSwitcher.slnx" -c Release --no-build --no-restore
     if ($LASTEXITCODE -ne 0) { throw "Tests failed with exit code $LASTEXITCODE" }
 } else {
-    Write-Host "[3/7] Skipping tests (-SkipTests specified)..." -ForegroundColor DarkGray
+    Write-Host "[3/8] Skipping tests (-SkipTests specified)..." -ForegroundColor DarkGray
 }
 
 # 4. Publish application
-Write-Host "[4/7] Publishing unpackaged application (win-x64)..." -ForegroundColor Yellow
+Write-Host "[4/8] Publishing unpackaged application (win-x64)..." -ForegroundColor Yellow
 $publishArgs = @(
     "publish",
     "$RepoRoot\src\CodexSwitcher.App\CodexSwitcher.App.csproj",
@@ -66,6 +72,7 @@ $publishArgs = @(
     "-r", "win-x64",
     "--self-contained", "true",
     "-p:PublishSingleFile=false",
+    "--no-restore",
     "-o", $StagingDir
 )
 dotnet @publishArgs
@@ -79,6 +86,7 @@ $brokerPublishArgs = @(
     "-r", "win-x64",
     "--self-contained", "true",
     "-p:PublishSingleFile=true",
+    "--no-restore",
     "-o", $StagingDir
 )
 dotnet @brokerPublishArgs
@@ -96,7 +104,7 @@ if (-not (Test-Path $expectedBrokerExe)) {
 }
 
 # 5. Bundle legal & documentation files
-Write-Host "[5/7] Bundling documentation and licensing notices..." -ForegroundColor Yellow
+Write-Host "[5/8] Bundling documentation and licensing notices..." -ForegroundColor Yellow
 $docFiles = @("LICENSE", "README.md", "README_RU.md", "THIRD_PARTY_NOTICES.md", "SECURITY.md", "PRIVACY.md", "CHANGELOG.md")
 foreach ($doc in $docFiles) {
     $src = Join-Path $RepoRoot $doc
@@ -107,54 +115,87 @@ foreach ($doc in $docFiles) {
     }
 }
 
-# 6. Scan for forbidden artifacts and secret leakage
-Write-Host "[6/7] Running release sanitization scan..." -ForegroundColor Yellow
-$forbiddenPatterns = @(
-    "codex.exe",
-    "auth.json",
-    "*.env",
-    "id_rsa*",
-    "id_ed25519*",
-    "audit.log",
-    "usage-cache.json",
-    "profiles.json",
-    "*totp*.bin",
-    "totp"
-)
+# 6. Scan staging directory for forbidden artifacts and secret leakage
+Write-Host "[6/8] Running release sanitization scan on staging directory..." -ForegroundColor Yellow
+& $SanitizerScript -TargetPath $StagingDir
+if ($LASTEXITCODE -ne 0) { throw "Staging directory sanitization scan failed." }
 
-$violations = @()
-$stagedFiles = Get-ChildItem -Path $StagingDir -Recurse -File
+# 7. Package deterministic ZIP archive
+Write-Host "[7/8] Creating deterministic release archive: $ZipName..." -ForegroundColor Yellow
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-foreach ($file in $stagedFiles) {
-    foreach ($pat in $forbiddenPatterns) {
-        if ($file.Name -like $pat) {
-            $violations += "Forbidden file pattern match [$pat]: $($file.FullName)"
-        }
+# Determine entry timestamp: repository commit timestamp or fixed epoch
+$commitEpoch = $null
+try {
+    $gitTimestamp = & git -C $RepoRoot log -1 --format=%cI 2>$null
+    if ($gitTimestamp) {
+        $commitEpoch = [DateTimeOffset]::Parse($gitTimestamp.Trim())
     }
-
-    # Check for private username leak in text / markdown files
-    if ($file.Extension -in @(".txt", ".md", ".json", ".xml", ".config", ".deps", ".runtimeconfig")) {
-        $text = [System.IO.File]::ReadAllText($file.FullName)
-        if ($text -match "Malenkiy" + "_Solovey") {
-            $violations += "Developer username leak detected in: $($file.FullName)"
-        }
-    }
+} catch {}
+if (-not $commitEpoch) {
+    $commitEpoch = [DateTimeOffset]::new(2026, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
 }
 
-if ($violations.Count -gt 0) {
-    Write-Host "SANITY SCAN FAILED: Forbidden items found in release staging!" -ForegroundColor Red
-    $violations | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }
-    throw "Release packaging aborted due to sanitization scan violations."
+if (Test-Path $ZipPath) {
+    Remove-Item -Path $ZipPath -Force
 }
-Write-Host "Sanitization scan passed (0 forbidden artifacts, 0 secret leaks)." -ForegroundColor Green
 
-# 7. Package ZIP and compute SHA-256
-Write-Host "[7/7] Creating release archive: $ZipName..." -ForegroundColor Yellow
-Compress-Archive -Path "$StagingDir\*" -DestinationPath $ZipPath -Force
+# Deterministically collect and sort all staged files by relative path (ordinal)
+$stagedFiles = Get-ChildItem -Path $StagingDir -Recurse -File | Sort-Object {
+    $_.FullName.Substring($StagingDir.Length).TrimStart("\", "/").Replace("\", "/")
+}
 
+$zipFileStream = [System.IO.File]::Create($ZipPath)
+try {
+    $archive = [System.IO.Compression.ZipArchive]::new($zipFileStream, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in $stagedFiles) {
+            $relPath = $file.FullName.Substring($StagingDir.Length).TrimStart("\", "/").Replace("\", "/")
+            $entry = $archive.CreateEntry($relPath, [System.IO.Compression.CompressionLevel]::Optimal)
+            $entry.LastWriteTime = $commitEpoch
+
+            $entryStream = $entry.Open()
+            try {
+                $fileStream = [System.IO.File]::OpenRead($file.FullName)
+                try {
+                    $fileStream.CopyTo($entryStream)
+                }
+                finally {
+                    $fileStream.Dispose()
+                }
+            }
+            finally {
+                $entryStream.Dispose()
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+finally {
+    $zipFileStream.Dispose()
+}
+
+# 8. Sanitize packaged ZIP artifact (Order: publish -> package -> sanitize -> hash)
+Write-Host "[8/8] Running release sanitization scan on packaged ZIP artifact..." -ForegroundColor Yellow
+& $SanitizerScript -TargetPath $ZipPath
+if ($LASTEXITCODE -ne 0) { throw "Packaged artifact sanitization scan failed." }
+
+# Compute SHA-256 and write checksum file
 $hash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
 $sumLine = "$hash  $ZipName"
 [System.IO.File]::WriteAllText($SumsPath, "$sumLine`n", [System.Text.Encoding]::UTF8)
+
+# Generate payload manifest (relative path + SHA256 for each staged file)
+$manifestLines = @()
+foreach ($file in $stagedFiles) {
+    $relPath = $file.FullName.Substring($StagingDir.Length).TrimStart("\", "/").Replace("\", "/")
+    $fileHash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash
+    $manifestLines += "$fileHash  $relPath"
+}
+[System.IO.File]::WriteAllLines($ManifestPath, $manifestLines, [System.Text.Encoding]::UTF8)
 
 # Clean temporary staging directory
 Remove-Item -Path $StagingDir -Recurse -Force
@@ -163,9 +204,10 @@ $zipItem = Get-Item $ZipPath
 $zipSizeMb = [math]::Round($zipItem.Length / 1MB, 2)
 
 Write-Host "==================================================" -ForegroundColor Green
-Write-Host " Release Package Created Successfully" -ForegroundColor Green
+Write-Host " Release Package Created Successfully (Deterministic)" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host "Archive:  $ZipPath"
 Write-Host "Size:     $zipSizeMb MB ($($zipItem.Length) bytes)"
 Write-Host "SHA-256:  $hash"
 Write-Host "Checksum: $SumsPath"
+Write-Host "Manifest: $ManifestPath"
