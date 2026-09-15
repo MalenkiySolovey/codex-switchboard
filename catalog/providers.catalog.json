@@ -1,8 +1,8 @@
 {
   "$schema": "./providers.catalog.schema.json",
   "schemaVersion": 1,
-  "catalogVersion": 1,
-  "updatedAt": "2026-09-11T12:00:00Z",
+  "catalogVersion": 2,
+  "updatedAt": "2026-09-15T17:49:39Z",
   "minAppVersion": "0.1.0",
   "providers": [
     {
@@ -200,6 +200,123 @@
       ],
       "metadata": {
         "verifiedAt": "2026-09-11T09:30:00Z",
+        "deprecated": false
+      }
+    },
+    {
+      "id": "hejuapi",
+      "displayName": "HeJu API",
+      "description": "OpenAI-compatible JuAPI/New API deployment with Global and Hong Kong routes.",
+      "aliases": [
+        "hejuapi",
+        "hejuapi.com",
+        "www.hejuapi.com",
+        "hk.hejuapi.com",
+        "JuAPI",
+        "合聚API"
+      ],
+      "match": {
+        "exactHosts": [
+          "hejuapi.com",
+          "www.hejuapi.com",
+          "hk.hejuapi.com"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer"
+      },
+      "routes": [
+        {
+          "id": "global",
+          "displayName": "Global",
+          "region": "Global",
+          "baseUrl": "https://www.hejuapi.com/v1",
+          "isDefault": true,
+          "isReserve": false
+        },
+        {
+          "id": "hong-kong",
+          "displayName": "Hong Kong",
+          "region": "Hong Kong",
+          "baseUrl": "https://hk.hejuapi.com/v1",
+          "isDefault": false,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "www.hejuapi.com",
+        "hk.hejuapi.com"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "supported",
+          "strategy": "json-http",
+          "request": {
+            "method": "GET",
+            "path": "/dashboard/billing/usage",
+            "auth": "bearer"
+          },
+          "response": {
+            "used": {
+              "pointer": "/total_usage",
+              "type": "decimal",
+              "transform": "centsToUnits"
+            }
+          }
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "official-source",
+          "source": "https://github.com/QuantumNous/new-api/blob/bdef117505247769268b209665fb3ad7554c3da7/common/endpoint_defaults.go",
+          "verifiedAt": "2026-09-15T17:49:39Z",
+          "note": "Upstream New API defines POST /v1/responses; no billable HeJu inference probe was performed"
+        },
+        {
+          "capability": "models",
+          "sourceType": "observed-readonly",
+          "source": "HeJu live read-only qualification through the encrypted application key boundary",
+          "verifiedAt": "2026-09-15T17:49:39Z",
+          "note": "GET /v1/models returned the OpenAI-compatible data array on both Global and Hong Kong routes"
+        },
+        {
+          "capability": "usage",
+          "sourceType": "observed-readonly",
+          "source": "HeJu live read-only qualification and QuantumNous/new-api billing.go at bdef117505247769268b209665fb3ad7554c3da7",
+          "verifiedAt": "2026-09-15T17:49:39Z",
+          "note": "Ordinary bearer key accepted on both routes; total_usage uses the upstream 1/100 display-unit representation"
+        },
+        {
+          "capability": "balance",
+          "sourceType": "observed-readonly",
+          "source": "HeJu live read-only qualification through the encrypted application key boundary",
+          "verifiedAt": "2026-09-15T17:49:39Z",
+          "note": "Subscription and usage endpoints are reachable, but truthful remaining balance requires two requests and unproven display-unit semantics; status remains unknown"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-15T17:49:39Z",
         "deprecated": false
       }
     }

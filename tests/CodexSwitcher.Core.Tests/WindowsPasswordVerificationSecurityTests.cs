@@ -1,10 +1,6 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Security;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

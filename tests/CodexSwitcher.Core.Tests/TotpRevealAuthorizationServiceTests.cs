@@ -1,17 +1,13 @@
 using System.Reflection;
 using System.Text.Json;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Security;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
 
 public sealed class TotpRevealAuthorizationServiceTests
 {
+    private static readonly JsonSerializerOptions TestJsonOptions = new() { WriteIndented = true };
     private sealed class FakeTimeProvider : TimeProvider
     {
         private long _timestamp;
@@ -102,7 +98,7 @@ public sealed class TotpRevealAuthorizationServiceTests
     {
         // Missing new properties in legacy json
         var legacyJson = "{}";
-        var settings = JsonSerializer.Deserialize<AppSettings>(legacyJson, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        var settings = JsonSerializer.Deserialize<AppSettings>(legacyJson, TestJsonOptions);
 
         Assert.NotNull(settings);
         Assert.True(settings.RequireWindowsVerificationForTotpReveal);

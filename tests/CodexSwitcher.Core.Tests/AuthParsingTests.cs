@@ -1,4 +1,3 @@
-using CodexSwitcher.Core.Security;
 using CodexSwitcher.Core.Tests.TestSupport;
 
 namespace CodexSwitcher.Core.Tests;

@@ -1,6 +1,3 @@
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
 
 namespace CodexSwitcher.Core.Tests;

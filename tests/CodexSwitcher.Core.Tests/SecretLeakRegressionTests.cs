@@ -1,12 +1,5 @@
 using System.Diagnostics;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
@@ -16,8 +9,6 @@ public sealed class SecretLeakRegressionTests
     private const string SyntheticSecretMarker = "sk-SYNTHETIC_SWITCHBOARD_DO_NOT_LEAK_123456";
     private readonly PhysicalFileSystem _fs = new();
     private readonly DpapiSecretProtector _protector = new();
-
-    
 
     [Fact]
     public async Task FullApiSwitchLifecycle_LeavesZeroPlaintextSecretLeaks()

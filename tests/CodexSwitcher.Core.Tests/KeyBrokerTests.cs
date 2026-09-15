@@ -1,10 +1,5 @@
 using System.Diagnostics;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
@@ -13,8 +8,6 @@ public sealed class KeyBrokerTests
 {
     private readonly PhysicalFileSystem _fs = new();
     private readonly DpapiSecretProtector _protector = new();
-
-    
 
     [Fact]
     public void KeyBroker_WithValidKey_OutputsRawTokenAndReturnsZero()

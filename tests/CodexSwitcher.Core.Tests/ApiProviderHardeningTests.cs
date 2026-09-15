@@ -1,13 +1,6 @@
 using System.Text.Json;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Catalog;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
+using CodexSwitcher.Infra.Providers.Inspection;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
@@ -45,7 +38,7 @@ public sealed class ApiProviderHardeningTests
             catalogSig,
             temp.Combine("none.prev.json"),
             temp.Combine("none.local.json"),
-            "0.1.4");
+            "0.2.0");
 
         var result = loader.LoadCatalog();
         Assert.NotNull(result.Catalog);
@@ -171,7 +164,7 @@ public sealed class ApiProviderHardeningTests
             temp.Combine("nonexistent.sig"),
             temp.Combine("nonexistent.prev.json"),
             localFile,
-            "0.1.4");
+            "0.2.0");
 
         var result = loader.LoadCatalog();
         Assert.NotNull(result.Catalog);

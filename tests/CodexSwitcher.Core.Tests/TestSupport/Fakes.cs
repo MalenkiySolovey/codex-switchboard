@@ -1,5 +1,3 @@
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
 
 namespace CodexSwitcher.Core.Tests.TestSupport;
 
@@ -109,15 +107,25 @@ public sealed class FaultInjectingFileSystem : IFileSystem
         _inner.WriteAllTextAtomic(path, contents);
     }
 
+    public Func<string, byte[]?>? OnReadAllBytes { get; set; }
+
     public bool FileExists(string path) => _inner.FileExists(path);
     public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
     public void CreateDirectory(string path) => _inner.CreateDirectory(path);
-    public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
+    public byte[] ReadAllBytes(string path)
+    {
+        if (OnReadAllBytes is not null)
+        {
+            var custom = OnReadAllBytes(path);
+            if (custom is not null) return custom;
+        }
+        return _inner.ReadAllBytes(path);
+    }
     public string ReadAllText(string path) => _inner.ReadAllText(path);
-    public void Copy(string s, string d, bool o) => _inner.Copy(s, d, o);
-    public void Move(string s, string d, bool o) => _inner.Move(s, d, o);
+    public void Copy(string sourcePath, string destPath, bool overwrite) => _inner.Copy(sourcePath, destPath, overwrite);
+    public void Move(string sourcePath, string destPath, bool overwrite) => _inner.Move(sourcePath, destPath, overwrite);
     public void Delete(string path) => _inner.Delete(path);
-    public IReadOnlyList<string> EnumerateFiles(string dir, string pattern) => _inner.EnumerateFiles(dir, pattern);
+    public IReadOnlyList<string> EnumerateFiles(string directory, string searchPattern) => _inner.EnumerateFiles(directory, searchPattern);
 
     private static bool SamePath(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);

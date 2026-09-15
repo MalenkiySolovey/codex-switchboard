@@ -1,11 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
 
 namespace CodexSwitcher.Core.Tests;
 

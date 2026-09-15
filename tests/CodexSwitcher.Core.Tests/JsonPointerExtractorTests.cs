@@ -1,5 +1,4 @@
 using System.Text.Json;
-using CodexSwitcher.Core.Catalog;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

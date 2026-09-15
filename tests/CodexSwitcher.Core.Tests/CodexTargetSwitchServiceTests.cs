@@ -1,12 +1,5 @@
 using System.Security.Cryptography;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
-using CodexSwitcher.Infra.Security;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
@@ -15,8 +8,6 @@ public sealed class CodexTargetSwitchServiceTests
 {
     private readonly PhysicalFileSystem _fs = new();
     private readonly DpapiSecretProtector _protector = new();
-
-    
 
     [Fact]
     public async Task SwitchToApiProvider_LeavesAuthJsonBytesUnchanged()

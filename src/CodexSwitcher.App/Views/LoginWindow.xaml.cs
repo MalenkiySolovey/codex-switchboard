@@ -1,7 +1,55 @@
+using CodexSwitcher.Core.Accounts.Contracts;
+using CodexSwitcher.Core.Accounts.Formatting;
+using CodexSwitcher.Core.Accounts.Models;
+using CodexSwitcher.Core.Accounts.Services;
+using CodexSwitcher.Core.Common.Dispatcher;
+using CodexSwitcher.Core.Common.Enums;
+using CodexSwitcher.Core.Common.Environment;
+using CodexSwitcher.Core.Common.Errors;
+using CodexSwitcher.Core.Common.Lifecycle;
+using CodexSwitcher.Core.Common.Logging;
+using CodexSwitcher.Core.Common.Storage;
+using CodexSwitcher.Core.Common.Time;
+using CodexSwitcher.Core.Providers.Catalog;
+using CodexSwitcher.Core.Providers.Contracts;
+using CodexSwitcher.Core.Providers.Models;
+using CodexSwitcher.Core.Providers.Services;
+using CodexSwitcher.Core.Routing.Models;
+using CodexSwitcher.Core.Routing.Services;
+using CodexSwitcher.Core.Security.Secrets;
+using CodexSwitcher.Core.Security.Totp;
+using CodexSwitcher.Core.Security.Verification;
+using CodexSwitcher.Core.Settings.Contracts;
+using CodexSwitcher.Core.Settings.Models;
+using CodexSwitcher.Core.Threads.Contracts;
+using CodexSwitcher.Core.Threads.Models;
+using CodexSwitcher.Core.Transfer.Contracts;
+using CodexSwitcher.Core.Transfer.Models;
+using CodexSwitcher.Core.Transfer.Services;
+using CodexSwitcher.Core.Usage.Contracts;
+using CodexSwitcher.Core.Usage.Formatting;
+using CodexSwitcher.Core.Usage.Models;
+using CodexSwitcher.Core.Usage.Services;
+using CodexSwitcher.Infra.Accounts.Storage;
+using CodexSwitcher.Infra.Codex.Routing;
+using CodexSwitcher.Infra.Codex.Runtime;
+using CodexSwitcher.Infra.Codex.Threads;
+using CodexSwitcher.Infra.Codex.Usage;
+using CodexSwitcher.Infra.Common.Logging;
+using CodexSwitcher.Infra.Common.Paths;
+using CodexSwitcher.Infra.Common.Storage;
+using CodexSwitcher.Infra.Common.Time;
+using CodexSwitcher.Infra.Providers.Inspection;
+using CodexSwitcher.Infra.Providers.Secrets;
+using CodexSwitcher.Infra.Providers.Storage;
+using CodexSwitcher.Infra.Scheduling;
+using CodexSwitcher.Infra.Security.Dpapi;
+using CodexSwitcher.Infra.Security.Hardening;
+using CodexSwitcher.Infra.Security.Totp;
+using CodexSwitcher.Infra.Settings;
+using CodexSwitcher.Core.Routing.Contracts;
 using CodexSwitcher.App.Localization;
 using CodexSwitcher.App.Services;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Infra;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,6 +64,7 @@ namespace CodexSwitcher.App.Views;
 /// Ao fim, captura o auth.json gerado, descarta o WebView2 e apaga as pastas temporárias.
 /// Ver BUSINESS_RULES.md §5 e a memória [[login-clean-guest-session]].
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "WinUI Window lifecycle manages disposal in OnClosed.")]
 public sealed partial class LoginWindow : Window
 {
     private readonly ICodexCli _codex;
@@ -199,10 +248,11 @@ public sealed partial class LoginWindow : Window
     {
         _completed = true; // impede atualizações de UI após o fechamento (ex.: ShowFailure tardio).
         _cts.Cancel();
+        _cts.Dispose();
         _tcs.TrySetResult(null);
         // Encerra a sessão do app-server (cancela o login e mata o processo).
         if (_session is not null)
-            _ = _session.DisposeAsync();
+            _ = _session.DisposeAsync().AsTask();
         // Descartar handles do WebView2 antes de apagar (ponto 8).
         try { Web.Close(); } catch (Exception) { /* já fechando */ }
         // O popup de 2FA é só ocultado ao perder foco (não recriado), então o timer sobreviveria à
@@ -219,7 +269,7 @@ public sealed partial class LoginWindow : Window
         {
             for (var attempt = 0; attempt < 8; attempt++)
             {
-                if (Infra.Io.TempCleanup.TryForceDelete(dir)) break;
+                if (CodexSwitcher.Infra.Common.Storage.TempCleanup.TryForceDelete(dir)) break;
                 await Task.Delay(200);
             }
         }

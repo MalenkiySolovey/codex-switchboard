@@ -1,0 +1,242 @@
+using CodexSwitcher.Core.Accounts.Formatting;
+using CodexSwitcher.Core.Accounts.Models;
+using CodexSwitcher.Core.Common.Dispatcher;
+using CodexSwitcher.Core.Common.Enums;
+using CodexSwitcher.Core.Common.Environment;
+using CodexSwitcher.Core.Common.Errors;
+using CodexSwitcher.Core.Common.Lifecycle;
+using CodexSwitcher.Core.Common.Logging;
+using CodexSwitcher.Core.Common.Storage;
+using CodexSwitcher.Core.Common.Time;
+using CodexSwitcher.Core.Providers.Catalog;
+using CodexSwitcher.Core.Providers.Models;
+using CodexSwitcher.Core.Providers.Services;
+using CodexSwitcher.Core.Routing.Contracts;
+using CodexSwitcher.Core.Routing.Models;
+using CodexSwitcher.Core.Routing.Services;
+using CodexSwitcher.Core.Security.Secrets;
+using CodexSwitcher.Core.Security.Totp;
+using CodexSwitcher.Core.Security.Verification;
+using CodexSwitcher.Core.Settings.Contracts;
+using CodexSwitcher.Core.Settings.Models;
+using CodexSwitcher.Core.Threads.Contracts;
+using CodexSwitcher.Core.Threads.Models;
+using CodexSwitcher.Core.Transfer.Contracts;
+using CodexSwitcher.Core.Transfer.Models;
+using CodexSwitcher.Core.Transfer.Services;
+using CodexSwitcher.Core.Usage.Contracts;
+using CodexSwitcher.Core.Usage.Formatting;
+using CodexSwitcher.Core.Usage.Models;
+using CodexSwitcher.Core.Usage.Services;
+using CodexSwitcher.Infra.Accounts.Storage;
+using CodexSwitcher.Infra.Codex.Routing;
+using CodexSwitcher.Infra.Codex.Runtime;
+using CodexSwitcher.Infra.Codex.Threads;
+using CodexSwitcher.Infra.Codex.Usage;
+using CodexSwitcher.Infra.Common.Logging;
+using CodexSwitcher.Infra.Common.Paths;
+using CodexSwitcher.Infra.Common.Storage;
+using CodexSwitcher.Infra.Common.Time;
+using CodexSwitcher.Infra.Providers.Inspection;
+using CodexSwitcher.Infra.Providers.Secrets;
+using CodexSwitcher.Infra.Providers.Storage;
+using CodexSwitcher.Infra.Scheduling;
+using CodexSwitcher.Infra.Security.Dpapi;
+using CodexSwitcher.Infra.Security.Hardening;
+using CodexSwitcher.Infra.Security.Totp;
+using CodexSwitcher.Infra.Settings;
+using CodexSwitcher.Core.Providers.Contracts;
+using CodexSwitcher.Core.Accounts.Contracts;
+using CodexSwitcher.Core.Accounts.Services;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace CodexSwitcher.Infra.Providers.Secrets;
+
+/// <summary>
+/// Secure storage for API provider keys, encrypted at rest via DPAPI CurrentUser.
+/// Each key belongs strictly to a profile ID and is stored in an isolated binary file.
+/// Plaintext keys are never stored in profiles.json, settings.json, or audit logs.
+/// </summary>
+public sealed class ApiKeySecretStore : IApiKeySecretStore
+{
+    private readonly ISecretProtector _protector;
+    private readonly IFileSystem _fs;
+    private readonly string _apiKeysDir;
+    private readonly string? _legacyKeysDir;
+    private readonly IProfileOperationCoordinator _coordinator;
+
+    public ApiKeySecretStore(
+        ISecretProtector protector,
+        IFileSystem fs,
+        string apiKeysDir,
+        IProfileOperationCoordinator? coordinator = null,
+        string? legacyKeysDir = null)
+    {
+        _protector = protector ?? throw new ArgumentNullException(nameof(protector));
+        _fs = fs ?? throw new ArgumentNullException(nameof(fs));
+        _apiKeysDir = apiKeysDir ?? throw new ArgumentNullException(nameof(apiKeysDir));
+        _coordinator = coordinator ?? new ProfileOperationCoordinator();
+        _legacyKeysDir = legacyKeysDir ?? (Path.GetFileName(apiKeysDir) == "api-keys"
+            ? Path.Combine(Path.GetDirectoryName(apiKeysDir) ?? "", "keys")
+            : null);
+    }
+
+    private void EnsureMigrated(Guid profileId)
+    {
+        if (string.IsNullOrEmpty(_legacyKeysDir)) return;
+        var canonical = KeyPath(profileId);
+        if (_fs.FileExists(canonical)) return;
+
+        var legacy = Path.Combine(_legacyKeysDir, $"{profileId:N}.bin");
+        if (_fs.FileExists(legacy))
+        {
+            var dir = Path.GetDirectoryName(canonical);
+            if (!string.IsNullOrEmpty(dir))
+                _fs.CreateDirectory(dir);
+            try
+            {
+                _fs.Move(legacy, canonical, overwrite: false);
+            }
+            catch
+            {
+                // Silently ignore if move fails
+            }
+        }
+    }
+
+    /// <summary>Resolves the file path of the encrypted secret blob for a given profile.</summary>
+    public string KeyPath(Guid profileId) => Path.Combine(_apiKeysDir, $"{profileId:N}.bin");
+
+    /// <inheritdoc/>
+    public bool HasApiKey(Guid profileId)
+    {
+        EnsureMigrated(profileId);
+        return _fs.FileExists(KeyPath(profileId));
+    }
+
+    /// <inheritdoc/>
+    public void SaveApiKey(Guid profileId, string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new ArgumentException("API key cannot be empty or whitespace.", nameof(apiKey));
+
+        var path = KeyPath(profileId);
+
+        using (_coordinator.Lock(profileId))
+        {
+            var record = new ApiKeyRecord
+            {
+                SchemaVersion = 1,
+                Kind = "api-key",
+                ProfileId = profileId,
+                ApiKey = apiKey.Trim(),
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+
+            var plaintextBytes = JsonSerializer.SerializeToUtf8Bytes(record);
+            try
+            {
+                var cipher = _protector.Protect(plaintextBytes);
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir))
+                    _fs.CreateDirectory(dir);
+
+                _fs.WriteAllBytesAtomic(path, cipher);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(plaintextBytes);
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public string? GetApiKey(Guid profileId)
+    {
+        EnsureMigrated(profileId);
+        var path = KeyPath(profileId);
+
+        using (_coordinator.Lock(profileId))
+        {
+            if (!_fs.FileExists(path))
+                return null;
+
+            byte[] cipher;
+            try
+            {
+                cipher = _fs.ReadAllBytes(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+
+            byte[] plaintext;
+            try
+            {
+                plaintext = _protector.Unprotect(cipher);
+            }
+            catch
+            {
+                return null;
+            }
+
+            try
+            {
+                var record = JsonSerializer.Deserialize<ApiKeyRecord>(plaintext);
+                return record?.ApiKey;
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(plaintext);
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool DeleteApiKey(Guid profileId)
+    {
+        EnsureMigrated(profileId);
+        var path = KeyPath(profileId);
+        using (_coordinator.Lock(profileId))
+        {
+            if (!_fs.FileExists(path))
+                return false;
+
+            try
+            {
+                _fs.Delete(path);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    private sealed class ApiKeyRecord
+    {
+        [JsonPropertyName("schemaVersion")]
+        public int SchemaVersion { get; set; } = 1;
+
+        [JsonPropertyName("kind")]
+        public string Kind { get; set; } = "api-key";
+
+        [JsonPropertyName("profileId")]
+        public Guid ProfileId { get; set; }
+
+        [JsonPropertyName("apiKey")]
+        public string ApiKey { get; set; } = string.Empty;
+
+        [JsonPropertyName("createdAt")]
+        public DateTimeOffset CreatedAt { get; set; }
+    }
+}

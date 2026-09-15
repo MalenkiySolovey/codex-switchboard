@@ -1,5 +1,3 @@
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Support;
 
 namespace CodexSwitcher.Core.Tests;
 
@@ -114,7 +112,7 @@ public sealed class AccountActivityFormattingTests
     {
         var now = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
         var resetAt = now.AddMinutes(45);
-        var label = CodexSwitcher.Core.Support.UsageCountdownFormatter.FormatCountdown(resetAt, now);
+        var label = UsageCountdownFormatter.FormatCountdown(resetAt, now);
 
         // Relative countdown is purely arithmetic; zero network, zero analytics calls
         Assert.Equal("Resets in 45m", label);

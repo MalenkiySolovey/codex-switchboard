@@ -1,4 +1,4 @@
-﻿namespace CodexSwitcher.App.ViewModels;
+namespace CodexSwitcher.App.ViewModels;
 
 /// <summary>
 /// Represents a single activity bar in the compact daily token activity chart.

@@ -1,3 +1,53 @@
+using CodexSwitcher.Core.Accounts.Contracts;
+using CodexSwitcher.Core.Accounts.Formatting;
+using CodexSwitcher.Core.Accounts.Models;
+using CodexSwitcher.Core.Accounts.Services;
+using CodexSwitcher.Core.Common.Dispatcher;
+using CodexSwitcher.Core.Common.Enums;
+using CodexSwitcher.Core.Common.Environment;
+using CodexSwitcher.Core.Common.Errors;
+using CodexSwitcher.Core.Common.Lifecycle;
+using CodexSwitcher.Core.Common.Logging;
+using CodexSwitcher.Core.Common.Storage;
+using CodexSwitcher.Core.Common.Time;
+using CodexSwitcher.Core.Providers.Catalog;
+using CodexSwitcher.Core.Providers.Contracts;
+using CodexSwitcher.Core.Providers.Models;
+using CodexSwitcher.Core.Providers.Services;
+using CodexSwitcher.Core.Routing.Contracts;
+using CodexSwitcher.Core.Routing.Models;
+using CodexSwitcher.Core.Routing.Services;
+using CodexSwitcher.Core.Security.Secrets;
+using CodexSwitcher.Core.Security.Totp;
+using CodexSwitcher.Core.Security.Verification;
+using CodexSwitcher.Core.Settings.Contracts;
+using CodexSwitcher.Core.Settings.Models;
+using CodexSwitcher.Core.Threads.Contracts;
+using CodexSwitcher.Core.Threads.Models;
+using CodexSwitcher.Core.Transfer.Contracts;
+using CodexSwitcher.Core.Transfer.Models;
+using CodexSwitcher.Core.Transfer.Services;
+using CodexSwitcher.Core.Usage.Contracts;
+using CodexSwitcher.Core.Usage.Formatting;
+using CodexSwitcher.Core.Usage.Models;
+using CodexSwitcher.Core.Usage.Services;
+using CodexSwitcher.Infra.Accounts.Storage;
+using CodexSwitcher.Infra.Codex.Routing;
+using CodexSwitcher.Infra.Codex.Runtime;
+using CodexSwitcher.Infra.Codex.Threads;
+using CodexSwitcher.Infra.Codex.Usage;
+using CodexSwitcher.Infra.Common.Logging;
+using CodexSwitcher.Infra.Common.Paths;
+using CodexSwitcher.Infra.Common.Storage;
+using CodexSwitcher.Infra.Common.Time;
+using CodexSwitcher.Infra.Providers.Inspection;
+using CodexSwitcher.Infra.Providers.Secrets;
+using CodexSwitcher.Infra.Providers.Storage;
+using CodexSwitcher.Infra.Scheduling;
+using CodexSwitcher.Infra.Security.Dpapi;
+using CodexSwitcher.Infra.Security.Hardening;
+using CodexSwitcher.Infra.Security.Totp;
+using CodexSwitcher.Infra.Settings;
 using CodexSwitcher.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
@@ -42,7 +92,7 @@ public sealed class BadgeToTextConverter : IValueConverter
             _ => loc.BadgeUnavailable,
         } : string.Empty;
     }
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class BadgeToBrushConverter : IValueConverter
@@ -57,7 +107,7 @@ public sealed class BadgeToBrushConverter : IValueConverter
             AccountBadge.Error => "HealthDangerBrush",
             _ => "TextFillColorTertiaryBrush",
         } : "TextFillColorTertiaryBrush");
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class ActiveToBackgroundConverter : IValueConverter
@@ -68,7 +118,7 @@ public sealed class ActiveToBackgroundConverter : IValueConverter
             AccountItemViewModel { IsActive: true, IsRoutingActive: true } => Brushes.Resource("BrandAccentSoftBrush"),
             _ => Brushes.Resource("CardBackgroundFillColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 /// <summary>Borda do card: ativa (acento) > marcada como usada nas últimas 24h (verde) > padrão.</summary>
@@ -82,7 +132,7 @@ public sealed class CardBorderBrushConverter : IValueConverter
             AccountItemViewModel { IsMarkedUsed: true } => Brushes.Resource("HealthOkBrush"),
             _ => Brushes.Resource("CardStrokeColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class IntToVisibilityConverter : IValueConverter
@@ -108,7 +158,7 @@ public sealed class QuotaProgressBrushConverter : IValueConverter
             UsageWindowViewModel { IsLowQuota: true } => Brushes.Resource("HealthWarnBrush"),
             _ => Brushes.Resource("BrandAccentBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class StringToVisibilityConverter : IValueConverter
@@ -144,7 +194,7 @@ public sealed class ApiCardBorderBrushConverter : IValueConverter
             ApiProviderItemViewModel { HasSecret: false } => Brushes.Resource("HealthWarnBrush"),
             _ => Brushes.Resource("CardStrokeColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
 public sealed class ApiCardBackgroundConverter : IValueConverter
@@ -155,6 +205,5 @@ public sealed class ApiCardBackgroundConverter : IValueConverter
             ApiProviderItemViewModel { IsTargetActive: true } => Brushes.Resource("BrandAccentSoftBrush"),
             _ => Brushes.Resource("CardBackgroundFillColorDefaultBrush"),
         };
-    public object ConvertBack(object value, Type t, object p, string l) => throw new NotSupportedException();
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
-

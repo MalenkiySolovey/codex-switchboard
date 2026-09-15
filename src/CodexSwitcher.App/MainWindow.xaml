@@ -8,5 +8,5 @@
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
-    <views:AccountsView x:Name="Root" />
+    <views:ShellView x:Name="Root" />
 </Window>

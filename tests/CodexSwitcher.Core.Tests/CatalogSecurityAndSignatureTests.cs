@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using CodexSwitcher.Core.Catalog;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;

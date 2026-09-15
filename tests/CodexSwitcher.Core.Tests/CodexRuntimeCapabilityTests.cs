@@ -1,18 +1,13 @@
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Abstractions;
-using CodexSwitcher.Core.Models;
-using CodexSwitcher.Core.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Codex;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
 
 public sealed class CodexRuntimeCapabilityTests
 {
-    private static readonly DateTimeOffset TestTime = DateTimeOffset.Parse("2026-09-09T18:00:00Z");
+    private static readonly DateTimeOffset TestTime = DateTimeOffset.Parse("2026-09-09T18:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
 
     #region 1. Version Parsing Tests
 

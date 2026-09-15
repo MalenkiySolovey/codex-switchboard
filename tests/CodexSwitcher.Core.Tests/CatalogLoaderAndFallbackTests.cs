@@ -1,9 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using CodexSwitcher.Core.Catalog;
-using CodexSwitcher.Core.Models;
 using CodexSwitcher.Core.Tests.TestSupport;
-using CodexSwitcher.Infra.Io;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
@@ -24,7 +21,7 @@ public sealed class CatalogLoaderAndFallbackTests
             temp.Combine("providers.local.json"),
             "0.1.3");
 
-        var result = loader.LoadBootstrapCatalog();
+        var result = ProviderCatalogLoader.LoadBootstrapCatalog();
 
         Assert.Equal(CatalogSourceLayer.EmbeddedBootstrap, result.ActiveLayer);
         Assert.Equal(CatalogLoadStatus.Supported, result.Status);
@@ -370,7 +367,7 @@ public sealed class CatalogLoaderAndFallbackTests
         // Construct deeply nested JSON beyond normal depth
         var sb = new StringBuilder();
         for (int i = 0; i < 100; i++) sb.Append("{\"nested\":");
-        sb.Append("1");
+        sb.Append('1');
         for (int i = 0; i < 100; i++) sb.Append('}');
 
         var deepJson = sb.ToString();

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-09-15
+
+### Added
+- Registered HeJu API / JuAPI as a catalog-driven OpenAI-compatible provider.
+- Added Global (`www.hejuapi.com`) and Hong Kong (`hk.hejuapi.com`) routes with read-only model discovery.
+- Added usage visibility through the ordinary API key; remaining balance stays unknown because the current catalog cannot truthfully combine the two required billing responses or prove HeJu's display currency.
+
+### Changed
+- Completed a comprehensive modular architecture modernization while preserving existing user-facing workflows.
+- Split presentation responsibilities into dedicated Shell, Accounts, Providers, Settings, and dialog boundaries.
+- Reorganized Core and Infrastructure code by semantic feature ownership.
+- Migrated application composition and lifetime management to .NET Generic Host.
+- Decomposed API-provider inspection and Codex target switching into smaller, explicitly owned transaction/transport components.
+
+### Reliability
+- Strengthened atomic account/provider switching and rollback ownership.
+- Preserved exact, lossless config.toml mutation and concurrent-edit protection.
+- Unified application shutdown and cancellation under one lifecycle owner (`IAppLifetime`).
+- Preserved isolated CODEX_HOME monitoring and active auth.json safety.
+- Hardened provider HTTP redirect and credential boundaries.
+
+### Engineering / Security
+- Added repository-wide analyzer and formatting enforcement.
+- Added Central Package Management and committed package lock files.
+- Added locked restores and transitive NuGet vulnerability auditing.
+- Added deterministic release packaging and artifact sanitization.
+- Added hardened Windows GitHub Actions quality CI.
+- Increased the automated test suite to 667 passing tests.
+
+### Compatibility
+- Existing v0.1.4 account and provider data remains fully compatible.
+- No settings migration is required.
+- No provider profile migration is required.
+- Existing DPAPI vault, TOTP, and API-key secrets remain in place.
+- Existing Codex conversation threads are not rewritten.
+
+---
+
 ## [0.1.4] - 2026-09-11
 
 ### Added
