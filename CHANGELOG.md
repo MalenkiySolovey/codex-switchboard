@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.0] - 2026-09-12
+## [0.2.0] - 2026-09-15
+
+### Added
+- Registered HeJu API / JuAPI as a catalog-driven OpenAI-compatible provider.
+- Added Global (`www.hejuapi.com`) and Hong Kong (`hk.hejuapi.com`) routes with read-only model discovery.
+- Added usage visibility through the ordinary API key; remaining balance stays unknown because the current catalog cannot truthfully combine the two required billing responses or prove HeJu's display currency.
 
 ### Changed
 - Completed a comprehensive modular architecture modernization while preserving existing user-facing workflows.
@@ -29,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added locked restores and transitive NuGet vulnerability auditing.
 - Added deterministic release packaging and artifact sanitization.
 - Added hardened Windows GitHub Actions quality CI.
-- Increased the automated test suite to 653 passing tests.
+- Increased the automated test suite to 667 passing tests.
 
 ### Compatibility
 - Existing v0.1.4 account and provider data remains fully compatible.

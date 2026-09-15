@@ -8,7 +8,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
-![Tests](https://img.shields.io/badge/tests-653%20passing-3DDC84)
+![Tests](https://img.shields.io/badge/tests-667%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
 ![Release](https://img.shields.io/badge/release-v0.2.0-brightgreen)
 
@@ -79,6 +79,11 @@ Codex Switchboard solves both challenges:
 - **Zero-Write Invariant:** Background quota polling and telemetry queries never modify or lock `%USERPROFILE%\.codex\auth.json`.
 - **Sandbox Isolation:** Spawns headless `codex app-server --listen stdio://` child processes within dedicated, isolated working directories (`CODEX_HOME`), completely decoupled from your primary coding environment.
 - **Process Lifecycle Management:** Automatic timeout guards and graceful shutdown ensure no orphaned background processes remain.
+
+### Catalog-Driven API Providers
+- **HeJu API / JuAPI:** Registered OpenAI-compatible provider support with separate **Global** and **Hong Kong** routes.
+- **Read-Only Model Discovery:** Both routes expose model discovery through their qualified `/v1/models` endpoints using the profile's encrypted bearer key.
+- **Truthful Usage Reporting:** Usage is available through the verified standard-key endpoint. Remaining balance is deliberately left unknown because its derivation and display currency cannot be represented truthfully by the current single-request catalog recipe.
 
 ### Safe Legacy Data Migration
 - **Zero-Friction Upgrade:** Automatically detects existing profiles from legacy `%LOCALAPPDATA%\CodexSwitcher`.
