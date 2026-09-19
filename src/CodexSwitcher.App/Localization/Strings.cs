@@ -153,6 +153,7 @@ public sealed class Strings
     public string InUse => S("Em uso", "In use");
     public string RefreshNow => S("Renovar agora", "Refresh now");
     public string Rename => S("Renomear", "Rename");
+    public string Reauthenticate => S("Reautenticar...", "Reauthenticate...");
     public string MarkNeedsReLogin => S("Marcar: precisa re-login", "Mark: needs re-login");
     public string MarkUsed => S("Marcar como usado", "Mark as used");
     public string UnmarkUsed => S("Desmarcar como usado", "Unmark as used");
@@ -233,6 +234,7 @@ public sealed class Strings
     public string LoginCanceledMsg => S("Nenhuma conta foi adicionada.", "No account was added.");
     public string AddedTitle => S("Conta adicionada", "Account added");
     public string AddedMsg(string name) => S($"{name} foi adicionada ao cofre.", $"{name} was added to the vault.");
+    public string ReauthenticatedMsg(string name) => S($"{name} foi reautenticada com sucesso.", $"{name} was reauthenticated successfully.");
     public string NicknameTitle => S("Dar um apelido", "Set a nickname");
     public string NicknamePrompt => S("Como quer chamar esta conta?", "What do you want to call this account?");
     public string Save => S("Salvar", "Save");

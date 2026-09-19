@@ -112,9 +112,13 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(paths);
 
+        services.AddSingleton<ISwitchboardCodexProcessRegistry, SwitchboardCodexProcessRegistry>();
         services.AddSingleton<ICodexCli>(sp =>
-            new CodexCliRunner(sp.GetRequiredService<AppSettings>().CodexExecutablePathOverride));
-        services.AddSingleton<IProcessManager, CodexProcessManager>();
+            new CodexCliRunner(
+                sp.GetRequiredService<AppSettings>().CodexExecutablePathOverride,
+                sp.GetRequiredService<ISwitchboardCodexProcessRegistry>()));
+        services.AddSingleton<IProcessManager>(sp =>
+            new CodexProcessManager(sp.GetRequiredService<ISwitchboardCodexProcessRegistry>()));
         services.AddSingleton<ICodexCapabilityCache, CodexCapabilityCache>();
         services.AddSingleton<ICodexRuntimeResolver>(sp => new CodexRuntimeResolver(
             sp.GetRequiredService<ICodexCapabilityCache>()));
@@ -123,7 +127,8 @@ public static class ServiceCollectionExtensions
             paths.TempRoot,
             sp.GetRequiredService<AppSettings>().CodexExecutablePathOverride,
             capabilityCache: sp.GetRequiredService<ICodexCapabilityCache>(),
-            executablePathAccessor: () => sp.GetRequiredService<AppSettings>().CodexExecutablePathOverride));
+            executablePathAccessor: () => sp.GetRequiredService<AppSettings>().CodexExecutablePathOverride,
+            registry: sp.GetRequiredService<ISwitchboardCodexProcessRegistry>()));
 
         services.AddSingleton<ICodexThreadHandoffService>(sp =>
         {
@@ -217,7 +222,11 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<VaultService>(),
             sp.GetRequiredService<IProfileOperationCoordinator>(),
             sp.GetRequiredService<IClock>(),
-            sp.GetRequiredService<IAppLifetime>()));
+            options: null,
+            appLifetime: sp.GetRequiredService<IAppLifetime>(),
+            fs: sp.GetRequiredService<IFileSystem>(),
+            codexPaths: paths.Codex,
+            profileStore: sp.GetRequiredService<ProfileStore>()));
 
         services.AddSingleton(sp => new UsagePollingCoordinator(
             sp.GetRequiredService<IUsageService>(),

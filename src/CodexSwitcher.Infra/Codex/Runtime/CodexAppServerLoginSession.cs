@@ -70,6 +70,7 @@ internal sealed class CodexAppServerLoginSession : ICodexLoginSession
     };
 
     private readonly Process _process;
+    private readonly ISwitchboardCodexProcessRegistry? _registry;
     private readonly object _pendingLock = new();
     private readonly Dictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
     private readonly TaskCompletionSource<CodexLoginResult> _completion =
@@ -86,15 +87,20 @@ internal sealed class CodexAppServerLoginSession : ICodexLoginSession
     public string LoginId { get; private set; } = string.Empty;
     public Task<CodexLoginResult> Completion => _completion.Task;
 
-    private CodexAppServerLoginSession(Process process) => _process = process;
+    private CodexAppServerLoginSession(Process process, ISwitchboardCodexProcessRegistry? registry = null)
+    {
+        _process = process;
+        _registry = registry;
+    }
 
     public static async Task<CodexAppServerLoginSession> StartAsync(
-        ProcessStartInfo psi, string codexHome, CancellationToken cancellationToken)
+        ProcessStartInfo psi, string codexHome, CancellationToken cancellationToken, ISwitchboardCodexProcessRegistry? registry = null)
     {
         var process = new Process { StartInfo = psi };
-        var session = new CodexAppServerLoginSession(process);
+        var session = new CodexAppServerLoginSession(process, registry);
 
         process.Start();
+        registry?.RegisterOwnedProcess(process.Id);
         session._stdin = process.StandardInput;
         session._stdout = process.StandardOutput;
         session._stderr = process.StandardError;
@@ -282,7 +288,10 @@ internal sealed class CodexAppServerLoginSession : ICodexLoginSession
         catch (Exception) { /* cancelamento é best-effort */ }
 
         try { _stdin.Close(); } catch (Exception) { }
-        try { if (!_process.HasExited) _process.Kill(entireProcessTree: true); } catch (Exception) { }
+        var pid = _process.Id;
+        try { if (!_process.HasExited) _process.Kill(entireProcessTree: true); }
+        catch (Exception) { }
+        finally { _registry?.UnregisterOwnedProcess(pid); }
         try { _process.Dispose(); } catch (Exception) { }
 
         _completion.TrySetResult(new CodexLoginResult(false, "login cancelado"));

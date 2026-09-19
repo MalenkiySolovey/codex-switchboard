@@ -79,6 +79,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient
     };
 
     private readonly ProcessStartInfo _startInfo;
+    private readonly ISwitchboardCodexProcessRegistry? _registry;
     private Process? _process;
     private StreamWriter? _stdin;
     private StreamReader? _stdout;
@@ -93,10 +94,11 @@ public sealed class CodexAppServerClient : ICodexAppServerClient
 
     public bool IsRunning => _process is not null && !_process.HasExited;
 
-    public CodexAppServerClient(string codexExecutablePath, string codexHome)
+    public CodexAppServerClient(string codexExecutablePath, string codexHome, ISwitchboardCodexProcessRegistry? registry = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(codexExecutablePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(codexHome);
+        _registry = registry;
 
         _startInfo = new ProcessStartInfo
         {
@@ -127,6 +129,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient
 
         _process = new Process { StartInfo = _startInfo };
         _process.Start();
+        _registry?.RegisterOwnedProcess(_process.Id);
 
         _stdin = _process.StandardInput;
         _stdout = _process.StandardOutput;
@@ -331,14 +334,22 @@ public sealed class CodexAppServerClient : ICodexAppServerClient
 
         try { _stdin?.Close(); } catch { }
 
-        if (_process is not null && !_process.HasExited)
+        if (_process is not null)
         {
+            var pid = _process.Id;
             try
             {
-                _process.Kill(entireProcessTree: true);
-                await _process.WaitForExitAsync().ConfigureAwait(false);
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                    await _process.WaitForExitAsync().ConfigureAwait(false);
+                }
             }
             catch { }
+            finally
+            {
+                _registry?.UnregisterOwnedProcess(pid);
+            }
         }
 
         try { _process?.Dispose(); } catch { }
@@ -353,9 +364,21 @@ public sealed class CodexAppServerClient : ICodexAppServerClient
         FailAllPending(new ObjectDisposedException(nameof(CodexAppServerClient)));
 
         try { _stdin?.Close(); } catch { }
-        if (_process is not null && !_process.HasExited)
+        if (_process is not null)
         {
-            try { _process.Kill(entireProcessTree: true); } catch { }
+            var pid = _process.Id;
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                }
+            }
+            catch { }
+            finally
+            {
+                _registry?.UnregisterOwnedProcess(pid);
+            }
         }
         try { _process?.Dispose(); } catch { }
         _writeLock.Dispose();

@@ -37,13 +37,14 @@ namespace CodexSwitcher.Core.Usage.Services;
 
 public sealed record UsageServiceOptions
 {
-    public int MaxConcurrentUsageProcesses { get; init; } = 1;
+    public int MaxConcurrentUsageProcesses { get; init; } = 2;
 }
 
 /// <summary>
 /// Service coordinating multi-account rate limit queries and caching.
-/// Handles bounded process concurrency, in-flight request coalescing,
-/// caller cancellation isolation, and CAS-protected credential rotation writebacks.
+/// Handles bounded process concurrency with priority queueing, in-flight request coalescing,
+/// caller cancellation isolation, CAS-protected credential rotation writebacks,
+/// safe active-slot vault synchronization, and progressive card result publishing.
 /// </summary>
 public sealed class UsageService : IUsageService, IDisposable
 {
@@ -53,9 +54,12 @@ public sealed class UsageService : IUsageService, IDisposable
     private readonly IProfileOperationCoordinator _coordinator;
     private readonly IClock _clock;
     private readonly UsageServiceOptions _options;
-    private readonly SemaphoreSlim _processThrottle;
+    private readonly AsyncPriorityThrottle _priorityThrottle;
     private readonly ConcurrentDictionary<Guid, Task<UsageFetchResult>> _inFlight = new();
     private readonly CancellationTokenSource _serviceCts;
+    private readonly IFileSystem? _fs;
+    private readonly CodexPaths? _codexPaths;
+    private readonly IProfileStore? _profileStore;
 
     public UsageService(
         ICodexUsageProvider provider,
@@ -64,7 +68,7 @@ public sealed class UsageService : IUsageService, IDisposable
         IProfileOperationCoordinator coordinator,
         IClock clock,
         IAppLifetime? appLifetime)
-        : this(provider, cache, vault, coordinator, clock, null, appLifetime)
+        : this(provider, cache, vault, coordinator, clock, null, appLifetime, null, null, null)
     {
     }
 
@@ -75,7 +79,10 @@ public sealed class UsageService : IUsageService, IDisposable
         IProfileOperationCoordinator coordinator,
         IClock clock,
         UsageServiceOptions? options = null,
-        IAppLifetime? appLifetime = null)
+        IAppLifetime? appLifetime = null,
+        IFileSystem? fs = null,
+        CodexPaths? codexPaths = null,
+        IProfileStore? profileStore = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
@@ -83,13 +90,16 @@ public sealed class UsageService : IUsageService, IDisposable
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = options ?? new UsageServiceOptions();
+        _fs = fs;
+        _codexPaths = codexPaths;
+        _profileStore = profileStore;
 
         _serviceCts = appLifetime is not null
             ? CancellationTokenSource.CreateLinkedTokenSource(appLifetime.ApplicationStopping)
             : new CancellationTokenSource();
 
         var maxProcesses = Math.Max(1, _options.MaxConcurrentUsageProcesses);
-        _processThrottle = new SemaphoreSlim(maxProcesses, maxProcesses);
+        _priorityThrottle = new AsyncPriorityThrottle(maxProcesses);
     }
 
     public UsageCacheEntry? GetCached(Guid profileId) => _cache.Get(profileId);
@@ -114,7 +124,7 @@ public sealed class UsageService : IUsageService, IDisposable
         {
             if (!_inFlight.TryGetValue(profile.Id, out inFlightTask!))
             {
-                inFlightTask = ExecuteRefreshAsync(profile);
+                inFlightTask = ExecuteRefreshAsync(profile, force);
                 _inFlight[profile.Id] = inFlightTask;
             }
         }
@@ -129,6 +139,12 @@ public sealed class UsageService : IUsageService, IDisposable
 
     public async Task<IReadOnlyDictionary<Guid, UsageFetchResult>> RefreshAllAsync(
         IReadOnlyList<ProfileMetadata> profiles,
+        CancellationToken cancellationToken = default) =>
+        await RefreshAllAsync(profiles, onAccountCompleted: null, cancellationToken).ConfigureAwait(false);
+
+    public async Task<IReadOnlyDictionary<Guid, UsageFetchResult>> RefreshAllAsync(
+        IReadOnlyList<ProfileMetadata> profiles,
+        Action<Guid, UsageFetchResult>? onAccountCompleted,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(profiles);
@@ -138,17 +154,22 @@ public sealed class UsageService : IUsageService, IDisposable
             try
             {
                 var res = await RefreshAsync(p, force: false, cancellationToken).ConfigureAwait(false);
+                onAccountCompleted?.Invoke(p.Id, res);
                 return (p.Id, Result: res);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 var err = ErrorInfo.Create(ErrorCategory.Timeout, "Refresh operation was cancelled by caller.", _clock.UtcNow);
-                return (p.Id, Result: UsageFetchResult.Fail(UsageStatus.Error, err));
+                var fail = UsageFetchResult.Fail(UsageStatus.Error, err);
+                onAccountCompleted?.Invoke(p.Id, fail);
+                return (p.Id, Result: fail);
             }
             catch (Exception ex)
             {
                 var err = ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow);
-                return (p.Id, Result: UsageFetchResult.Fail(UsageStatus.Error, err));
+                var fail = UsageFetchResult.Fail(UsageStatus.Error, err);
+                onAccountCompleted?.Invoke(p.Id, fail);
+                return (p.Id, Result: fail);
             }
         }).ToList();
 
@@ -156,7 +177,7 @@ public sealed class UsageService : IUsageService, IDisposable
         return completed.ToDictionary(c => c.Id, c => c.Result);
     }
 
-    private async Task<UsageFetchResult> ExecuteRefreshAsync(ProfileMetadata profile)
+    private async Task<UsageFetchResult> ExecuteRefreshAsync(ProfileMetadata profile, bool force)
     {
         try
         {
@@ -166,6 +187,35 @@ public sealed class UsageService : IUsageService, IDisposable
             // Step 1: Read current credentials under coordinator lock
             using (await _coordinator.LockAsync(profile.Id, _serviceCts.Token).ConfigureAwait(false))
             {
+                // Safe active profile vault resync from active auth.json upon external token drift
+                if (profile.IsActive && _fs != null && _codexPaths != null && _fs.FileExists(_codexPaths.ActiveAuthPath))
+                {
+                    try
+                    {
+                        var activeBytes = _fs.ReadAllBytes(_codexPaths.ActiveAuthPath);
+                        var activeFp = Fingerprint.Compute(activeBytes);
+                        if (_vault.Exists(profile.Id))
+                        {
+                            var currentVaultBytes = _vault.LoadBlob(profile.Id);
+                            var currentVaultFp = Fingerprint.Compute(currentVaultBytes);
+                            if (activeFp != currentVaultFp)
+                            {
+                                var (_, activeClaims) = AuthJsonReader.Identify(activeBytes);
+                                if (string.IsNullOrEmpty(profile.AccountSub) || activeClaims.Sub == profile.AccountSub)
+                                {
+                                    _vault.SaveBlob(profile.Id, activeBytes);
+                                    profile.BlobFingerprint = activeFp;
+                                    profile.LastRefreshedAt = _clock.UtcNow;
+                                    var sub = SubscriptionJwtClaimExtractor.Extract(activeBytes, _clock.UtcNow);
+                                    if (sub is not null) profile.DetectedSubscription = sub;
+                                    _profileStore?.SaveAll([profile]);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
                 if (!_vault.Exists(profile.Id))
                 {
                     var err = ErrorInfo.Create(ErrorCategory.InvalidAuthFile, "Profile credentials not found in vault.", _clock.UtcNow);
@@ -188,16 +238,31 @@ public sealed class UsageService : IUsageService, IDisposable
                 }
             }
 
-            // Step 2: Acquire process throttle to bound concurrent child app-server processes
+            // Step 2: Acquire priority throttle to bound concurrent child app-server processes
             UsageFetchResult fetchResult;
-            await _processThrottle.WaitAsync(_serviceCts.Token).ConfigureAwait(false);
-            try
+            var priority = force ? UsagePriority.Interactive : UsagePriority.Background;
+            using (await _priorityThrottle.AcquireAsync(priority, _serviceCts.Token).ConfigureAwait(false))
             {
-                fetchResult = await _provider.FetchRateLimitsAsync(profile.Id, authBytes, _serviceCts.Token).ConfigureAwait(false);
+                var fetchOpts = new UsageFetchOptions(
+                    ExcludeResetCreditDetails: !force,
+                    IncludeActivity: force);
+
+                fetchResult = await _provider.FetchRateLimitsAsync(profile.Id, authBytes, fetchOpts, _serviceCts.Token).ConfigureAwait(false);
             }
-            finally
+
+            // Sync live plan changes into ProfileMetadata if returned from account/read
+            var livePlan = fetchResult.Snapshot?.PlanType;
+            if (!string.IsNullOrWhiteSpace(livePlan) && !string.Equals(profile.PlanType, livePlan, StringComparison.OrdinalIgnoreCase))
             {
-                _processThrottle.Release();
+                profile.PlanType = livePlan;
+                if (string.Equals(livePlan, "free", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (profile.DetectedSubscription is not null)
+                    {
+                        profile.DetectedSubscription = profile.DetectedSubscription with { IsStale = true };
+                    }
+                }
+                _profileStore?.SaveAll([profile]);
             }
 
             // Step 3: Handle rotation and update cache
@@ -283,16 +348,34 @@ public sealed class UsageService : IUsageService, IDisposable
             }
 
             // CASE A: Normal success or unchanged credentials
+            var previousEntry = _cache.Get(profile.Id);
+
+            // Retain last-known-good quota snapshot marked stale on transient errors
+            var effectiveSnapshot = fetchResult.Snapshot;
+            var isStale = false;
+            if (effectiveSnapshot is null && previousEntry?.Snapshot is not null &&
+                fetchResult.Status is UsageStatus.ProcessDown or UsageStatus.BackingOff or UsageStatus.Error)
+            {
+                effectiveSnapshot = previousEntry.Snapshot;
+                isStale = true;
+            }
+
+            // Preserve cached activity if current fetch skipped activity
+            var effectiveActivity = fetchResult.Activity ?? previousEntry?.Activity;
+            var effectiveActivityAvailability = fetchResult.Activity is not null
+                ? fetchResult.ActivityAvailability
+                : (previousEntry?.ActivityAvailability ?? fetchResult.ActivityAvailability);
+
             _cache.Set(
                 profile.Id,
-                fetchResult.Snapshot,
+                effectiveSnapshot,
                 fetchResult.Status,
                 fetchResult.Error,
-                isStale: false,
+                isStale: isStale,
                 credentialConflict: false,
                 conflictReason: CredentialConflictReason.None,
-                activity: fetchResult.Activity,
-                activityAvailability: fetchResult.ActivityAvailability);
+                activity: effectiveActivity,
+                activityAvailability: effectiveActivityAvailability);
 
             await _cache.SaveAsync(_serviceCts.Token).ConfigureAwait(false);
             return fetchResult;
@@ -305,7 +388,24 @@ public sealed class UsageService : IUsageService, IDisposable
         catch (Exception ex)
         {
             var err = ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow);
-            _cache.Set(profile.Id, null, UsageStatus.Error, err);
+            var prev = _cache.Get(profile.Id);
+            if (prev?.Snapshot is not null)
+            {
+                _cache.Set(
+                    profile.Id,
+                    prev.Snapshot,
+                    UsageStatus.Error,
+                    err,
+                    isStale: true,
+                    credentialConflict: false,
+                    conflictReason: CredentialConflictReason.None,
+                    activity: prev.Activity,
+                    activityAvailability: prev.ActivityAvailability);
+            }
+            else
+            {
+                _cache.Set(profile.Id, null, UsageStatus.Error, err);
+            }
             try { await _cache.SaveAsync(_serviceCts.Token).ConfigureAwait(false); } catch { }
             return UsageFetchResult.Fail(UsageStatus.Error, err);
         }
@@ -322,6 +422,6 @@ public sealed class UsageService : IUsageService, IDisposable
     {
         try { _serviceCts.Cancel(); } catch { }
         _serviceCts.Dispose();
-        _processThrottle.Dispose();
+        _priorityThrottle.Dispose();
     }
 }

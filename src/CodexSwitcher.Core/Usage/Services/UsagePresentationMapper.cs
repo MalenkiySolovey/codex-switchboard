@@ -145,7 +145,8 @@ public static class UsagePresentationMapper
             ConflictReason: conflictReason,
             Activity: activity,
             ActivityAvailability: activityAvailability,
-            ResetCreditsDetail: snapshot?.ResetCreditsDetail);
+            ResetCreditsDetail: snapshot?.ResetCreditsDetail,
+            OrdinaryUsageAllowed: snapshot?.OrdinaryUsageAllowed);
     }
 
     private static IReadOnlyList<UsageWindow> ExtractWindows(RateLimitsSnapshot? snapshot)
@@ -282,6 +283,27 @@ public static class UsagePresentationMapper
                    : "Usage monitoring is not supported for this credential type.");
         }
 
+        // Retain last-known-good quota snapshots marked stale on transient errors
+        if (isStale && snapshot is not null)
+        {
+            if (status is UsageStatus.ProcessDown or UsageStatus.BackingOff)
+            {
+                return (
+                    UsageVisualState.StaleCache,
+                    pt ? "Processo do Codex indisponível temporariamente. Exibindo dados em cache."
+                       : "Codex process temporarily unavailable. Showing cached data.");
+            }
+
+            if (status == UsageStatus.Error)
+            {
+                var err = lastError?.Message;
+                var msg = !string.IsNullOrWhiteSpace(err)
+                    ? (pt ? $"Erro ao atualizar ({err}). Exibindo dados em cache." : $"Refresh failed ({err}). Showing cached data.")
+                    : (pt ? "Falha temporária ao atualizar. Exibindo dados em cache." : "Temporary refresh failure. Showing cached data.");
+                return (UsageVisualState.StaleCache, msg);
+            }
+        }
+
         if (status is UsageStatus.ProcessDown or UsageStatus.BackingOff)
         {
             return (
@@ -297,6 +319,15 @@ public static class UsagePresentationMapper
                 ? (pt ? $"Erro: {err}" : $"Error: {err}")
                 : (pt ? "Falha ao obter dados de uso." : "Failed to retrieve usage data.");
             return (UsageVisualState.ProcessDown, msg);
+        }
+
+        // Authoritative permission check for ordinary usage (Phase 11 upstream schema)
+        if (snapshot?.OrdinaryUsageAllowed == false)
+        {
+            var notice = string.Equals(snapshot.PlanType, "free", StringComparison.OrdinalIgnoreCase)
+                ? (pt ? "Plano Free: uso comum não disponível." : "Free plan: ordinary usage not included.")
+                : (pt ? "Uso comum não permitido no momento." : "Ordinary usage not allowed at this time.");
+            return (UsageVisualState.RateLimited, notice);
         }
 
         // Authoritative backend rate limit check (do NOT infer solely from window.UsedPercent >= 100)

@@ -161,6 +161,7 @@ public sealed partial class AccountItemViewModel : ObservableObject
     public string InUseLabel => Loc.InUse;
     public string ExportLabel => Loc.Export;
     public string RenameLabel => Loc.Rename;
+    public string ReauthenticateLabel => Loc.Reauthenticate;
     public string SubscriptionTrackingLabel => Loc.SubscriptionTrackingLabel;
     public string MarkReLoginLabel => Loc.MarkNeedsReLogin;
     public string MarkUsedLabel => Loc.MarkUsed;

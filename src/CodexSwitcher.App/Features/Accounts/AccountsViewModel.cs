@@ -302,8 +302,14 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         if (from is not null && result?.Outcome is SwitchOutcome.Success or SwitchOutcome.SuccessWithReopenWarning)
             _profiles.MarkUsed(from.Id);
 
-        Rebuild(_lastActiveTarget, _lastIsRoutingActiveToApi);
-        TargetStateChanged?.Invoke(this, EventArgs.Empty);
+        if (TargetStateChanged != null)
+        {
+            TargetStateChanged.Invoke(this, EventArgs.Empty);
+        }
+        else
+        {
+            Rebuild(_lastActiveTarget, _lastIsRoutingActiveToApi);
+        }
 
         if (result is not null)
             ShowSwitchResult(result, item.DisplayName);
@@ -496,6 +502,37 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         if (item is null) return;
         _profiles.MarkNeedsReLogin(item.Id);
         Rebuild(_lastActiveTarget, _lastIsRoutingActiveToApi);
+    }
+
+    [RelayCommand]
+    private async Task ReauthenticateAsync(AccountItemViewModel? item)
+    {
+        if (item is null) return;
+
+        byte[]? authJson = null;
+        await RunBusy(Loc.BusyWaitingLogin, async () =>
+        {
+            authJson = await _ui.RunEphemeralLoginAsync();
+        });
+
+        if (authJson is null)
+        {
+            ShowInfo(Loc.LoginCanceledTitle, Loc.LoginCanceledMsg, InfoBarSeverity.Informational);
+            return;
+        }
+
+        try
+        {
+            var updated = _profiles.Reauthenticate(item.Id, authJson);
+            _usage.Invalidate(item.Id);
+            Rebuild(_lastActiveTarget, _lastIsRoutingActiveToApi);
+            ShowInfo(Loc.AddedTitle, Loc.ReauthenticatedMsg(updated.DisplayName), InfoBarSeverity.Success);
+            _ = _usage.TriggerBackgroundRefreshForProfiles([updated]);
+        }
+        catch (Exception ex)
+        {
+            ShowInfo(Loc.ErrorTitle, ex.Message, InfoBarSeverity.Error);
+        }
     }
 
     [RelayCommand]

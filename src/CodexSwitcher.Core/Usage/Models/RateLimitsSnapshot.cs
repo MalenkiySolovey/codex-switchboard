@@ -47,7 +47,8 @@ public sealed record RateLimitsSnapshot(
     string? AccountEmail,
     UsageStatus Status,
     ErrorInfo? LastError = null,
-    RateLimitResetCredits? ResetCreditsDetail = null)
+    RateLimitResetCredits? ResetCreditsDetail = null,
+    bool? OrdinaryUsageAllowed = null)
 {
     private LimitBucket? PrimaryBucket =>
         Limits.FirstOrDefault(b => b.LimitId == (PrimaryLimitId ?? "codex"))

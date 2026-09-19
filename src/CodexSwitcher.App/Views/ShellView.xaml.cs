@@ -230,6 +230,11 @@ public sealed partial class ShellView : UserControl
         if (ItemOf(sender) is { } item) ViewModel.Accounts.RemoveCommand.Execute(item);
     }
 
+    private void OnReauthenticateClick(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item) ViewModel.Accounts.ReauthenticateCommand.Execute(item);
+    }
+
     private void OnMarkReLoginClick(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } item) ViewModel.Accounts.MarkNeedsReLoginCommand.Execute(item);

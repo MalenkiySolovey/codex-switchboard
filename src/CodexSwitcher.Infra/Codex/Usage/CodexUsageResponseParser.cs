@@ -106,18 +106,18 @@ public static class CodexUsageResponseParser
     /// </summary>
     public static (string? PrimaryLimitId, IReadOnlyList<LimitBucket> Limits, int? ResetCreditsAvailable) ParseRateLimits(JsonElement root)
     {
-        var (primaryId, limits, credits, _) = ParseRateLimitsDetail(root);
+        var (primaryId, limits, credits, _, _) = ParseRateLimitsDetail(root);
         return (primaryId, limits, credits);
     }
 
     /// <summary>
     /// Normalizes an <c>account/rateLimits/read</c> JSON response into a list of <see cref="LimitBucket"/>,
-    /// primary limit ID, available reset credits count, and detailed reset credits breakdown.
+    /// primary limit ID, available reset credits count, detailed reset credits breakdown, and ordinary usage permission.
     /// </summary>
-    public static (string? PrimaryLimitId, IReadOnlyList<LimitBucket> Limits, int? ResetCreditsAvailable, RateLimitResetCredits? ResetCreditsDetail) ParseRateLimitsDetail(JsonElement root)
+    public static (string? PrimaryLimitId, IReadOnlyList<LimitBucket> Limits, int? ResetCreditsAvailable, RateLimitResetCredits? ResetCreditsDetail, bool? OrdinaryUsageAllowed) ParseRateLimitsDetail(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
-            return (null, [], null, null);
+            return (null, [], null, null, null);
 
         var buckets = new Dictionary<string, LimitBucket>(StringComparer.OrdinalIgnoreCase);
 
@@ -184,7 +184,17 @@ public static class CodexUsageResponseParser
             }
         }
 
-        return (primaryLimitId, buckets.Values.ToList(), resetCreditsAvailable, resetCreditsDetail);
+        // 4. Ordinary usage allowed permission
+        bool? ordinaryUsageAllowed = null;
+        if (root.TryGetProperty("ordinaryUsageAllowed", out var ordEl))
+        {
+            if (ordEl.ValueKind == JsonValueKind.True)
+                ordinaryUsageAllowed = true;
+            else if (ordEl.ValueKind == JsonValueKind.False)
+                ordinaryUsageAllowed = false;
+        }
+
+        return (primaryLimitId, buckets.Values.ToList(), resetCreditsAvailable, resetCreditsDetail, ordinaryUsageAllowed);
     }
 
     /// <summary>

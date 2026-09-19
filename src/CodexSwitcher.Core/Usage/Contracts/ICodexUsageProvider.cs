@@ -35,6 +35,14 @@ using CodexSwitcher.Core.Usage.Models;
 namespace CodexSwitcher.Core.Usage.Contracts;
 
 /// <summary>
+/// Options controlling rate-limit query granularity.
+/// Background polling can exclude reset-credit details and decouple activity reads for fast execution.
+/// </summary>
+public sealed record UsageFetchOptions(
+    bool ExcludeResetCreditDetails = false,
+    bool IncludeActivity = true);
+
+/// <summary>
 /// Queries rate limits for a profile by executing in an isolated sandbox.
 /// Never touches the user's active %USERPROFILE%\.codex\auth.json slot.
 /// </summary>
@@ -44,4 +52,11 @@ public interface ICodexUsageProvider
         Guid profileId,
         byte[] authJsonBytes,
         CancellationToken cancellationToken = default);
+
+    Task<UsageFetchResult> FetchRateLimitsAsync(
+        Guid profileId,
+        byte[] authJsonBytes,
+        UsageFetchOptions? options,
+        CancellationToken cancellationToken = default) =>
+        FetchRateLimitsAsync(profileId, authJsonBytes, cancellationToken);
 }

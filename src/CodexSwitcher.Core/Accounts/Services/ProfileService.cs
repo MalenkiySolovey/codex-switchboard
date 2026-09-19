@@ -371,6 +371,52 @@ public sealed class ProfileService
         _store.SaveAll(Profiles);
     }
 
+    /// <summary>
+    /// Reautentica um perfil existente no mesmo slot com novo auth.json.
+    /// Valida o auth.json, atualiza o blob no cofre, reseta status para Valid, limpa erros,
+    /// atualiza metadados/assinatura, e se o perfil for ativo, sincroniza para o slot ativo .codex\auth.json.
+    /// </summary>
+    public ProfileMetadata Reauthenticate(Guid id, byte[] authJson)
+    {
+        ArgumentNullException.ThrowIfNull(authJson);
+        var p = Profiles.FirstOrDefault(x => x.Id == id)
+            ?? throw new InvalidOperationException("Perfil não encontrado.");
+
+        var (file, claims) = AuthJsonReader.Identify(authJson);
+        if (!IsRecognizableAuthFile(file))
+            throw new InvalidDataException("O arquivo fornecido não é um auth.json válido do Codex.");
+
+        if (!string.IsNullOrEmpty(p.AccountSub) && !string.IsNullOrEmpty(claims.Sub) && p.AccountSub != claims.Sub)
+        {
+            var duplicate = Profiles.FirstOrDefault(x => x.Id != id && x.AccountSub == claims.Sub);
+            if (duplicate is not null)
+            {
+                throw new InvalidOperationException($"Esta conta já está cadastrada como '{duplicate.DisplayName}'.");
+            }
+        }
+
+        p.BlobFingerprint = _vault.SaveBlob(p.Id, authJson);
+        if (!string.IsNullOrEmpty(claims.Sub)) p.AccountSub = claims.Sub;
+        if (!string.IsNullOrEmpty(claims.Email)) p.AccountEmail = claims.Email;
+        if (!string.IsNullOrEmpty(claims.PlanType)) p.PlanType = claims.PlanType;
+        if (!string.IsNullOrEmpty(file?.AuthMode)) p.AuthMode = file.AuthMode;
+        p.HealthStatus = HealthStatus.Valid;
+        p.LastError = null;
+        p.LastRefreshedAt = file?.LastRefresh ?? _clock.UtcNow;
+
+        var sub = SubscriptionJwtClaimExtractor.Extract(authJson, _clock.UtcNow);
+        if (sub is not null) p.DetectedSubscription = sub;
+
+        if (p.IsActive && _fs != null && _paths != null)
+        {
+            _fs.WriteAllBytesAtomic(_paths.ActiveAuthPath, authJson);
+        }
+
+        _store.SaveAll(Profiles);
+        _audit.Record("reauthenticate", "ok", p.DisplayName);
+        return p;
+    }
+
     /// <summary>Marca um perfil como "usado" agora; o selo visual expira sozinho após 24h.</summary>
     public void MarkUsed(Guid id)
     {

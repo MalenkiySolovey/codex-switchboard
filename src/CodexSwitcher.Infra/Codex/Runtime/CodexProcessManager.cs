@@ -62,6 +62,17 @@ using SysProcess = System.Diagnostics.Process;
 /// </summary>
 public sealed class CodexProcessManager : IProcessManager
 {
+    private readonly ISwitchboardCodexProcessRegistry? _registry;
+
+    public CodexProcessManager() : this(null)
+    {
+    }
+
+    public CodexProcessManager(ISwitchboardCodexProcessRegistry? registry = null)
+    {
+        _registry = registry;
+    }
+
     public IReadOnlyList<CodexProcessInfo> FindRunningCodexProcesses()
     {
         var currentSession = SafeSessionId(SysProcess.GetCurrentProcess());
@@ -76,6 +87,9 @@ public sealed class CodexProcessManager : IProcessManager
                 {
                     if (SafeSessionId(proc) != currentSession)
                         continue; // só a sessão atual (ponto 26)
+
+                    if (_registry?.IsOwnedProcess(proc.Id) == true)
+                        continue; // Processo filho interno do Switchboard (monitor app-server/login); ignorar para detecção de CLI do usuário
 
                     var path = SafeExecutablePath(proc);
                     if (path is null)

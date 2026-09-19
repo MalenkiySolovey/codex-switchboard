@@ -53,7 +53,8 @@ public sealed record AccountUsageState(
     CredentialConflictReason ConflictReason = CredentialConflictReason.None,
     AccountActivitySnapshot? Activity = null,
     AccountActivityAvailability ActivityAvailability = AccountActivityAvailability.Unknown,
-    RateLimitResetCredits? ResetCreditsDetail = null)
+    RateLimitResetCredits? ResetCreditsDetail = null,
+    bool? OrdinaryUsageAllowed = null)
 {
     /// <summary>Returns true if this account has any quota windows defined.</summary>
     public bool HasWindows => Windows.Count > 0;

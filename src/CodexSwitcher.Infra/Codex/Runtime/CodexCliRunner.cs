@@ -66,11 +66,18 @@ public sealed class CodexCliRunner : ICodexCli
 
     private readonly string? _resolvedPath;
     private readonly Launcher _launcher;
+    private readonly ISwitchboardCodexProcessRegistry? _registry;
 
-    public CodexCliRunner(string? executableOverride = null)
+    public CodexCliRunner(string? executableOverride)
+        : this(executableOverride, null)
+    {
+    }
+
+    public CodexCliRunner(string? executableOverride = null, ISwitchboardCodexProcessRegistry? registry = null)
     {
         _resolvedPath = ResolveCodexPath(executableOverride);
         _launcher = _resolvedPath is null ? Launcher.Executable : LauncherFor(_resolvedPath);
+        _registry = registry;
     }
 
     public bool IsAvailable => _resolvedPath is not null;
@@ -99,7 +106,7 @@ public sealed class CodexCliRunner : ICodexCli
         // CODEX_HOME somente no filho (ponto 7); o app-server escreve o auth.json aqui ao concluir.
         psi.Environment["CODEX_HOME"] = codexHome;
 
-        return await CodexAppServerLoginSession.StartAsync(psi, codexHome, cancellationToken)
+        return await CodexAppServerLoginSession.StartAsync(psi, codexHome, cancellationToken, _registry)
             .ConfigureAwait(false);
     }
 
@@ -167,9 +174,12 @@ public sealed class CodexCliRunner : ICodexCli
             onOutputLine?.Invoke(e.Data);
         };
 
+        int processId = 0;
         try
         {
             process.Start();
+            processId = process.Id;
+            _registry?.RegisterOwnedProcess(processId);
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
@@ -191,6 +201,11 @@ public sealed class CodexCliRunner : ICodexCli
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             return new CodexCliResult(-1, string.Empty, "falha ao iniciar o processo codex");
+        }
+        finally
+        {
+            if (processId > 0)
+                _registry?.UnregisterOwnedProcess(processId);
         }
     }
 

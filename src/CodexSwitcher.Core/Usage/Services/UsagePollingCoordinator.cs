@@ -180,7 +180,14 @@ public sealed class UsagePollingCoordinator : IDisposable
                     _coordinatorCts.Token);
                 linkedCts.CancelAfter(timeout);
 
-                results = await _usageService.RefreshAllAsync(profiles, linkedCts.Token).ConfigureAwait(false);
+                results = await _usageService.RefreshAllAsync(
+                    profiles,
+                    (profileId, fetchResult) =>
+                    {
+                        var progressiveState = UsagePresentationMapper.MapFromFetchResult(fetchResult, profileId, _clock.UtcNow);
+                        SafeNotifyUsageUpdated(profileId, progressiveState);
+                    },
+                    linkedCts.Token).ConfigureAwait(false);
             }
             catch (Exception)
             {

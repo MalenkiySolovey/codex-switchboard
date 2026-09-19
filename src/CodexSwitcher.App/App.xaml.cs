@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 
+using CodexSwitcher.Core.Routing.Contracts;
+
 namespace CodexSwitcher.App;
 
 /// <summary>
@@ -39,7 +41,21 @@ public partial class App : Application
         {
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var processRegistry = _host.Services.GetService<ISwitchboardCodexProcessRegistry>();
+                if (processRegistry is not null)
+                {
+                    try
+                    {
+                        using var termCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1200));
+                        await processRegistry.TerminateAllOwnedProcessesAsync(TimeSpan.FromMilliseconds(1000), termCts.Token);
+                    }
+                    catch
+                    {
+                        // Best-effort owned process cleanup
+                    }
+                }
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
                 await _host.StopAsync(cts.Token);
             }
             catch

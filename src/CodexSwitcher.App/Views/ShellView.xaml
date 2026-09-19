@@ -504,6 +504,9 @@
                                                                     Visibility="{x:Bind IsMarkedUsed, Converter={StaticResource BoolToVis}}">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE894;" /></MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="{x:Bind ReauthenticateLabel}" Click="OnReauthenticateClick">
+                                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72D;" /></MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
                                                     <MenuFlyoutItem Text="{x:Bind MarkReLoginLabel}" Click="OnMarkReLoginClick">
                                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7BA;" /></MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>

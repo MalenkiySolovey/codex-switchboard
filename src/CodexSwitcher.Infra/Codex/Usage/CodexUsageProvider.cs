@@ -43,6 +43,7 @@ using CodexSwitcher.Infra.Security.Hardening;
 using CodexSwitcher.Infra.Security.Totp;
 using CodexSwitcher.Infra.Settings;
 using CodexSwitcher.Core.Routing.Contracts;
+using System.Text.Json;
 using CodexSwitcher.Core.Routing.Models;
 using CodexSwitcher.Core.Routing.Services;
 using CodexSwitcher.Infra.Codex.Runtime;
@@ -67,6 +68,19 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
     private readonly TimeSpan _timeout;
     private readonly ICodexCapabilityCache _capabilityCache;
     private readonly Func<string?>? _executablePathAccessor;
+    private readonly ISwitchboardCodexProcessRegistry? _registry;
+
+    public CodexUsageProvider(
+        IFileSystem fs,
+        string tempRoot,
+        string? codexExecutablePath,
+        Func<string, string, ICodexAppServerClient>? clientFactory,
+        TimeSpan? timeout,
+        ICodexCapabilityCache? capabilityCache,
+        Func<string?>? executablePathAccessor)
+        : this(fs, tempRoot, codexExecutablePath, clientFactory, timeout, capabilityCache, executablePathAccessor, null)
+    {
+    }
 
     public CodexUsageProvider(
         IFileSystem fs,
@@ -75,21 +89,30 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
         Func<string, string, ICodexAppServerClient>? clientFactory = null,
         TimeSpan? timeout = null,
         ICodexCapabilityCache? capabilityCache = null,
-        Func<string?>? executablePathAccessor = null)
+        Func<string?>? executablePathAccessor = null,
+        ISwitchboardCodexProcessRegistry? registry = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         ArgumentException.ThrowIfNullOrWhiteSpace(tempRoot);
         _tempRoot = tempRoot;
         _codexExecutablePath = codexExecutablePath ?? CodexCliRunner.ResolveCodexPath();
-        _clientFactory = clientFactory ?? ((exe, home) => new CodexAppServerClient(exe, home));
+        _registry = registry;
+        _clientFactory = clientFactory ?? ((exe, home) => new CodexAppServerClient(exe, home, _registry));
         _timeout = timeout ?? TimeSpan.FromSeconds(25);
         _capabilityCache = capabilityCache ?? new CodexSwitcher.Core.Routing.Services.CodexCapabilityCache();
         _executablePathAccessor = executablePathAccessor;
     }
 
+    public Task<UsageFetchResult> FetchRateLimitsAsync(
+        Guid profileId,
+        byte[] authJsonBytes,
+        CancellationToken cancellationToken = default) =>
+        FetchRateLimitsAsync(profileId, authJsonBytes, null, cancellationToken);
+
     public async Task<UsageFetchResult> FetchRateLimitsAsync(
         Guid profileId,
         byte[] authJsonBytes,
+        UsageFetchOptions? options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(authJsonBytes);
@@ -150,13 +173,37 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
             ErrorInfo? rateLimitsError = null;
             try
             {
-                var rateLimitsElement = await client.RequestAsync(
-                    "account/rateLimits/read",
-                    new { },
-                    _timeout,
-                    cancellationToken).ConfigureAwait(false);
+                JsonElement rateLimitsElement;
+                if (options?.ExcludeResetCreditDetails == true)
+                {
+                    try
+                    {
+                        rateLimitsElement = await client.RequestAsync(
+                            "account/rateLimits/read",
+                            new { excludeResetCreditDetails = true },
+                            _timeout,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                    {
+                        // Fallback for older runtime that doesn't accept excludeResetCreditDetails parameter
+                        rateLimitsElement = await client.RequestAsync(
+                            "account/rateLimits/read",
+                            new { },
+                            _timeout,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    rateLimitsElement = await client.RequestAsync(
+                        "account/rateLimits/read",
+                        new { },
+                        _timeout,
+                        cancellationToken).ConfigureAwait(false);
+                }
 
-                var (primaryLimitId, buckets, resetCredits, resetCreditsDetail) = CodexUsageResponseParser.ParseRateLimitsDetail(rateLimitsElement);
+                var (primaryLimitId, buckets, resetCredits, resetCreditsDetail, ordinaryUsageAllowed) = CodexUsageResponseParser.ParseRateLimitsDetail(rateLimitsElement);
 
                 // Authoritative backend rate limit check (do NOT infer solely from UsedPercent >= 100)
                 var isRateLimited = buckets.Any(b => !string.IsNullOrWhiteSpace(b.RateLimitReachedType));
@@ -172,7 +219,8 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
                     PlanType: effectivePlan,
                     AccountEmail: email,
                     Status: status,
-                    ResetCreditsDetail: resetCreditsDetail);
+                    ResetCreditsDetail: resetCreditsDetail,
+                    OrdinaryUsageAllowed: ordinaryUsageAllowed);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -184,46 +232,54 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
             ErrorInfo? activityError = null;
             AccountActivityAvailability activityAvailability = AccountActivityAvailability.Unknown;
 
-            var exeIdentity = CodexRuntimeResolver.GetExecutableIdentity(exePath);
-            var cachedCaps = _capabilityCache.GetCapabilities(exeIdentity);
-
-            if (cachedCaps?.AccountUsageRead == CapabilityStatus.Unsupported)
+            if (options?.IncludeActivity == false)
             {
-                // Runtime is known not to support account/usage/read; bypass RPC completely
-                activityAvailability = AccountActivityAvailability.UnsupportedRuntime;
+                // Activity read decoupled / bypassed for fast background polling
+                activityAvailability = AccountActivityAvailability.TemporarilyUnavailable;
             }
             else
             {
-                try
+                var exeIdentity = CodexRuntimeResolver.GetExecutableIdentity(exePath);
+                var cachedCaps = _capabilityCache.GetCapabilities(exeIdentity);
+
+                if (cachedCaps?.AccountUsageRead == CapabilityStatus.Unsupported)
                 {
-                    var usageElement = await client.RequestAsync(
-                        "account/usage/read",
-                        new { },
-                        _timeout,
-                        cancellationToken).ConfigureAwait(false);
-
-                    activity = CodexUsageResponseParser.ParseAccountActivity(profileId, usageElement);
-                    activityAvailability = AccountActivityAvailability.Available;
-
-                    _capabilityCache.SetCapabilities(exeIdentity, CodexRuntimeCapabilities.ModernFull);
+                    // Runtime is known not to support account/usage/read; bypass RPC completely
+                    activityAvailability = AccountActivityAvailability.UnsupportedRuntime;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                else
                 {
-                    var sanitized = Sanitize(ex.Message);
-                    activityError = ErrorInfo.Create(ErrorCategory.Unknown, sanitized, DateTimeOffset.UtcNow);
+                    try
+                    {
+                        var usageElement = await client.RequestAsync(
+                            "account/usage/read",
+                            new { },
+                            _timeout,
+                            cancellationToken).ConfigureAwait(false);
 
-                    // Check for authoritative unsupported variant indicator (-32601 or unknown variant)
-                    if (sanitized.Contains("unknown variant 'account/usage/read'", StringComparison.OrdinalIgnoreCase) ||
-                        sanitized.Contains("unknown variant `account/usage/read`", StringComparison.OrdinalIgnoreCase) ||
-                        sanitized.Contains("-32601") ||
-                        sanitized.Contains("Method not found", StringComparison.OrdinalIgnoreCase))
-                    {
-                        activityAvailability = AccountActivityAvailability.UnsupportedRuntime;
-                        _capabilityCache.SetCapabilities(exeIdentity, CodexRuntimeCapabilities.LegacyUnsupportedUsage);
+                        activity = CodexUsageResponseParser.ParseAccountActivity(profileId, usageElement);
+                        activityAvailability = AccountActivityAvailability.Available;
+
+                        _capabilityCache.SetCapabilities(exeIdentity, CodexRuntimeCapabilities.ModernFull);
                     }
-                    else
+                    catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                     {
-                        activityAvailability = AccountActivityAvailability.TemporarilyUnavailable;
+                        var sanitized = Sanitize(ex.Message);
+                        activityError = ErrorInfo.Create(ErrorCategory.Unknown, sanitized, DateTimeOffset.UtcNow);
+
+                        // Check for authoritative unsupported variant indicator (-32601 or unknown variant)
+                        if (sanitized.Contains("unknown variant 'account/usage/read'", StringComparison.OrdinalIgnoreCase) ||
+                            sanitized.Contains("unknown variant `account/usage/read`", StringComparison.OrdinalIgnoreCase) ||
+                            sanitized.Contains("-32601") ||
+                            sanitized.Contains("Method not found", StringComparison.OrdinalIgnoreCase))
+                        {
+                            activityAvailability = AccountActivityAvailability.UnsupportedRuntime;
+                            _capabilityCache.SetCapabilities(exeIdentity, CodexRuntimeCapabilities.LegacyUnsupportedUsage);
+                        }
+                        else
+                        {
+                            activityAvailability = AccountActivityAvailability.TemporarilyUnavailable;
+                        }
                     }
                 }
             }

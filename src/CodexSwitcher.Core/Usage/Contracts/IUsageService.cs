@@ -73,6 +73,15 @@ public interface IUsageService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Refreshes rate limits for a list of profiles with progressive per-account completion notifications.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, UsageFetchResult>> RefreshAllAsync(
+        IReadOnlyList<ProfileMetadata> profiles,
+        Action<Guid, UsageFetchResult>? onAccountCompleted,
+        CancellationToken cancellationToken = default) =>
+        RefreshAllAsync(profiles, cancellationToken);
+
+    /// <summary>
     /// Invalidates cached usage for a profile (e.g. when removed).
     /// </summary>
     void Invalidate(Guid profileId);
