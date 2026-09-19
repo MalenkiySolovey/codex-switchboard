@@ -42,6 +42,8 @@ public sealed class GenericHostCompositionTests : IDisposable
         var baseDir = AppContext.BaseDirectory;
         var probePaths = new[]
         {
+            Path.Combine(baseDir, "..", "..", "..", "..", "..", "src", "CodexSwitcher.App", "bin", "x64", "Debug", "net10.0-windows10.0.19041.0", "win-x64", "CodexSwitchboard.dll"),
+            Path.Combine(baseDir, "..", "..", "..", "..", "..", "src", "CodexSwitcher.App", "bin", "Debug", "net10.0-windows10.0.19041.0", "win-x64", "CodexSwitchboard.dll"),
             Path.Combine(baseDir, "..", "..", "..", "..", "..", "src", "CodexSwitcher.App", "bin", "x64", "Release", "net10.0-windows10.0.19041.0", "win-x64", "CodexSwitchboard.dll"),
             Path.Combine(baseDir, "..", "..", "..", "..", "..", "src", "CodexSwitcher.App", "bin", "Release", "net10.0-windows10.0.19041.0", "win-x64", "CodexSwitchboard.dll"),
             Path.Combine(baseDir, "CodexSwitchboard.dll")

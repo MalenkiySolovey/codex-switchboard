@@ -98,6 +98,7 @@ public sealed class AccountUsageCoordinator : IDisposable
 
         _pollingCoordinator.UsageUpdated += OnUsageUpdated;
         _pollingCoordinator.RefreshingStateChanged += OnRefreshingStateChanged;
+        _appLifetime.ApplicationStopping.Register(() => StopTimers());
     }
 
     public AccountUsageViewModel GetOrCreateUsageVm(Guid profileId)

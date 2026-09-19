@@ -115,21 +115,23 @@ public sealed class ActiveToBackgroundConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value switch
         {
+            AccountCardVisualState.ActiveRouting => Brushes.Resource("BrandAccentSoftBrush"),
             AccountItemViewModel { IsActive: true, IsRoutingActive: true } => Brushes.Resource("BrandAccentSoftBrush"),
             _ => Brushes.Resource("CardBackgroundFillColorDefaultBrush"),
         };
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
-/// <summary>Borda do card: ativa (acento) > marcada como usada nas últimas 24h (verde) > padrão.</summary>
+/// <summary>Borda do card de conta: ativa no roteamento (acento) > credencial ativa sem roteamento (aviso) > padrão neutro.</summary>
 public sealed class CardBorderBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value switch
         {
+            AccountCardVisualState.ActiveRouting => Brushes.Resource("BrandAccentBrush"),
+            AccountCardVisualState.ActiveCredential => Brushes.Resource("HealthWarnBrush"),
             AccountItemViewModel { IsActive: true, IsRoutingActive: true } => Brushes.Resource("BrandAccentBrush"),
             AccountItemViewModel { IsActive: true, IsRoutingActive: false } => Brushes.Resource("HealthWarnBrush"),
-            AccountItemViewModel { IsMarkedUsed: true } => Brushes.Resource("HealthOkBrush"),
             _ => Brushes.Resource("CardStrokeColorDefaultBrush"),
         };
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
@@ -190,6 +192,8 @@ public sealed class ApiCardBorderBrushConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value switch
         {
+            ApiProviderCardVisualState.ActiveRouting => Brushes.Resource("BrandAccentBrush"),
+            ApiProviderCardVisualState.KeyRequired => Brushes.Resource("HealthWarnBrush"),
             ApiProviderItemViewModel { IsTargetActive: true } => Brushes.Resource("BrandAccentBrush"),
             ApiProviderItemViewModel { HasSecret: false } => Brushes.Resource("HealthWarnBrush"),
             _ => Brushes.Resource("CardStrokeColorDefaultBrush"),
@@ -202,6 +206,7 @@ public sealed class ApiCardBackgroundConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value switch
         {
+            ApiProviderCardVisualState.ActiveRouting => Brushes.Resource("BrandAccentSoftBrush"),
             ApiProviderItemViewModel { IsTargetActive: true } => Brushes.Resource("BrandAccentSoftBrush"),
             _ => Brushes.Resource("CardBackgroundFillColorDefaultBrush"),
         };

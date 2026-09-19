@@ -55,31 +55,14 @@ public sealed class SwitchboardCodexProcessRegistry : ISwitchboardCodexProcessRe
 
             try
             {
-                if (proc.MainWindowHandle != IntPtr.Zero)
-                    proc.CloseMainWindow();
+                // Headless app-server child processes cannot exit gracefully without stdin EOF/SIGINT;
+                // terminate the process tree immediately for bounded sub-second shutdown.
+                proc.Kill(entireProcessTree: true);
+                using var killTimeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+                using var killLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(killTimeoutCts.Token, cancellationToken);
+                await proc.WaitForExitAsync(killLinkedCts.Token).ConfigureAwait(false);
             }
             catch { }
-
-            var gracePeriod = TimeSpan.FromMilliseconds(Math.Min(250, Math.Max(50, totalTimeout.TotalMilliseconds / 3)));
-            try
-            {
-                using var graceCts = new CancellationTokenSource(gracePeriod);
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(graceCts.Token, cancellationToken);
-                await proc.WaitForExitAsync(linkedCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { }
-
-            if (!proc.HasExited)
-            {
-                try
-                {
-                    proc.Kill(entireProcessTree: true);
-                    using var killTimeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
-                    using var killLinkedCts = CancellationTokenSource.CreateLinkedTokenSource(killTimeoutCts.Token, cancellationToken);
-                    await proc.WaitForExitAsync(killLinkedCts.Token).ConfigureAwait(false);
-                }
-                catch { }
-            }
         }
         catch (ArgumentException) { /* Process already exited */ }
         catch (InvalidOperationException) { /* Process already exited */ }

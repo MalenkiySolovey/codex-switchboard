@@ -71,9 +71,15 @@ public sealed class UsagePollingCoordinator : IDisposable
     public event EventHandler<bool>? RefreshingStateChanged;
 
     public UsagePollingCoordinator(IUsageService usageService, IClock clock)
+        : this(usageService, clock, null)
+    {
+    }
+
+    public UsagePollingCoordinator(IUsageService usageService, IClock clock, IAppLifetime? appLifetime)
     {
         _usageService = usageService ?? throw new ArgumentNullException(nameof(usageService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        appLifetime?.ApplicationStopping.Register(() => Stop());
     }
 
     /// <summary>

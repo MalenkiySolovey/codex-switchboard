@@ -1,10 +1,11 @@
 using CodexSwitcher.App.Composition;
+using CodexSwitcher.Core.Common.Lifecycle;
+using CodexSwitcher.Core.Routing.Contracts;
+using CodexSwitcher.Core.Usage.Services;
 using CodexSwitcher.Infra.Scheduling;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
-
-using CodexSwitcher.Core.Routing.Contracts;
 
 namespace CodexSwitcher.App;
 
@@ -39,24 +40,50 @@ public partial class App : Application
     {
         if (_host is not null)
         {
+            var tracer = new ShutdownTracer();
+            tracer.Start();
+
             try
             {
-                var processRegistry = _host.Services.GetService<ISwitchboardCodexProcessRegistry>();
-                if (processRegistry is not null)
+                // Phase 1: Request stopping and cancel background operations
+                tracer.MeasurePhase("CancelBackgroundOperations", () =>
                 {
                     try
                     {
-                        using var termCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1200));
-                        await processRegistry.TerminateAllOwnedProcessesAsync(TimeSpan.FromMilliseconds(1000), termCts.Token);
+                        var appLifetime = _host.Services.GetService<IAppLifetime>();
+                        appLifetime?.StopApplication();
                     }
-                    catch
-                    {
-                        // Best-effort owned process cleanup
-                    }
-                }
+                    catch { }
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
-                await _host.StopAsync(cts.Token);
+                    try
+                    {
+                        var usagePolling = _host.Services.GetService<UsagePollingCoordinator>();
+                        usagePolling?.Stop();
+                    }
+                    catch { }
+                });
+
+                // Phase 2: Terminate owned child processes promptly in parallel
+                await tracer.MeasurePhaseAsync("TerminateOwnedProcesses", async () =>
+                {
+                    var processRegistry = _host.Services.GetService<ISwitchboardCodexProcessRegistry>();
+                    if (processRegistry is not null)
+                    {
+                        try
+                        {
+                            using var termCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+                            await processRegistry.TerminateAllOwnedProcessesAsync(TimeSpan.FromMilliseconds(300), termCts.Token).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+                }).ConfigureAwait(false);
+
+                // Phase 3: Stop Host with bounded timeout
+                await tracer.MeasurePhaseAsync("StopHost", async () =>
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+                    await _host.StopAsync(cts.Token).ConfigureAwait(false);
+                }).ConfigureAwait(false);
             }
             catch
             {
@@ -64,8 +91,13 @@ public partial class App : Application
             }
             finally
             {
-                _host.Dispose();
-                _host = null;
+                tracer.MeasurePhase("DisposeHost", () =>
+                {
+                    _host.Dispose();
+                    _host = null;
+                });
+
+                System.Diagnostics.Debug.WriteLine(tracer.FormatSummary());
             }
         }
     }

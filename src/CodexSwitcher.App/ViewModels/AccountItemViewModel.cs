@@ -64,6 +64,17 @@ public enum AccountBadge
     Unavailable,
 }
 
+/// <summary>Semantic visual state of an account card. Controls border and background styling.</summary>
+public enum AccountCardVisualState
+{
+    /// <summary>Account is active in auth.json and OpenAI routing is currently active.</summary>
+    ActiveRouting,
+    /// <summary>Account is active in auth.json, but routing is currently pointing to an API provider.</summary>
+    ActiveCredential,
+    /// <summary>Normal inactive account card.</summary>
+    Normal,
+}
+
 /// <summary>
 /// Snapshot de exibição de um perfil (a lista é reconstruída após cada operação).
 /// Formata datas relativas e o selo de saúde conforme §3.4 e §8, no idioma detectado.
@@ -102,7 +113,6 @@ public sealed partial class AccountItemViewModel : ObservableObject
         LastSwitchedTooltip = profile.LastSwitchedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "-";
 
         HealthText = ComputeHealthText(profile, now, settings);
-        NeedsAttention = Badge is AccountBadge.NeedsReLogin or AccountBadge.Error;
         IsMarkedUsed = profile.MarkedUsedAt is { } markedAt && (now - markedAt) < TimeSpan.FromHours(24);
 
         var today = DateOnly.FromDateTime(now.LocalDateTime);
@@ -129,33 +139,121 @@ public sealed partial class AccountItemViewModel : ObservableObject
     public string ExpandCollapseTooltip => IsCompact ? Loc.ExpandAccountDetails : Loc.CollapseAccountDetails;
     public string ExpandCollapseAutomationName => ExpandCollapseTooltip;
 
-    public ProfileMetadata Profile { get; }
+    public ProfileMetadata Profile { get; private set; }
     public Guid Id { get; }
     public AccountUsageViewModel Usage { get; }
-    public string DisplayName { get; }
-    public string Subtitle { get; }
-    public string Initials { get; }
-    public bool IsActive { get; }
-    public bool IsRoutingActive { get; }
-    public AccountBadge Badge { get; }
-    public string? PlanText { get; }
-    public string? SubscriptionDisplayText { get; }
-    public string? SubscriptionTooltipText { get; }
+
+    [ObservableProperty]
+    public partial string DisplayName { get; set; }
+
+    [ObservableProperty]
+    public partial string Subtitle { get; set; }
+
+    [ObservableProperty]
+    public partial string Initials { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInUse))]
+    [NotifyPropertyChangedFor(nameof(CanSwitch))]
+    [NotifyPropertyChangedFor(nameof(CardVisualState))]
+    public partial bool IsActive { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsInUse))]
+    [NotifyPropertyChangedFor(nameof(CanSwitch))]
+    [NotifyPropertyChangedFor(nameof(CardVisualState))]
+    public partial bool IsRoutingActive { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSwitch))]
+    [NotifyPropertyChangedFor(nameof(NeedsAttention))]
+    public partial AccountBadge Badge { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPlanOrSubscription))]
+    [NotifyPropertyChangedFor(nameof(ShowSubscriptionSeparator))]
+    public partial string? PlanText { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSubscriptionText))]
+    [NotifyPropertyChangedFor(nameof(HasPlanOrSubscription))]
+    [NotifyPropertyChangedFor(nameof(ShowSubscriptionSeparator))]
+    public partial string? SubscriptionDisplayText { get; set; }
+
+    [ObservableProperty]
+    public partial string? SubscriptionTooltipText { get; set; }
+
     public bool HasSubscriptionText => !string.IsNullOrWhiteSpace(SubscriptionDisplayText);
     public bool HasPlanOrSubscription => !string.IsNullOrWhiteSpace(PlanText) || HasSubscriptionText;
     public bool ShowSubscriptionSeparator => !string.IsNullOrWhiteSpace(PlanText) && HasSubscriptionText;
-    public string LastSwitchedText { get; }
-    public string LastSwitchedTooltip { get; }
-    public string HealthText { get; }
-    public bool NeedsAttention { get; }
+
+    [ObservableProperty]
+    public partial string LastSwitchedText { get; set; }
+
+    [ObservableProperty]
+    public partial string LastSwitchedTooltip { get; set; }
+
+    [ObservableProperty]
+    public partial string HealthText { get; set; }
+
+    public bool NeedsAttention => Badge is AccountBadge.NeedsReLogin or AccountBadge.Error;
 
     /// <summary>Marcado como "usado" nas últimas 24h. Ver <see cref="ProfileMetadata.MarkedUsedAt"/>.</summary>
-    public bool IsMarkedUsed { get; }
+    [ObservableProperty]
+    public partial bool IsMarkedUsed { get; set; }
 
     /// <summary>Fully in use: active in auth.json AND routing in config.toml is set to openai.</summary>
     public bool IsInUse => IsActive && IsRoutingActive;
 
     public bool CanSwitch => !IsInUse && Badge != AccountBadge.Unavailable;
+
+    /// <summary>
+    /// Current semantic visual state for the full card border and background.
+    /// Invariant: ONLY active/current routing or credential states receive special borders.
+    /// Marked-used or inactive accounts ALWAYS receive neutral Normal state.
+    /// </summary>
+    public AccountCardVisualState CardVisualState =>
+        IsActive && IsRoutingActive ? AccountCardVisualState.ActiveRouting :
+        IsActive && !IsRoutingActive ? AccountCardVisualState.ActiveCredential :
+        AccountCardVisualState.Normal;
+
+    public void UpdateState(
+        ProfileMetadata profile,
+        bool isRoutingActive,
+        DateTimeOffset now,
+        AppSettings settings)
+    {
+        Profile = profile;
+        DisplayName = profile.DisplayName;
+        Subtitle = !string.IsNullOrWhiteSpace(profile.AccountEmail)
+            ? profile.AccountEmail!
+            : profile.AuthMode is { Length: > 0 } mode ? Loc.ModeFormat(mode) : Loc.CodexAccount;
+
+        Initials = ComputeInitials(profile);
+        IsActive = profile.IsActive;
+        IsRoutingActive = isRoutingActive;
+        Badge = ComputeBadge(profile, isRoutingActive);
+        PlanText = profile.PlanType;
+
+        LastSwitchedText = profile.LastSwitchedAt is null
+            ? Loc.NeverUsedHere
+            : Loc.SwitchedFormat(RelativeTime.Humanize(profile.LastSwitchedAt, now, Loc.Pt));
+        LastSwitchedTooltip = profile.LastSwitchedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "-";
+
+        HealthText = ComputeHealthText(profile, now, settings);
+        IsMarkedUsed = profile.MarkedUsedAt is { } markedAt && (now - markedAt) < TimeSpan.FromHours(24);
+
+        var today = DateOnly.FromDateTime(now.LocalDateTime);
+        var subPres = SubscriptionPresentationResolver.Resolve(
+            profile.SubscriptionTracking,
+            profile.DetectedSubscription,
+            profile.PlanType,
+            today,
+            culture: null,
+            pt: Loc.Pt);
+        SubscriptionDisplayText = subPres.DisplayText;
+        SubscriptionTooltipText = subPres.TooltipText;
+    }
     // Rótulos localizados usados dentro do DataTemplate do card.
     public string SwitchLabel => Loc.Switch;
     public string InUseLabel => Loc.InUse;

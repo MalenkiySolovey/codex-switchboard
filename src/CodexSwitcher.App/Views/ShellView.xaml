@@ -263,8 +263,8 @@
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:AccountItemViewModel">
                             <Border CornerRadius="{StaticResource CardCornerRadius}" BorderThickness="1.5" Padding="16,10"
-                                    BorderBrush="{x:Bind Converter={StaticResource CardBorder}}"
-                                    Background="{x:Bind Converter={StaticResource ActiveBg}}">
+                                    BorderBrush="{x:Bind CardVisualState, Mode=OneWay, Converter={StaticResource CardBorder}}"
+                                    Background="{x:Bind CardVisualState, Mode=OneWay, Converter={StaticResource ActiveBg}}">
                                 <StackPanel Spacing="10">
                                     <!-- Top Row: Identity + Badges + Compact Quota + 2FA + Actions + Expand/Collapse -->
                                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
@@ -286,10 +286,10 @@
                                                            VerticalAlignment="Center" />
                                                 <!-- Health status badge -->
                                                 <Border Style="{StaticResource StatusBadgeBorderStyle}"
-                                                        BorderBrush="{x:Bind Badge, Converter={StaticResource BadgeBrush}}">
+                                                        BorderBrush="{x:Bind Badge, Mode=OneWay, Converter={StaticResource BadgeBrush}}">
                                                     <TextBlock Style="{StaticResource StatusBadgeTextStyle}"
-                                                               Text="{x:Bind Badge, Converter={StaticResource BadgeText}}"
-                                                               Foreground="{x:Bind Badge, Converter={StaticResource BadgeBrush}}" />
+                                                               Text="{x:Bind Badge, Mode=OneWay, Converter={StaticResource BadgeText}}"
+                                                               Foreground="{x:Bind Badge, Mode=OneWay, Converter={StaticResource BadgeBrush}}" />
                                                 </Border>
                                                 <!-- Stale Cache Badge -->
                                                 <Border Style="{StaticResource StatusBadgeBorderStyle}"
@@ -462,7 +462,7 @@
 
                                         <!-- Col 6: Switch / In Use -->
                                         <Button Grid.Column="6" VerticalAlignment="Center" Click="OnSwitchClick"
-                                                Visibility="{x:Bind CanSwitch, Converter={StaticResource BoolToVis}}"
+                                                Visibility="{x:Bind CanSwitch, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                                 Background="{ThemeResource BrandAccentBrush}"
                                                 Foreground="{ThemeResource BrandOnAccentBrush}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -472,7 +472,7 @@
                                         </Button>
                                         <Border Grid.Column="6" VerticalAlignment="Center" Padding="10,6"
                                                 CornerRadius="{StaticResource ControlCornerRadius}"
-                                                Visibility="{x:Bind IsInUse, Converter={StaticResource BoolToVis}}"
+                                                Visibility="{x:Bind IsInUse, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                                 Background="{ThemeResource BrandAccentSoftBrush}">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="{ThemeResource BrandAccentBrush}" />
@@ -788,8 +788,8 @@
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:ApiProviderItemViewModel">
                             <Border CornerRadius="{StaticResource CardCornerRadius}" BorderThickness="1.5" Padding="16,12"
-                                    BorderBrush="{x:Bind Converter={StaticResource ApiCardBorder}}"
-                                    Background="{x:Bind Converter={StaticResource ApiCardBg}}">
+                                    BorderBrush="{x:Bind CardVisualState, Mode=OneWay, Converter={StaticResource ApiCardBorder}}"
+                                    Background="{x:Bind CardVisualState, Mode=OneWay, Converter={StaticResource ApiCardBg}}">
                                 <StackPanel Spacing="10">
                                     <!-- Top row: Identity & Actions -->
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
@@ -816,13 +816,13 @@
                                                 </Border>
                                                 <!-- Active Badge -->
                                                 <Border CornerRadius="4" Padding="6,2"
-                                                        Visibility="{x:Bind IsTargetActive, Converter={StaticResource BoolToVis}}"
+                                                        Visibility="{x:Bind IsTargetActive, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                                         Background="{ThemeResource BrandAccentBrush}">
                                                     <TextBlock Text="Active Routing" FontSize="11" FontWeight="Bold" Foreground="{ThemeResource BrandOnAccentBrush}" />
                                                 </Border>
                                                 <!-- Key Missing Badge -->
                                                 <Border CornerRadius="4" Padding="6,2"
-                                                        Visibility="{x:Bind HasSecret, Converter={StaticResource InvBoolToVis}}"
+                                                        Visibility="{x:Bind HasSecret, Mode=OneWay, Converter={StaticResource InvBoolToVis}}"
                                                         Background="{ThemeResource HealthDangerBrush}">
                                                     <TextBlock Text="API Key Required" FontSize="11" FontWeight="Bold" Foreground="White" />
                                                 </Border>
@@ -853,7 +853,7 @@
 
                                             <!-- Continue Chat (cross-provider thread fork) -->
                                             <Button Click="OnContinueOnClick"
-                                                    IsEnabled="{x:Bind HasSecret}"
+                                                    IsEnabled="{x:Bind HasSecret, Mode=OneWay}"
                                                     ToolTipService.ToolTip="{x:Bind ContinueOnTooltip}">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <FontIcon Glyph="&#xE8BD;" FontSize="13" />
@@ -863,7 +863,7 @@
 
                                             <!-- Switch Button -->
                                             <Button Click="OnSwitchApiClick"
-                                                    IsEnabled="{x:Bind CanSwitch}"
+                                                    IsEnabled="{x:Bind CanSwitch, Mode=OneWay}"
                                                     Background="{ThemeResource BrandAccentBrush}" Foreground="{ThemeResource BrandOnAccentBrush}">
                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <FontIcon Glyph="&#xE898;" FontSize="13" />

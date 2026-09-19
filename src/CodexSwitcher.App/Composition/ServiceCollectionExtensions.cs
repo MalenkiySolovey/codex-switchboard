@@ -230,7 +230,8 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton(sp => new UsagePollingCoordinator(
             sp.GetRequiredService<IUsageService>(),
-            sp.GetRequiredService<IClock>()));
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<IAppLifetime>()));
 
         return services;
     }

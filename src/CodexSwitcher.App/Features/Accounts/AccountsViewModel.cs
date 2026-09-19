@@ -176,18 +176,30 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         _profiles.Reconcile();
         var now = _clock.UtcNow;
 
+        var existingMap = _all.ToDictionary(a => a.Id);
         _all.Clear();
         var ordered = _profiles.Profiles
             .OrderBy(p => p.SortOrder)
             .ThenByDescending(p => p.CreatedAt);
         foreach (var p in ordered)
         {
-            var usageVm = _usage.GetOrCreateUsageVm(p.Id);
             bool isCompact = _settings.CollapsedProfileIds.Contains(p.Id);
             bool isRoutingActive = !isRoutingActiveToApi && p.IsActive;
-            var item = new AccountItemViewModel(p, now, _settings, usageVm, isCompact, isRoutingActive);
-            item.HasTotpConfigured = _totp.HasCredential(p.Id);
-            _all.Add(item);
+
+            if (existingMap.TryGetValue(p.Id, out var existing))
+            {
+                existing.UpdateState(p, isRoutingActive, now, _settings);
+                existing.HasTotpConfigured = _totp.HasCredential(p.Id);
+                existing.IsCompact = isCompact;
+                _all.Add(existing);
+            }
+            else
+            {
+                var usageVm = _usage.GetOrCreateUsageVm(p.Id);
+                var item = new AccountItemViewModel(p, now, _settings, usageVm, isCompact, isRoutingActive);
+                item.HasTotpConfigured = _totp.HasCredential(p.Id);
+                _all.Add(item);
+            }
         }
 
         ShowEmptyState = _all.Count == 0;
@@ -232,9 +244,37 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
                 a.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
 
-        Items.Clear();
-        foreach (var a in items)
-            Items.Add(a);
+        SyncCollection(Items, items.ToList());
+    }
+
+    private static void SyncCollection(ObservableCollection<AccountItemViewModel> collection, List<AccountItemViewModel> target)
+    {
+        if (collection.SequenceEqual(target))
+        {
+            return;
+        }
+
+        for (int i = collection.Count - 1; i >= 0; i--)
+        {
+            if (!target.Contains(collection[i]))
+            {
+                collection.RemoveAt(i);
+            }
+        }
+
+        for (int i = 0; i < target.Count; i++)
+        {
+            var item = target[i];
+            var currentIndex = collection.IndexOf(item);
+            if (currentIndex < 0)
+            {
+                collection.Insert(i, item);
+            }
+            else if (currentIndex != i)
+            {
+                collection.Move(currentIndex, i);
+            }
+        }
     }
 
     public void SetForegroundActive(bool active)

@@ -69,6 +69,7 @@ public sealed class ProfileStore : CodexSwitcher.Core.Accounts.Contracts.IProfil
 
     private readonly IFileSystem _fs;
     private readonly string _profilesPath;
+    private string? _lastSavedJson;
 
     public ProfileStore(IFileSystem fs, string profilesPath)
     {
@@ -88,6 +89,7 @@ public sealed class ProfileStore : CodexSwitcher.Core.Accounts.Contracts.IProfil
             if (string.IsNullOrWhiteSpace(json))
                 return [];
             var list = JsonSerializer.Deserialize<List<ProfileMetadata>>(json, JsonOptions);
+            _lastSavedJson = json;
             return list ?? [];
         }
         catch (JsonException)
@@ -100,10 +102,16 @@ public sealed class ProfileStore : CodexSwitcher.Core.Accounts.Contracts.IProfil
     public void SaveAll(IEnumerable<ProfileMetadata> profiles)
     {
         ArgumentNullException.ThrowIfNull(profiles);
+        var json = JsonSerializer.Serialize(profiles.ToList(), JsonOptions);
+        if (string.Equals(_lastSavedJson, json, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         var dir = Path.GetDirectoryName(_profilesPath);
         if (!string.IsNullOrEmpty(dir))
             _fs.CreateDirectory(dir);
-        var json = JsonSerializer.Serialize(profiles.ToList(), JsonOptions);
         _fs.WriteAllTextAtomic(_profilesPath, json);
+        _lastSavedJson = json;
     }
 }

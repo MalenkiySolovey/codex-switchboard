@@ -135,22 +135,70 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     /// </summary>
     public void Rebuild(ActiveTarget? activeTarget, bool isRoutingActiveToApi)
     {
-        Items.Clear();
+        var existingMap = Items.ToDictionary(x => x.Id);
+        var targetList = new List<ApiProviderItemViewModel>();
         var apiProfiles = _apiProviderStore.GetAll();
+
         foreach (var prof in apiProfiles)
         {
             var desc = _catalogService.GetDescriptor(prof.CatalogProviderId);
             bool hasSecret = _secretStore.HasApiKey(prof.Id);
             bool isTargetActive = isRoutingActiveToApi && activeTarget is ActiveTarget.Api a && a.Profile.Id == prof.Id;
-            var vm = new ApiProviderItemViewModel(prof, desc, hasSecret, isTargetActive);
-            var routeKey = !string.IsNullOrWhiteSpace(prof.SelectedRouteId) ? prof.SelectedRouteId : prof.BaseUrl;
-            if (_modelCache.TryGetModels(prof.Id, routeKey, 1, out var cachedModels) && cachedModels.Count > 0)
+
+            if (existingMap.TryGetValue(prof.Id, out var existing))
             {
-                vm.SetDiscoveredModels(cachedModels);
+                existing.UpdateProfile(prof, desc, hasSecret, isTargetActive);
+                var routeKey = !string.IsNullOrWhiteSpace(prof.SelectedRouteId) ? prof.SelectedRouteId : prof.BaseUrl;
+                if (_modelCache.TryGetModels(prof.Id, routeKey, 1, out var cachedModels) && cachedModels.Count > 0)
+                {
+                    existing.SetDiscoveredModels(cachedModels);
+                }
+                targetList.Add(existing);
             }
-            Items.Add(vm);
+            else
+            {
+                var vm = new ApiProviderItemViewModel(prof, desc, hasSecret, isTargetActive);
+                var routeKey = !string.IsNullOrWhiteSpace(prof.SelectedRouteId) ? prof.SelectedRouteId : prof.BaseUrl;
+                if (_modelCache.TryGetModels(prof.Id, routeKey, 1, out var cachedModels) && cachedModels.Count > 0)
+                {
+                    vm.SetDiscoveredModels(cachedModels);
+                }
+                targetList.Add(vm);
+            }
         }
+
+        SyncCollection(Items, targetList);
         ShowEmptyState = Items.Count == 0;
+    }
+
+    private static void SyncCollection(ObservableCollection<ApiProviderItemViewModel> collection, List<ApiProviderItemViewModel> target)
+    {
+        if (collection.SequenceEqual(target))
+        {
+            return;
+        }
+
+        for (int i = collection.Count - 1; i >= 0; i--)
+        {
+            if (!target.Contains(collection[i]))
+            {
+                collection.RemoveAt(i);
+            }
+        }
+
+        for (int i = 0; i < target.Count; i++)
+        {
+            var item = target[i];
+            var currentIndex = collection.IndexOf(item);
+            if (currentIndex < 0)
+            {
+                collection.Insert(i, item);
+            }
+            else if (currentIndex != i)
+            {
+                collection.Move(currentIndex, i);
+            }
+        }
     }
 
     public void CancelOperations()

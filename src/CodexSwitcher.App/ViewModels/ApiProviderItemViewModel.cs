@@ -53,6 +53,17 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CodexSwitcher.App.ViewModels;
 
+/// <summary>Semantic visual state of an API provider card. Controls border and background styling.</summary>
+public enum ApiProviderCardVisualState
+{
+    /// <summary>Provider is the active routing target.</summary>
+    ActiveRouting,
+    /// <summary>Provider has no API key configured.</summary>
+    KeyRequired,
+    /// <summary>Normal inactive provider card.</summary>
+    Normal,
+}
+
 /// <summary>
 /// Presentation ViewModel for an API Provider card in the UI.
 /// Exposes safe key previews, capability tri-state facts, and routing state.
@@ -70,11 +81,26 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSwitch))]
+    [NotifyPropertyChangedFor(nameof(CardVisualState))]
     public partial bool IsTargetActive { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSwitch))]
+    [NotifyPropertyChangedFor(nameof(CardVisualState))]
     public partial bool HasSecret { get; set; }
+
+    /// <summary>
+    /// Current semantic visual state for the full provider card border and background.
+    /// </summary>
+    public ApiProviderCardVisualState CardVisualState =>
+        IsTargetActive ? ApiProviderCardVisualState.ActiveRouting :
+        !HasSecret ? ApiProviderCardVisualState.KeyRequired :
+        ApiProviderCardVisualState.Normal;
+
+    public void UpdateRoutingState(bool isTargetActive)
+    {
+        IsTargetActive = isTargetActive;
+    }
 
     [ObservableProperty]
     public partial string DisplayName { get; set; }

@@ -224,9 +224,34 @@ public sealed class CodexCliRunner : ICodexCli
             _ => Launcher.Executable,
         };
 
+    private static readonly object s_resolveLock = new();
+    private static string? s_cachedOverride;
+    private static string? s_cachedResolvedPath;
+
+    public static void InvalidateCachedPath()
+    {
+        lock (s_resolveLock)
+        {
+            s_cachedOverride = null;
+            s_cachedResolvedPath = null;
+        }
+    }
+
     public static string? ResolveCodexPath(string? overridePath = null)
     {
-        var runtime = new CodexRuntimeResolver().ResolveCurrentRuntime(overridePath);
-        return string.IsNullOrEmpty(runtime.ExecutablePath) ? null : runtime.ExecutablePath;
+        lock (s_resolveLock)
+        {
+            if (s_cachedResolvedPath != null && string.Equals(s_cachedOverride, overridePath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.Exists(s_cachedResolvedPath))
+                    return s_cachedResolvedPath;
+            }
+
+            var runtime = new CodexRuntimeResolver().ResolveCurrentRuntime(overridePath);
+            var result = string.IsNullOrEmpty(runtime.ExecutablePath) ? null : runtime.ExecutablePath;
+            s_cachedOverride = overridePath;
+            s_cachedResolvedPath = result;
+            return result;
+        }
     }
 }
