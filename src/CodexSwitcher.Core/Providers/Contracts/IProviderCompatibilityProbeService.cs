@@ -28,7 +28,7 @@ public sealed record ProviderProbeReport(
     string BaseUrl,
     string ModelSlug,
     CodexCompatibilityLevel CompatibilityLevel,
-    ResponsesFailureClassification ResponsesStatus,
+    ProviderProbeOutcome ProbeOutcome,
     CapabilityEvidence ModelsEndpoint,
     CapabilityEvidence ResponsesEndpoint,
     CapabilityEvidence BasicCodexTurn,
@@ -47,6 +47,20 @@ public sealed record ProviderProbeReport(
     List<string>? DiscoveredModelIds = null,
     string? DiagnosticSummary = null)
 {
+    // Backwards-compatibility alias mapping ProbeOutcome to ResponsesFailureClassification
+    public ResponsesFailureClassification ResponsesStatus => ProbeOutcome switch
+    {
+        ProviderProbeOutcome.Success => ResponsesFailureClassification.ResponsesPassed,
+        ProviderProbeOutcome.AuthenticationFailed => ResponsesFailureClassification.AuthenticationFailed,
+        ProviderProbeOutcome.RateLimited => ResponsesFailureClassification.RateLimited,
+        ProviderProbeOutcome.UpstreamUnavailable => ResponsesFailureClassification.UpstreamUnavailable,
+        ProviderProbeOutcome.ModelUnavailable => ResponsesFailureClassification.ModelUnavailable,
+        ProviderProbeOutcome.PayloadRejected => ResponsesFailureClassification.PayloadRejected,
+        ProviderProbeOutcome.CodexEnvelopeRejected => ResponsesFailureClassification.CodexEnvelopeRejected,
+        ProviderProbeOutcome.EndpointMissing => ResponsesFailureClassification.EndpointMissing,
+        _ => ResponsesFailureClassification.None,
+    };
+
     // Backwards-compatibility aliases and helper properties
     public CapabilityEvidence CodexRuntimeSmokeTest => BasicCodexTurn;
     public CapabilityEvidence ToolCallingSupport => BuiltInFunctionTools;
@@ -78,7 +92,10 @@ public sealed record ProviderProbeReport(
             ["model"] = ModelSlug,
             ["baseUrl"] = BaseUrl,
             ["compatibilityLevel"] = CompatibilityLevel.ToString(),
+            ["probeOutcome"] = ProbeOutcome.ToString(),
             ["responsesStatus"] = ResponsesStatus.ToString(),
+            ["sandboxPolicy"] = "workspace-write",
+            ["networkAccessEnforced"] = false,
             ["codexRuntimeIdentity"] = CodexRuntimeIdentity,
             ["probedAt"] = ProbedAt.ToString("O"),
             ["capabilities"] = new Dictionary<string, object?>

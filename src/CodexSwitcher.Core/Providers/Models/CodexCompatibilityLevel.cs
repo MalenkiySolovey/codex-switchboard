@@ -7,7 +7,7 @@ namespace CodexSwitcher.Core.Providers.Models;
 /// </summary>
 public enum CodexCompatibilityLevel
 {
-    /// <summary>Compatibility has not been verified yet.</summary>
+    /// <summary>Compatibility has not been verified yet or could not be determined due to transient/probe errors (Unknown / Unverified).</summary>
     Unknown = 0,
 
     /// <summary>Fully Codex compatible via direct Responses API; both protocol probes and isolated Codex execution passed.</summary>

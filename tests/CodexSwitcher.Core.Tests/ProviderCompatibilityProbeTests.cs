@@ -215,8 +215,26 @@ public sealed class ProviderCompatibilityProbeTests
         {
             if (psi.Arguments.Contains("canary.txt", StringComparison.OrdinalIgnoreCase))
             {
-                // Simulate tool turn emitting tool_call event for canary.txt
-                return Task.FromResult((0, "{\"type\":\"tool_call\",\"tool\":\"write_file\",\"file\":\"canary.txt\"}", ""));
+                // Write canary file to the workspace
+                var match = System.Text.RegularExpressions.Regex.Match(psi.Arguments, @"-C\s+""([^""]+)""");
+                if (match.Success)
+                {
+                    var canaryFile = Path.Combine(match.Groups[1].Value, "canary.txt");
+                    File.WriteAllText(canaryFile, "canary-ok");
+                }
+                // Simulate complete event sequence:
+                // 1. Tool call emitted
+                // 2. Tool executed
+                // 3. Tool result returned upstream
+                // 4. Model produces subsequent final message
+                // 5. Turn completed (exit 0)
+                var jsonEvents = string.Join("\n",
+                    "{\"type\":\"item.created\",\"item\":{\"type\":\"function_call\",\"name\":\"write_file\",\"call_id\":\"call_1\"}}",
+                    "{\"type\":\"item.created\",\"item\":{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"canary-ok\"}}",
+                    "{\"type\":\"item.completed\",\"item\":{\"type\":\"function_call_output\",\"call_id\":\"call_1\"}}",
+                    "{\"type\":\"item.created\",\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Canary file created successfully.\"}]}}",
+                    "{\"type\":\"turn.completed\"}");
+                return Task.FromResult((0, jsonEvents, ""));
             }
             // Basic ping turn
             return Task.FromResult((0, "{\"type\":\"message\",\"content\":\"pong\"}", ""));
@@ -242,11 +260,14 @@ public sealed class ProviderCompatibilityProbeTests
             "test-model",
             options);
 
+        Assert.Equal(ProviderProbeOutcome.Success, report.ProbeOutcome);
         Assert.Equal(ResponsesFailureClassification.ResponsesPassed, report.ResponsesStatus);
         Assert.Equal(CodexCompatibilityLevel.CodexCompatible, report.CompatibilityLevel);
         Assert.True(report.BasicCodexTurn.IsSupported);
         Assert.True(report.ExecTool.IsSupported);
         Assert.True(report.BuiltInFunctionTools.IsSupported);
+        Assert.Contains("workspace-write sandbox", report.ExecTool.Detail);
+        Assert.Contains("network_access = false", report.ExecTool.Detail);
         // MCP namespace tools must remain Unknown by default
         Assert.Equal(CapabilityEvidenceState.Unknown, report.McpNamespaceTools.State);
     }
@@ -336,7 +357,7 @@ public sealed class ProviderCompatibilityProbeTests
     }
 
     [Fact]
-    public async Task ProbeCompatibility_Responses401_ReportsAuthenticationFailed_AndNotCompatible()
+    public async Task ProbeCompatibility_Responses401_ReportsAuthenticationFailed_AndUnknown()
     {
         var handler = new MockHttpMessageHandler
         {
@@ -362,9 +383,77 @@ public sealed class ProviderCompatibilityProbeTests
             "bad-key",
             "test-model");
 
+        Assert.Equal(ProviderProbeOutcome.AuthenticationFailed, report.ProbeOutcome);
         Assert.Equal(ResponsesFailureClassification.AuthenticationFailed, report.ResponsesStatus);
-        Assert.Equal(CodexCompatibilityLevel.NotCompatible, report.CompatibilityLevel);
+        Assert.Equal(CodexCompatibilityLevel.Unknown, report.CompatibilityLevel);
         Assert.Contains("Authentication failed", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unverified", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses429_ReportsRateLimited_AndUnknown()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage((HttpStatusCode)429)
+                    {
+                        ReasonPhrase = "Too Many Requests",
+                        Content = new StringContent("{\"error\":{\"message\":\"Rate limit exceeded\"}}")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model");
+
+        Assert.Equal(ProviderProbeOutcome.RateLimited, report.ProbeOutcome);
+        Assert.Equal(CodexCompatibilityLevel.Unknown, report.CompatibilityLevel);
+        Assert.Contains("Rate limit", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unverified", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses5xx_ReportsUpstreamUnavailable_AndUnknown()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadGateway)
+                    {
+                        ReasonPhrase = "Bad Gateway",
+                        Content = new StringContent("502 Bad Gateway upstream")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model");
+
+        Assert.Equal(ProviderProbeOutcome.UpstreamUnavailable, report.ProbeOutcome);
+        Assert.Equal(CodexCompatibilityLevel.Unknown, report.CompatibilityLevel);
+        Assert.Contains("Upstream", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unverified", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -464,6 +553,172 @@ public sealed class ProviderCompatibilityProbeTests
     }
 
     [Fact]
+    public async Task ProbeCompatibility_LocalSandboxBlocked_ReportsLocalSandboxBlocked_AndUnknown()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}")
+            }
+        };
+
+        using var client = new HttpClient(handler);
+
+        ProcessRunnerFunc mockRunner = (psi, _) =>
+        {
+            if (psi.Arguments.Contains("canary.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                // Local sandbox prevented workspace-write execution
+                return Task.FromResult((1, "", "sandbox initialization error: operation not permitted in Windows sandbox"));
+            }
+            // Basic ping turn passed
+            return Task.FromResult((0, "{\"type\":\"message\",\"content\":\"pong\"}", ""));
+        };
+
+        var mockResolver = new MockRuntimeResolver(Environment.ProcessPath ?? typeof(ProviderCompatibilityProbeTests).Assembly.Location);
+
+        var probeService = new ProviderCompatibilityProbeService(
+            httpClient: client,
+            runtimeResolver: mockResolver,
+            fs: null,
+            processRunner: mockRunner);
+
+        var options = new ProviderProbeOptions
+        {
+            RunCodexSmokeTest = true,
+            RunToolSmokeTest = true
+        };
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model",
+            options);
+
+        // Local sandbox blocked is a probe-environment failure, NOT provider incompatibility!
+        Assert.Equal(ProviderProbeOutcome.LocalSandboxBlocked, report.ProbeOutcome);
+        Assert.Equal(CodexCompatibilityLevel.Unknown, report.CompatibilityLevel);
+        Assert.False(report.ExecTool.IsSupported);
+        Assert.Contains("probe-environment failure", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_ToolSmoke_CanaryFileCreated_ButMissingEventSequence_ReportsPartiallyCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}")
+            }
+        };
+
+        using var client = new HttpClient(handler);
+
+        ProcessRunnerFunc mockRunner = (psi, _) =>
+        {
+            if (psi.Arguments.Contains("canary.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                // Canary file was created by an external script, but model never actually emitted tool call!
+                var match = System.Text.RegularExpressions.Regex.Match(psi.Arguments, @"-C\s+""([^""]+)""");
+                if (match.Success)
+                {
+                    var canaryFile = Path.Combine(match.Groups[1].Value, "canary.txt");
+                    File.WriteAllText(canaryFile, "canary-ok");
+                }
+                // Only plain text was returned - no tool call sequence!
+                return Task.FromResult((0, "{\"type\":\"item.created\",\"item\":{\"type\":\"message\",\"content\":\"I wrote the file myself\"}}", ""));
+            }
+            return Task.FromResult((0, "{\"type\":\"message\",\"content\":\"pong\"}", ""));
+        };
+
+        var mockResolver = new MockRuntimeResolver(Environment.ProcessPath ?? typeof(ProviderCompatibilityProbeTests).Assembly.Location);
+
+        var probeService = new ProviderCompatibilityProbeService(
+            httpClient: client,
+            runtimeResolver: mockResolver,
+            fs: null,
+            processRunner: mockRunner);
+
+        var options = new ProviderProbeOptions
+        {
+            RunCodexSmokeTest = true,
+            RunToolSmokeTest = true
+        };
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model",
+            options);
+
+        // File existence alone is NOT sufficient: missing tool call emission MUST fail!
+        Assert.Equal(CodexCompatibilityLevel.PartiallyCompatible, report.CompatibilityLevel);
+        Assert.False(report.ExecTool.IsSupported);
+        Assert.Contains("model did not emit a tool call", report.ExecTool.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_ToolSmoke_ToolExecuted_ButMissingSubsequentFinalMessage_ReportsPartiallyCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}")
+            }
+        };
+
+        using var client = new HttpClient(handler);
+
+        ProcessRunnerFunc mockRunner = (psi, _) =>
+        {
+            if (psi.Arguments.Contains("canary.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(psi.Arguments, @"-C\s+""([^""]+)""");
+                if (match.Success)
+                {
+                    var canaryFile = Path.Combine(match.Groups[1].Value, "canary.txt");
+                    File.WriteAllText(canaryFile, "canary-ok");
+                }
+                // Tool call emitted, tool executed, but stream terminated before model produced subsequent final message
+                var brokenSequence = string.Join("\n",
+                    "{\"type\":\"item.created\",\"item\":{\"type\":\"function_call\",\"name\":\"write_file\",\"call_id\":\"call_1\"}}",
+                    "{\"type\":\"item.created\",\"item\":{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"canary-ok\"}}",
+                    "{\"type\":\"item.completed\",\"item\":{\"type\":\"function_call_output\",\"call_id\":\"call_1\"}}");
+                return Task.FromResult((0, brokenSequence, ""));
+            }
+            return Task.FromResult((0, "{\"type\":\"message\",\"content\":\"pong\"}", ""));
+        };
+
+        var mockResolver = new MockRuntimeResolver(Environment.ProcessPath ?? typeof(ProviderCompatibilityProbeTests).Assembly.Location);
+
+        var probeService = new ProviderCompatibilityProbeService(
+            httpClient: client,
+            runtimeResolver: mockResolver,
+            fs: null,
+            processRunner: mockRunner);
+
+        var options = new ProviderProbeOptions
+        {
+            RunCodexSmokeTest = true,
+            RunToolSmokeTest = true
+        };
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model",
+            options);
+
+        // Missing subsequent final message must fail qualification
+        Assert.Equal(CodexCompatibilityLevel.PartiallyCompatible, report.CompatibilityLevel);
+        Assert.False(report.ExecTool.IsSupported);
+        Assert.Contains("subsequent final message", report.ExecTool.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GenerateSanitizedExport_ExcludesRawSecrets_AndProducesValidJson()
     {
         const string rawSecretKey = "sk-super-secret-key-123456789";
@@ -497,7 +752,10 @@ public sealed class ProviderCompatibilityProbeTests
         Assert.Equal("pool-east-1", root.GetProperty("routePoolLabel").GetString());
         Assert.Equal("test-model", root.GetProperty("model").GetString());
         Assert.Equal("https://api.test/v1", root.GetProperty("baseUrl").GetString());
+        Assert.Equal("Success", root.GetProperty("probeOutcome").GetString());
         Assert.Equal("ResponsesPassed", root.GetProperty("responsesStatus").GetString());
+        Assert.Equal("workspace-write", root.GetProperty("sandboxPolicy").GetString());
+        Assert.False(root.GetProperty("networkAccessEnforced").GetBoolean());
         Assert.True(root.TryGetProperty("capabilities", out var caps));
         Assert.True(caps.TryGetProperty("responsesEndpoint", out _));
         Assert.True(caps.TryGetProperty("basicCodexTurn", out _));

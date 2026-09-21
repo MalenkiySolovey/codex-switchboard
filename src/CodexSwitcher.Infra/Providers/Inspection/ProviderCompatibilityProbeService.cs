@@ -26,6 +26,7 @@ public delegate Task<(int ExitCode, string Stdout, string Stderr)> ProcessRunner
 /// </summary>
 public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityProbeService
 {
+    private static readonly char[] s_lineDelimiters = ['\r', '\n'];
     private readonly HttpClient _httpClient;
     private readonly ICodexRuntimeResolver? _runtimeResolver;
     private readonly IFileSystem _fs;
@@ -68,8 +69,8 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         // 1. Probe /models
         var (modelsEvidence, discoveredModelIds) = await ProbeModelsAsync(cleanBaseUrl, apiKey, cts.Token).ConfigureAwait(false);
 
-        // 2. Probe /responses (minimal text ping) with fine-grained failure classification
-        var (responsesEvidence, responsesClassification) = await ProbeMinimalResponsesAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
+        // 2. Probe /responses (minimal text ping) with fine-grained outcome classification
+        var (responsesEvidence, httpOutcome) = await ProbeMinimalResponsesAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
 
         // 3. Probe streaming Responses (if enabled)
         var streamingEvidence = options.IncludeStreaming
@@ -86,14 +87,14 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
 
         // 6. Probe ordinary tool calling via HTTP protocol
         var httpToolCallingEvidence = await ProbeToolCallingAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
-        if (!httpToolCallingEvidence.IsSupported && responsesClassification == ResponsesFailureClassification.ResponsesPassed)
+        if (!httpToolCallingEvidence.IsSupported && httpOutcome == ProviderProbeOutcome.Success)
         {
             if (httpToolCallingEvidence.Detail != null &&
                 (httpToolCallingEvidence.Detail.Contains("namespace", StringComparison.OrdinalIgnoreCase) ||
                  httpToolCallingEvidence.Detail.Contains("unsupported tool", StringComparison.OrdinalIgnoreCase) ||
                  httpToolCallingEvidence.Detail.Contains("schema", StringComparison.OrdinalIgnoreCase)))
             {
-                responsesClassification = ResponsesFailureClassification.CodexEnvelopeRejected;
+                httpOutcome = ProviderProbeOutcome.CodexEnvelopeRejected;
             }
         }
 
@@ -103,7 +104,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             : CapabilityEvidence.Unknown("Hosted search probe not requested (opt-in to avoid extra billing)");
 
         // 8. Layer 2 — Real isolated Codex runtime execution (Phase A: basic turn, Phase B: real tool smoke)
-        var (basicTurnEvidence, execToolEvidence, functionToolsEvidence, mcpToolsEvidence, envelopeRejection) =
+        var (basicTurnEvidence, execToolEvidence, functionToolsEvidence, mcpToolsEvidence, layer2Outcome) =
             options.RunCodexSmokeTest
                 ? await ProbeCodexRealExecutionAsync(runtimeInfo, cleanBaseUrl, apiKey, modelSlug, options.RunToolSmokeTest, cts.Token).ConfigureAwait(false)
                 : (CapabilityEvidence.Unknown("Codex smoke test skipped by options"),
@@ -112,17 +113,13 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
                    CapabilityEvidence.Unknown("MCP namespace tools unverified (advanced probe)"),
                    null);
 
-        if (envelopeRejection.HasValue)
-        {
-            responsesClassification = envelopeRejection.Value;
-        }
-
-        // 9. Synthesize overall compatibility level
-        var (level, summary) = SynthesizeCompatibility(
-            responsesClassification,
+        // 9. Synthesize overall compatibility level and probe outcome
+        var (level, finalOutcome, summary) = SynthesizeCompatibility(
+            httpOutcome,
             responsesEvidence,
             basicTurnEvidence,
-            execToolEvidence);
+            execToolEvidence,
+            layer2Outcome);
 
         var appsToolsEvidence = CapabilityEvidence.Unknown("Apps namespace tools unverified (advanced probe)");
         var pluginsEvidence = CapabilityEvidence.Unknown("Plugins unverified (advanced probe)");
@@ -132,7 +129,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             cleanBaseUrl,
             modelSlug,
             level,
-            responsesClassification,
+            finalOutcome,
             modelsEvidence,
             responsesEvidence,
             basicTurnEvidence,
@@ -152,77 +149,91 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             summary);
     }
 
-    private static (CodexCompatibilityLevel Level, string Summary) SynthesizeCompatibility(
-        ResponsesFailureClassification responsesStatus,
+    private static (CodexCompatibilityLevel Level, ProviderProbeOutcome Outcome, string Summary) SynthesizeCompatibility(
+        ProviderProbeOutcome httpOutcome,
         CapabilityEvidence responses,
         CapabilityEvidence basicTurn,
-        CapabilityEvidence execTool)
+        CapabilityEvidence execTool,
+        ProviderProbeOutcome? layer2Outcome)
     {
-        switch (responsesStatus)
+        switch (httpOutcome)
         {
-            case ResponsesFailureClassification.EndpointMissing:
-                return (CodexCompatibilityLevel.NotCompatible,
+            case ProviderProbeOutcome.EndpointMissing:
+                return (CodexCompatibilityLevel.NotCompatible, ProviderProbeOutcome.EndpointMissing,
                     "Not compatible with Codex: /responses endpoint not found (HTTP 404). Provider does not support Codex Responses API.");
 
-            case ResponsesFailureClassification.AuthenticationFailed:
-                return (CodexCompatibilityLevel.NotCompatible,
-                    "Authentication failed (HTTP 401/403): Provider rejected the API key.");
+            case ProviderProbeOutcome.AuthenticationFailed:
+                return (CodexCompatibilityLevel.Unknown, ProviderProbeOutcome.AuthenticationFailed,
+                    "Authentication failed (HTTP 401/403): Provider rejected the API key; compatibility is unverified.");
 
-            case ResponsesFailureClassification.ModelUnavailable:
-                return (CodexCompatibilityLevel.PartiallyCompatible,
+            case ProviderProbeOutcome.RateLimited:
+                return (CodexCompatibilityLevel.Unknown, ProviderProbeOutcome.RateLimited,
+                    "Rate limit exceeded (HTTP 429) during qualification; compatibility is unverified.");
+
+            case ProviderProbeOutcome.UpstreamUnavailable:
+                return (CodexCompatibilityLevel.Unknown, ProviderProbeOutcome.UpstreamUnavailable,
+                    "Upstream provider server error or connection failure; compatibility is unverified.");
+
+            case ProviderProbeOutcome.ModelUnavailable:
+                return (CodexCompatibilityLevel.PartiallyCompatible, ProviderProbeOutcome.ModelUnavailable,
                     "Partially compatible: /responses endpoint is reachable, but the requested model is not available or rejected.");
 
-            case ResponsesFailureClassification.PayloadRejected:
-                return (CodexCompatibilityLevel.PartiallyCompatible,
+            case ProviderProbeOutcome.PayloadRejected:
+                return (CodexCompatibilityLevel.PartiallyCompatible, ProviderProbeOutcome.PayloadRejected,
                     "Partially compatible: /responses endpoint reachable, but request payload parameters were rejected.");
 
-            case ResponsesFailureClassification.RateLimited:
-                return (CodexCompatibilityLevel.PartiallyCompatible,
-                    "Partially compatible: Rate limit exceeded (HTTP 429) during qualification.");
-
-            case ResponsesFailureClassification.UpstreamUnavailable:
-                return (CodexCompatibilityLevel.PartiallyCompatible,
-                    "Partially compatible: Upstream provider server error or connection failure.");
-
-            case ResponsesFailureClassification.CodexEnvelopeRejected:
-                return (CodexCompatibilityLevel.PartiallyCompatible,
+            case ProviderProbeOutcome.CodexEnvelopeRejected:
+                return (CodexCompatibilityLevel.PartiallyCompatible, ProviderProbeOutcome.CodexEnvelopeRejected,
                     "Partially compatible: Provider rejected custom Codex tool calling or namespace envelope.");
 
-            case ResponsesFailureClassification.ResponsesPassed:
+            case ProviderProbeOutcome.Success:
             default:
                 if (!responses.IsSupported)
                 {
-                    return (CodexCompatibilityLevel.NotCompatible,
+                    return (CodexCompatibilityLevel.NotCompatible, ProviderProbeOutcome.EndpointMissing,
                         "Not compatible with Codex: /responses endpoint is not supported or rejected the request.");
+                }
+
+                // Check Layer 2 outcome
+                if (layer2Outcome == ProviderProbeOutcome.LocalSandboxBlocked)
+                {
+                    return (CodexCompatibilityLevel.Unknown, ProviderProbeOutcome.LocalSandboxBlocked,
+                        "Local probe-environment failure: Codex sandbox prevented workspace-write execution on this system; provider compatibility is unverified.");
+                }
+
+                if (layer2Outcome == ProviderProbeOutcome.CodexEnvelopeRejected)
+                {
+                    return (CodexCompatibilityLevel.PartiallyCompatible, ProviderProbeOutcome.CodexEnvelopeRejected,
+                        "Partially compatible: Provider accepted plain Responses inference, but rejected Codex tool envelope.");
                 }
 
                 if (basicTurn.IsSupported)
                 {
                     if (execTool.IsSupported)
                     {
-                        return (CodexCompatibilityLevel.CodexCompatible,
+                        return (CodexCompatibilityLevel.CodexCompatible, ProviderProbeOutcome.Success,
                             "Codex compatible: Direct Responses API verified with real Codex execution and built-in tools.");
                     }
 
                     if (execTool.State == CapabilityEvidenceState.ProbeFailed)
                     {
-                        return (CodexCompatibilityLevel.PartiallyCompatible,
-                            "Partially compatible: Basic Codex turn succeeded, but built-in tool execution failed or was rejected by provider.");
+                        return (CodexCompatibilityLevel.PartiallyCompatible, ProviderProbeOutcome.CodexEnvelopeRejected,
+                            "Partially compatible: Basic Codex turn succeeded, but built-in tool execution sequence failed or was rejected by provider.");
                     }
 
                     // Exec tool was skipped or unknown
-                    return (CodexCompatibilityLevel.CodexCompatible,
+                    return (CodexCompatibilityLevel.CodexCompatible, ProviderProbeOutcome.Success,
                         "Codex compatible: Direct Responses API verified via live execution.");
                 }
 
                 if (basicTurn.State == CapabilityEvidenceState.ProbeFailed)
                 {
-                    return (CodexCompatibilityLevel.PartiallyCompatible,
+                    return (CodexCompatibilityLevel.PartiallyCompatible, ProviderProbeOutcome.CodexEnvelopeRejected,
                         "Partially compatible: Basic Responses inference passed; Codex runtime execution encountered errors.");
                 }
 
                 // Smoke test was skipped/unknown, but responses protocol works
-                return (CodexCompatibilityLevel.CodexCompatible,
+                return (CodexCompatibilityLevel.CodexCompatible, ProviderProbeOutcome.Success,
                     "Codex compatible: Direct Responses API verified via HTTP protocol probe.");
         }
     }
@@ -267,7 +278,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         }
     }
 
-    private async Task<(CapabilityEvidence Evidence, ResponsesFailureClassification Classification)>
+    private async Task<(CapabilityEvidence Evidence, ProviderProbeOutcome Outcome)>
         ProbeMinimalResponsesAsync(string baseUrl, string apiKey, string model, CancellationToken ct)
     {
         try
@@ -293,7 +304,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
 
             if (resp.IsSuccessStatusCode)
             {
-                return (CapabilityEvidence.ProbePassed("POST /responses", detail: $"HTTP {statusCode} OK"), ResponsesFailureClassification.ResponsesPassed);
+                return (CapabilityEvidence.ProbePassed("POST /responses", detail: $"HTTP {statusCode} OK"), ProviderProbeOutcome.Success);
             }
 
             var responseBody = string.Empty;
@@ -306,58 +317,58 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
                 // Non-fatal
             }
 
-            var classification = ClassifyHttpFailure(statusCode, responseBody);
+            var outcome = ClassifyHttpFailure(statusCode, responseBody);
             var detail = $"HTTP {statusCode} {resp.ReasonPhrase}".Trim();
             if (!string.IsNullOrWhiteSpace(responseBody) && responseBody.Length < 250)
             {
                 detail += $": {responseBody.Trim()}";
             }
 
-            return (CapabilityEvidence.ProbeFailed("POST /responses", detail: detail), classification);
+            return (CapabilityEvidence.ProbeFailed("POST /responses", detail: detail), outcome);
         }
         catch (HttpRequestException ex)
         {
-            var classification = ex.StatusCode.HasValue
+            var outcome = ex.StatusCode.HasValue
                 ? ClassifyHttpFailure((int)ex.StatusCode.Value, ex.Message)
-                : ResponsesFailureClassification.UpstreamUnavailable;
+                : ProviderProbeOutcome.UpstreamUnavailable;
 
-            return (CapabilityEvidence.ProbeFailed("POST /responses", detail: ex.Message), classification);
+            return (CapabilityEvidence.ProbeFailed("POST /responses", detail: ex.Message), outcome);
         }
         catch (Exception ex)
         {
-            return (CapabilityEvidence.ProbeFailed("POST /responses", detail: ex.Message), ResponsesFailureClassification.UpstreamUnavailable);
+            return (CapabilityEvidence.ProbeFailed("POST /responses", detail: ex.Message), ProviderProbeOutcome.UpstreamUnavailable);
         }
     }
 
-    private static ResponsesFailureClassification ClassifyHttpFailure(int statusCode, string body)
+    private static ProviderProbeOutcome ClassifyHttpFailure(int statusCode, string body)
     {
         if (statusCode == 404)
         {
-            return ResponsesFailureClassification.EndpointMissing;
+            return ProviderProbeOutcome.EndpointMissing;
         }
 
         if (statusCode is 401 or 403)
         {
-            return ResponsesFailureClassification.AuthenticationFailed;
+            return ProviderProbeOutcome.AuthenticationFailed;
         }
 
         if (statusCode == 429)
         {
-            return ResponsesFailureClassification.RateLimited;
+            return ProviderProbeOutcome.RateLimited;
         }
 
         if (statusCode >= 500)
         {
-            return ResponsesFailureClassification.UpstreamUnavailable;
+            return ProviderProbeOutcome.UpstreamUnavailable;
         }
 
         if (statusCode == 400)
         {
             if (body.Contains("namespace", StringComparison.OrdinalIgnoreCase) ||
                 body.Contains("unsupported tool", StringComparison.OrdinalIgnoreCase) ||
-                body.Contains("tool", StringComparison.OrdinalIgnoreCase) && body.Contains("schema", StringComparison.OrdinalIgnoreCase))
+                (body.Contains("tool", StringComparison.OrdinalIgnoreCase) && body.Contains("schema", StringComparison.OrdinalIgnoreCase)))
             {
-                return ResponsesFailureClassification.CodexEnvelopeRejected;
+                return ProviderProbeOutcome.CodexEnvelopeRejected;
             }
 
             if (body.Contains("model", StringComparison.OrdinalIgnoreCase) &&
@@ -369,13 +380,13 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
                  body.Contains("not available", StringComparison.OrdinalIgnoreCase) ||
                  body.Contains("not supported", StringComparison.OrdinalIgnoreCase)))
             {
-                return ResponsesFailureClassification.ModelUnavailable;
+                return ProviderProbeOutcome.ModelUnavailable;
             }
 
-            return ResponsesFailureClassification.PayloadRejected;
+            return ProviderProbeOutcome.PayloadRejected;
         }
 
-        return ResponsesFailureClassification.PayloadRejected;
+        return ProviderProbeOutcome.PayloadRejected;
     }
 
 
@@ -578,7 +589,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         CapabilityEvidence ExecTool,
         CapabilityEvidence FunctionTools,
         CapabilityEvidence McpTools,
-        ResponsesFailureClassification? EnvelopeRejection)>
+        ProviderProbeOutcome? Layer2Outcome)>
         ProbeCodexRealExecutionAsync(
             CodexRuntimeInfo? runtimeInfo,
             string baseUrl,
@@ -605,6 +616,11 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             var toml = new StringBuilder();
             toml.Append("model = \"").Append(modelSlug).AppendLine("\"");
             toml.AppendLine("model_provider = \"probe_provider\"");
+            toml.AppendLine("approval_policy = \"never\"");
+            toml.AppendLine("sandbox_mode = \"workspace-write\"");
+            toml.AppendLine();
+            toml.AppendLine("[sandbox_workspace_write]");
+            toml.AppendLine("network_access = false");
             toml.AppendLine();
             toml.AppendLine("[model_providers.probe_provider]");
             toml.AppendLine("name = \"probe_provider\"");
@@ -616,11 +632,11 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             var configPath = Path.Combine(tempDir, "config.toml");
             _fs.WriteAllTextAtomic(configPath, toml.ToString());
 
-            // Phase A: Basic Codex Turn (plain ping)
+            // Phase A: Basic Codex Turn (plain ping) with isolated sandbox
             var basicPsi = new ProcessStartInfo
             {
                 FileName = runtimeInfo.ExecutablePath,
-                Arguments = "exec --ephemeral --skip-git-repo-check --json --color never \"ping\"",
+                Arguments = "--sandbox workspace-write --ask-for-approval never exec --ephemeral --skip-git-repo-check --json --color never \"ping\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -632,7 +648,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             var (basicExit, basicStdout, basicStderr) = await _processRunner(basicPsi, ct).ConfigureAwait(false);
 
             CapabilityEvidence basicTurnEvidence;
-            ResponsesFailureClassification? envelopeRejection = null;
+            ProviderProbeOutcome? layer2Outcome = null;
 
             if (basicExit == 0)
             {
@@ -641,17 +657,23 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             else
             {
                 var combined = (basicStdout + "\n" + basicStderr).Trim();
-                if (combined.Contains("namespace", StringComparison.OrdinalIgnoreCase) ||
+                if (IsLocalSandboxBlocked(basicExit, basicStdout, basicStderr))
+                {
+                    basicTurnEvidence = CapabilityEvidence.ProbeFailed("Codex CLI execution", runtimeIdentity, "Local sandbox blocked execution (probe-environment failure)");
+                    layer2Outcome = ProviderProbeOutcome.LocalSandboxBlocked;
+                }
+                else if (combined.Contains("namespace", StringComparison.OrdinalIgnoreCase) ||
                     combined.Contains("unsupported tool", StringComparison.OrdinalIgnoreCase) ||
                     combined.Contains("schema", StringComparison.OrdinalIgnoreCase))
                 {
                     basicTurnEvidence = CapabilityEvidence.ProbeFailed("Codex CLI execution", runtimeIdentity, "Provider rejected Codex tool/namespace envelope");
-                    envelopeRejection = ResponsesFailureClassification.CodexEnvelopeRejected;
+                    layer2Outcome = ProviderProbeOutcome.CodexEnvelopeRejected;
                 }
                 else
                 {
                     var failDetail = !string.IsNullOrWhiteSpace(basicStderr) ? basicStderr.Trim() : $"Exit code {basicExit}";
                     basicTurnEvidence = CapabilityEvidence.ProbeFailed("Codex CLI execution", runtimeIdentity, failDetail);
+                    layer2Outcome = ProviderProbeOutcome.PayloadRejected;
                 }
             }
 
@@ -668,7 +690,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
                 var toolPsi = new ProcessStartInfo
                 {
                     FileName = runtimeInfo.ExecutablePath,
-                    Arguments = $"exec --ephemeral --skip-git-repo-check --json --color never --dangerously-bypass-approvals-and-sandbox -C \"{workspaceDir}\" \"Create a file named canary.txt with text 'canary-ok'\"",
+                    Arguments = $"--sandbox workspace-write --ask-for-approval never exec --ephemeral --skip-git-repo-check --json --color never -C \"{workspaceDir}\" \"Create a file named canary.txt with text 'canary-ok'\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -679,33 +701,18 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
 
                 var (toolExit, toolStdout, toolStderr) = await _processRunner(toolPsi, ct).ConfigureAwait(false);
 
-                bool canaryVerified = _fs.FileExists(canaryPath) &&
-                    (_fs.ReadAllText(canaryPath).Contains("canary-ok", StringComparison.OrdinalIgnoreCase));
+                var (passed, outcome, detail) = ValidateToolSmokeExecution(toolExit, toolStdout, toolStderr, canaryPath, _fs);
 
-                bool eventsVerified = toolStdout.Contains("canary", StringComparison.OrdinalIgnoreCase) ||
-                                      toolStdout.Contains("tool_call", StringComparison.OrdinalIgnoreCase) ||
-                                      toolStdout.Contains("function_call", StringComparison.OrdinalIgnoreCase);
-
-                if (toolExit == 0 && (canaryVerified || eventsVerified))
+                if (passed)
                 {
-                    execToolEvidence = CapabilityEvidence.ProbePassed("Codex CLI tool execution", runtimeIdentity, "Built-in tool operation (canary file) completed successfully");
-                    functionToolsEvidence = CapabilityEvidence.ProbePassed("Codex CLI tool execution", runtimeIdentity, "Built-in function calling accepted and executed");
+                    execToolEvidence = CapabilityEvidence.ProbePassed("Codex CLI tool execution", runtimeIdentity, detail);
+                    functionToolsEvidence = CapabilityEvidence.ProbePassed("Codex CLI tool execution", runtimeIdentity, "Built-in function calling accepted and executed in isolated workspace");
+                    layer2Outcome = ProviderProbeOutcome.Success;
                 }
                 else
                 {
-                    var toolCombined = (toolStdout + "\n" + toolStderr).Trim();
-                    if (toolCombined.Contains("namespace", StringComparison.OrdinalIgnoreCase) ||
-                        toolCombined.Contains("unsupported tool", StringComparison.OrdinalIgnoreCase) ||
-                        toolCombined.Contains("tool", StringComparison.OrdinalIgnoreCase) && toolCombined.Contains("schema", StringComparison.OrdinalIgnoreCase))
-                    {
-                        envelopeRejection = ResponsesFailureClassification.CodexEnvelopeRejected;
-                        execToolEvidence = CapabilityEvidence.ProbeFailed("Codex CLI tool execution", runtimeIdentity, "Provider rejected Codex tool/namespace envelope");
-                    }
-                    else
-                    {
-                        var failDetail = !string.IsNullOrWhiteSpace(toolStderr) ? toolStderr.Trim() : $"Tool smoke failed (exit code {toolExit})";
-                        execToolEvidence = CapabilityEvidence.ProbeFailed("Codex CLI tool execution", runtimeIdentity, failDetail);
-                    }
+                    layer2Outcome = outcome ?? ProviderProbeOutcome.CodexEnvelopeRejected;
+                    execToolEvidence = CapabilityEvidence.ProbeFailed("Codex CLI tool execution", runtimeIdentity, detail);
                     functionToolsEvidence = CapabilityEvidence.ProbeFailed("Codex CLI tool execution", runtimeIdentity, "Built-in function calling failed or rejected by provider");
                 }
             }
@@ -722,7 +729,7 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
 
             var mcpToolsEvidence = CapabilityEvidence.Unknown("MCP namespace tools unverified (advanced probe)");
 
-            return (basicTurnEvidence, execToolEvidence, functionToolsEvidence, mcpToolsEvidence, envelopeRejection);
+            return (basicTurnEvidence, execToolEvidence, functionToolsEvidence, mcpToolsEvidence, layer2Outcome);
         }
         catch (Exception ex)
         {
@@ -746,6 +753,202 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
                 // Non-fatal cleanup
             }
         }
+    }
+
+    private static bool IsLocalSandboxBlocked(int exitCode, string stdout, string stderr)
+    {
+        var combined = (stdout + "\n" + stderr).ToLowerInvariant();
+        return (combined.Contains("sandbox") && (
+                combined.Contains("failed to start") ||
+                combined.Contains("failed to initialize") ||
+                combined.Contains("not supported") ||
+                combined.Contains("blocked") ||
+                combined.Contains("operation not permitted") ||
+                combined.Contains("access is denied") ||
+                combined.Contains("policy") ||
+                combined.Contains("appcontainer") ||
+                combined.Contains("seatbelt") ||
+                combined.Contains("landlock") ||
+                combined.Contains("permission denied") ||
+                combined.Contains("cannot execute in sandbox") ||
+                combined.Contains("initialization error"))) ||
+            combined.Contains("local probe-environment failure") ||
+            combined.Contains("sandbox error");
+    }
+
+    private static (bool Passed, ProviderProbeOutcome? Outcome, string Detail) ValidateToolSmokeExecution(
+        int exitCode,
+        string stdout,
+        string stderr,
+        string canaryPath,
+        IFileSystem fs)
+    {
+        // 1. Check for local sandbox blocking first
+        if (IsLocalSandboxBlocked(exitCode, stdout, stderr))
+        {
+            return (false, ProviderProbeOutcome.LocalSandboxBlocked,
+                "Local sandbox blocked tool execution (probe-environment failure)");
+        }
+
+        // 2. Check for tool / namespace / schema envelope rejection
+        var combined = (stdout + "\n" + stderr).Trim();
+        if (combined.Contains("namespace", StringComparison.OrdinalIgnoreCase) ||
+            combined.Contains("unsupported tool", StringComparison.OrdinalIgnoreCase) ||
+            (combined.Contains("tool", StringComparison.OrdinalIgnoreCase) && combined.Contains("schema", StringComparison.OrdinalIgnoreCase)))
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                "Provider rejected Codex tool/namespace envelope");
+        }
+
+        // 3. Physical canary file check
+        bool canaryFileExists = fs.FileExists(canaryPath);
+        bool canaryContentMatches = canaryFileExists &&
+            fs.ReadAllText(canaryPath).Contains("canary-ok", StringComparison.OrdinalIgnoreCase);
+
+        // 4. Parse complete JSONL event sequence:
+        // Event 1: Model emits tool call
+        // Event 2: Codex executes it
+        // Event 3: Tool result is returned upstream
+        // Event 4: Model produces a subsequent final message
+        // Event 5: Turn completes successfully
+        bool toolCallEmitted = false;
+        bool toolExecuted = false;
+        bool toolResultReturnedUpstream = false;
+        bool subsequentFinalMessage = false;
+
+        var lines = stdout.Split(s_lineDelimiters, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith('{') || !line.EndsWith('}'))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                var typeStr = root.TryGetProperty("type", out var tp) ? tp.GetString() ?? "" : "";
+
+                // Event 1: Model emits tool call
+                if (!toolCallEmitted)
+                {
+                    if (typeStr.Contains("tool_call", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("function_call", StringComparison.OrdinalIgnoreCase) ||
+                        root.TryGetProperty("tool_calls", out _) ||
+                        root.TryGetProperty("function_call", out _) ||
+                        (root.TryGetProperty("item", out var itm1) &&
+                         itm1.TryGetProperty("type", out var itm1Type) &&
+                         (itm1Type.GetString() == "function_call" || itm1Type.GetString() == "tool_call")))
+                    {
+                        toolCallEmitted = true;
+                        continue;
+                    }
+                }
+
+                // Event 2: Codex executes it
+                if (toolCallEmitted && !toolExecuted)
+                {
+                    if (typeStr.Contains("function_call_output", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("tool_output", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("tool_result", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("execution_completed", StringComparison.OrdinalIgnoreCase) ||
+                        (root.TryGetProperty("item", out var itm2) &&
+                         itm2.TryGetProperty("type", out var itm2Type) &&
+                         (itm2Type.GetString() == "function_call_output" || itm2Type.GetString() == "tool_result")))
+                    {
+                        toolExecuted = true;
+                        continue;
+                    }
+                }
+
+                // Event 3: Tool result returned upstream
+                if (toolExecuted && !toolResultReturnedUpstream)
+                {
+                    if (typeStr.Equals("item.completed", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("output_item.completed", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("response.created", StringComparison.OrdinalIgnoreCase) ||
+                        typeStr.Contains("turn.started", StringComparison.OrdinalIgnoreCase))
+                    {
+                        toolResultReturnedUpstream = true;
+                        continue;
+                    }
+                }
+
+                // Event 4: Model produces subsequent final message
+                if (toolExecuted && !subsequentFinalMessage)
+                {
+                    if (typeStr.Contains("message", StringComparison.OrdinalIgnoreCase) ||
+                        (root.TryGetProperty("role", out var role) && role.GetString() == "assistant" && !root.TryGetProperty("tool_calls", out _)) ||
+                        (root.TryGetProperty("item", out var itm3) &&
+                         itm3.TryGetProperty("type", out var itm3Type) &&
+                         itm3Type.GetString() == "message"))
+                    {
+                        toolResultReturnedUpstream = true;
+                        subsequentFinalMessage = true;
+                        continue;
+                    }
+                }
+            }
+            catch
+            {
+                // Non-fatal parse error on non-standard line
+            }
+        }
+
+        // Robust fallback checks if lines were concatenated or slightly non-standard
+        if (!toolCallEmitted && (stdout.Contains("\"function_call\"") || stdout.Contains("\"tool_call\"")))
+        {
+            toolCallEmitted = true;
+        }
+        if (toolCallEmitted && !toolExecuted && (stdout.Contains("\"function_call_output\"") || stdout.Contains("\"tool_output\"") || stdout.Contains("\"tool_result\"")))
+        {
+            toolExecuted = true;
+        }
+        if (toolExecuted && !toolResultReturnedUpstream && (stdout.Contains("item.completed") || subsequentFinalMessage))
+        {
+            toolResultReturnedUpstream = true;
+        }
+
+        if (!canaryContentMatches)
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                "Canary file 'canary.txt' was not created with expected content 'canary-ok'");
+        }
+
+        if (!toolCallEmitted)
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                "Tool smoke failed: model did not emit a tool call");
+        }
+
+        if (!toolExecuted)
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                "Tool smoke failed: tool execution event not observed");
+        }
+
+        if (!toolResultReturnedUpstream)
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                "Tool smoke failed: tool result was not returned upstream");
+        }
+
+        if (!subsequentFinalMessage)
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                "Tool smoke failed: model did not produce a subsequent final message after tool execution");
+        }
+
+        if (exitCode != 0)
+        {
+            return (false, ProviderProbeOutcome.CodexEnvelopeRejected,
+                $"Tool smoke turn did not complete successfully (exit code {exitCode})");
+        }
+
+        return (true, ProviderProbeOutcome.Success,
+            "Built-in tool operation verified with canary file in workspace-write sandbox (network_access = false enforced)");
     }
 
 
