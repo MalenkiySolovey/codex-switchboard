@@ -123,7 +123,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         var targetProfile = apiPlan.TargetProfile;
         var options = apiPlan.Options;
         var model = targetProfile.SelectedModel ?? "gpt-5.6-sol";
-        var modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(model, targetProfile.ModelOverrides?.ContextWindowTokens);
+        var modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(model, targetProfile.ModelOverrides?.ContextWindowTokens, targetProfile.ModelOverrides);
 
         var currentRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
         var oldCatalogHash = GetFileSha256(currentRouting.ModelCatalogJson);

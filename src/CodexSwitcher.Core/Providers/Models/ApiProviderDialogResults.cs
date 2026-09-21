@@ -47,6 +47,11 @@ public sealed class AddApiProviderResult
     public string SelectedModel { get; set; } = string.Empty;
     public CodexModelOverrides? ModelOverrides { get; set; }
     public ApiProviderTransportOverrides? TransportOverrides { get; set; }
+    public string? RoutePoolLabel { get; set; }
+    public string? ProviderPresetId { get; set; }
+    public List<string>? DiscoveredModels { get; set; }
+    public CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
+    public ProviderProbeReport? LastProbeReport { get; set; }
     public bool SaveAndSwitch { get; set; }
 }
 
@@ -61,4 +66,9 @@ public sealed class EditApiProviderResult
     public string SelectedModel { get; set; } = string.Empty;
     public CodexModelOverrides? ModelOverrides { get; set; }
     public ApiProviderTransportOverrides? TransportOverrides { get; set; }
+    public string? RoutePoolLabel { get; set; }
+    public string? ProviderPresetId { get; set; }
+    public List<string>? DiscoveredModels { get; set; }
+    public CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
+    public ProviderProbeReport? LastProbeReport { get; set; }
 }

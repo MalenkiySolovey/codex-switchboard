@@ -10,8 +10,8 @@ public interface ICodexModelCatalogService
 {
     /// <summary>
     /// Ensures a valid, version-compatible minimal Codex model catalog exists for the specified model slug
-    /// when custom context window tokens exceed the Codex fallback ceiling (272,000 tokens).
+    /// when custom context window tokens exceed the Codex fallback ceiling (272,000 tokens) or custom model overrides are supplied.
     /// Returns the absolute path to the generated catalog file, or null if no catalog is needed.
     /// </summary>
-    string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens);
+    string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens, CodexSwitcher.Core.Providers.Models.CodexModelOverrides? modelOverrides = null);
 }

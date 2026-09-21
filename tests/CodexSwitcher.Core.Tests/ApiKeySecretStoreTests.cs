@@ -90,4 +90,41 @@ public sealed class ApiKeySecretStoreTests
         Assert.Throws<ArgumentException>(() => store.SaveApiKey(Guid.NewGuid(), "   "));
         Assert.Throws<ArgumentException>(() => store.SaveApiKey(Guid.NewGuid(), ""));
     }
+
+    [Fact]
+    public void CloneApiKey_CopiesCiphertextDirectly_AndEnablesTargetDecryption()
+    {
+        using var temp = new TempDir();
+        var store = new ApiKeySecretStore(_protector, _fs, temp.Root);
+
+        var sourceProfileId = Guid.NewGuid();
+        var targetProfileId = Guid.NewGuid();
+        var rawKey = "sk-clone-test-secret-9876543210";
+
+        store.SaveApiKey(sourceProfileId, rawKey);
+        Assert.True(store.HasApiKey(sourceProfileId));
+        Assert.False(store.HasApiKey(targetProfileId));
+
+        store.CloneApiKey(sourceProfileId, targetProfileId);
+
+        Assert.True(store.HasApiKey(targetProfileId));
+        Assert.Equal(rawKey, store.GetApiKey(targetProfileId));
+
+        // Binary contents must match identically (pure ciphertext copy without re-encryption or plaintext memory exposure)
+        var srcBytes = File.ReadAllBytes(store.KeyPath(sourceProfileId));
+        var dstBytes = File.ReadAllBytes(store.KeyPath(targetProfileId));
+        Assert.Equal(srcBytes, dstBytes);
+    }
+
+    [Fact]
+    public void CloneApiKey_WhenSourceDoesNotExist_ThrowsInvalidOperationException()
+    {
+        using var temp = new TempDir();
+        var store = new ApiKeySecretStore(_protector, _fs, temp.Root);
+
+        var nonExistentId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+
+        Assert.Throws<InvalidOperationException>(() => store.CloneApiKey(nonExistentId, targetId));
+    }
 }

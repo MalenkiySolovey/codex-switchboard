@@ -91,6 +91,24 @@ public sealed class ApiProviderProfile
     /// <summary>Optional network and transport configuration overrides for the model provider block.</summary>
     public ApiProviderTransportOverrides? TransportOverrides { get; set; }
 
+    /// <summary>Optional endpoint group ID linking multiple model configurations to the same base URL and credentials.</summary>
+    public Guid? EndpointId { get; set; }
+
+    /// <summary>Optional provider family/preset identifier (e.g. "deepseek", "xai", "openrouter", "modelflare", "hejuapi", "router-cheap").</summary>
+    public string? ProviderPresetId { get; set; }
+
+    /// <summary>Optional route or upstream pool label (e.g. "grok-award 0.01x", "grok-stable 0.11x").</summary>
+    public string? RoutePoolLabel { get; set; }
+
+    /// <summary>Cached list of model IDs discovered from the provider's /models endpoint.</summary>
+    public List<string>? DiscoveredModels { get; set; }
+
+    /// <summary>Latest overall qualification level for OpenAI Codex.</summary>
+    public CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
+
+    /// <summary>Latest capability probe report for this profile/model.</summary>
+    public ProviderProbeReport? LastProbeReport { get; set; }
+
     /// <summary>User-facing display name.</summary>
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(Nickname) ? Nickname :

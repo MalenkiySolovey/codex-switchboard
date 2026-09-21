@@ -67,19 +67,25 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 {
     private readonly AppPaths _paths;
     private readonly CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver _metadataResolver;
+    private readonly IProviderCompatibilityProbeService? _probeService;
+    private readonly IApiKeySecretStore? _secretStore;
 
     public ProviderDialogService(
         IDialogHost host,
         AppPaths paths,
-        CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver? metadataResolver = null) : base(host)
+        CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver? metadataResolver = null,
+        IProviderCompatibilityProbeService? probeService = null,
+        IApiKeySecretStore? secretStore = null) : base(host)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _metadataResolver = metadataResolver ?? new CodexSwitcher.Core.Providers.Services.CodexModelMetadataResolver();
+        _probeService = probeService;
+        _secretStore = secretStore;
     }
 
     public async Task<AddApiProviderResult?> PromptAddApiProviderAsync(IReadOnlyList<ProviderDescriptor> descriptors)
     {
-        var panel = new StackPanel { Spacing = 12, Width = 420 };
+        var panel = new StackPanel { Spacing = 12, Width = 440 };
 
         var providerCombo = new ComboBox
         {
@@ -87,7 +93,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        var customItem = new ComboBoxItem { Content = "(Custom Provider / OpenAI-compatible)", Tag = "custom" };
+        var customItem = new ComboBoxItem { Content = "(Custom Responses Provider)", Tag = "custom" };
         providerCombo.Items.Add(customItem);
 
         foreach (var desc in descriptors)
@@ -107,11 +113,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        var passwordBox = new PasswordBox
+        var routePoolLabelBox = new TextBox
         {
-            Header = _loc.ApiKeyLabel,
-            PlaceholderText = "sk-...",
-            IsPasswordRevealButtonEnabled = true,
+            Header = "Route Pool Label (Optional)",
+            PlaceholderText = "e.g. grok-award 0.01x, grok-stable 0.11x",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
@@ -129,11 +134,57 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        var modelBox = new TextBox
+        var passwordBox = new PasswordBox
+        {
+            Header = _loc.ApiKeyLabel,
+            PlaceholderText = "sk-...",
+            IsPasswordRevealButtonEnabled = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var compatibilityInfoBar = new InfoBar
+        {
+            IsOpen = false,
+            IsClosable = true,
+            Margin = new Thickness(0, 2, 0, 2),
+        };
+
+        var discoverProgress = new ProgressRing
+        {
+            IsActive = false,
+            Visibility = Visibility.Collapsed,
+            Width = 16,
+            Height = 16,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+
+        var discoverButtonText = new TextBlock
+        {
+            Text = "Discover Models & Test Codex Compatibility",
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+
+        var discoverButtonContent = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Children = { discoverProgress, discoverButtonText }
+        };
+
+        var discoverButton = new Button
+        {
+            Content = discoverButtonContent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 2, 0, 2),
+        };
+
+        var modelCombo = new ComboBox
         {
             Header = _loc.ModelLabel,
-            PlaceholderText = "openai/gpt-4o-mini",
+            PlaceholderText = "e.g. grok-4.6, deepseek-reasoner, gpt-5.6-sol",
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsEditable = true,
         };
 
         var errorBar = new InfoBar
@@ -148,7 +199,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             routeCombo.Items.Clear();
             if (desc is not null && desc.Routes.Count > 0)
             {
-                routeCombo.Visibility = Visibility.Visible;
+                routeCombo.Visibility = desc.Routes.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
                 foreach (var r in desc.Routes)
                 {
                     routeCombo.Items.Add(new ComboBoxItem
@@ -162,7 +213,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 var defaultRoute = desc.Routes.FirstOrDefault(r => r.Id.Equals("primary", StringComparison.OrdinalIgnoreCase)) ?? desc.Routes[0];
                 baseUrlBox.Text = defaultRoute.BaseUrl;
                 nicknameBox.Text = desc.DisplayName;
-                modelBox.Text = desc.Codex.DefaultModel;
+                modelCombo.Text = desc.Codex.DefaultModel ?? string.Empty;
             }
             else
             {
@@ -172,7 +223,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     nicknameBox.Text = string.Empty;
                 }
                 baseUrlBox.Text = string.Empty;
-                modelBox.Text = string.Empty;
+                modelCombo.Text = string.Empty;
             }
         }
 
@@ -210,18 +261,137 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             providerCombo.SelectedIndex = 0;
         }
 
+        string GetSelectedModelString()
+        {
+            var txt = modelCombo.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(txt)) return txt;
+            if (modelCombo.SelectedItem is ComboBoxItem cbi && cbi.Content is string s) return s.Trim();
+            return string.Empty;
+        }
+
+        CodexCompatibilityLevel probedCompatibilityLevel = CodexCompatibilityLevel.Unknown;
+        ProviderProbeReport? probedReport = null;
+        List<string>? discoveredModelsList = null;
+
+        discoverButton.Click += async (_, _) =>
+        {
+            var url = baseUrlBox.Text?.Trim();
+            var key = passwordBox.Password?.Trim();
+            var currentModel = GetSelectedModelString();
+            if (string.IsNullOrWhiteSpace(currentModel)) currentModel = "gpt-5.6-sol";
+
+            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Base URL Required";
+                compatibilityInfoBar.Message = "Please specify a valid absolute Base URL before probing.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                compatibilityInfoBar.Title = "API Key Required";
+                compatibilityInfoBar.Message = "Please enter an API Key to run compatibility qualification.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            discoverButton.IsEnabled = false;
+            discoverProgress.Visibility = Visibility.Visible;
+            discoverProgress.IsActive = true;
+            discoverButtonText.Text = "Probing Codex compatibility...";
+            compatibilityInfoBar.IsOpen = false;
+
+            try
+            {
+                if (_probeService != null)
+                {
+                    var report = await _probeService.ProbeCompatibilityAsync(url, key, currentModel);
+                    probedReport = report;
+                    probedCompatibilityLevel = report.CompatibilityLevel;
+
+                    if (report.DiscoveredModelIds != null && report.DiscoveredModelIds.Count > 0)
+                    {
+                        discoveredModelsList = report.DiscoveredModelIds;
+                        var prevModel = GetSelectedModelString();
+                        modelCombo.Items.Clear();
+                        foreach (var m in report.DiscoveredModelIds)
+                        {
+                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
+                        }
+                        if (!string.IsNullOrWhiteSpace(prevModel))
+                        {
+                            modelCombo.Text = prevModel;
+                        }
+                        else
+                        {
+                            modelCombo.SelectedIndex = 0;
+                        }
+                    }
+
+                    switch (report.CompatibilityLevel)
+                    {
+                        case CodexCompatibilityLevel.CodexCompatible:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Success;
+                            compatibilityInfoBar.Title = "Codex Compatible";
+                            compatibilityInfoBar.Message = "Endpoint verified compatible with OpenAI Codex (/responses passed)." +
+                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                            break;
+                        case CodexCompatibilityLevel.PartiallyCompatible:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                            compatibilityInfoBar.Title = "Partially Compatible";
+                            compatibilityInfoBar.Message = "Responses endpoint responded, but CLI smoke test or proprietary namespace tools had issues." +
+                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                            break;
+                        case CodexCompatibilityLevel.NotCompatible:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                            compatibilityInfoBar.Title = "Not Compatible with Codex";
+                            compatibilityInfoBar.Message = "Not compatible with Codex: /responses is not supported. Codex Switchboard requires wire_api = 'responses'." +
+                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                            break;
+                        default:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+                            compatibilityInfoBar.Title = "Qualification Incomplete";
+                            compatibilityInfoBar.Message = report.DiagnosticSummary ?? "Probe completed.";
+                            break;
+                    }
+                    compatibilityInfoBar.IsOpen = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Probe Failed";
+                compatibilityInfoBar.Message = ex.Message;
+                compatibilityInfoBar.IsOpen = true;
+            }
+            finally
+            {
+                discoverButton.IsEnabled = true;
+                discoverProgress.Visibility = Visibility.Collapsed;
+                discoverProgress.IsActive = false;
+                discoverButtonText.Text = "Discover Models & Test Codex Compatibility";
+            }
+        };
+
         panel.Children.Add(providerCombo);
         panel.Children.Add(nicknameBox);
-        panel.Children.Add(passwordBox);
+        panel.Children.Add(routePoolLabelBox);
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
-        panel.Children.Add(modelBox);
+        panel.Children.Add(passwordBox);
+        panel.Children.Add(discoverButton);
+        panel.Children.Add(compatibilityInfoBar);
+        panel.Children.Add(modelCombo);
 
         var advanced = new ApiProviderAdvancedSettingsControlGroup(null, null, _loc, _metadataResolver);
         advanced.AttachTo(panel);
 
-        modelBox.TextChanged += (_, _) => advanced.UpdateModelContextHint(modelBox.Text?.Trim());
-        advanced.UpdateModelContextHint(modelBox.Text?.Trim());
+        modelCombo.SelectionChanged += (_, _) => advanced.UpdateModelContextHint(GetSelectedModelString());
+        modelCombo.TextSubmitted += (_, _) => advanced.UpdateModelContextHint(GetSelectedModelString());
+        advanced.UpdateModelContextHint(GetSelectedModelString());
 
         panel.Children.Add(errorBar);
 
@@ -254,6 +424,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var key = passwordBox.Password?.Trim();
             var name = nicknameBox.Text?.Trim();
             var url = baseUrlBox.Text?.Trim();
+            var selModel = GetSelectedModelString();
+
             if (string.IsNullOrWhiteSpace(key))
             {
                 errorBar.Title = _loc.ApiKeyRequired;
@@ -276,7 +448,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc, modelBox.Text?.Trim());
+            var (m, t, err) = advanced.ValidateAndExtract(_loc, selModel);
             if (err != null)
             {
                 errorBar.Title = err;
@@ -296,6 +468,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var key = passwordBox.Password?.Trim();
             var name = nicknameBox.Text?.Trim();
             var url = baseUrlBox.Text?.Trim();
+            var selModel = GetSelectedModelString();
+
             if (string.IsNullOrWhiteSpace(key))
             {
                 errorBar.Title = _loc.ApiKeyRequired;
@@ -318,7 +492,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc, modelBox.Text?.Trim());
+            var (m, t, err) = advanced.ValidateAndExtract(_loc, selModel);
             if (err != null)
             {
                 errorBar.Title = err;
@@ -349,9 +523,14 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     ApiKey = key,
                     BaseUrl = baseUrlBox.Text.Trim(),
                     SelectedRouteId = selectedRouteTag,
-                    SelectedModel = modelBox.Text?.Trim() ?? string.Empty,
+                    SelectedModel = GetSelectedModelString(),
                     ModelOverrides = extractedModel,
                     TransportOverrides = extractedTransport,
+                    RoutePoolLabel = string.IsNullOrWhiteSpace(routePoolLabelBox.Text) ? null : routePoolLabelBox.Text.Trim(),
+                    ProviderPresetId = selectedTag != "custom" ? selectedTag : null,
+                    DiscoveredModels = discoveredModelsList,
+                    CompatibilityLevel = probedCompatibilityLevel,
+                    LastProbeReport = probedReport,
                     SaveAndSwitch = isPrimary,
                 };
             }
@@ -363,15 +542,22 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         }
     }
 
-
     public async Task<EditApiProviderResult?> PromptEditApiProviderAsync(ApiProviderProfile profile, ProviderDescriptor? descriptor)
     {
-        var panel = new StackPanel { Spacing = 12, Width = 400 };
+        var panel = new StackPanel { Spacing = 12, Width = 440 };
 
         var nicknameBox = new TextBox
         {
             Header = _loc.NameLabel,
             Text = profile.Nickname,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var routePoolLabelBox = new TextBox
+        {
+            Header = "Route Pool Label (Optional)",
+            PlaceholderText = "e.g. grok-award 0.01x, grok-stable 0.11x",
+            Text = profile.RoutePoolLabel ?? string.Empty,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
@@ -391,7 +577,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
         if (descriptor is not null && descriptor.Routes.Count > 0)
         {
-            routeCombo.Visibility = Visibility.Visible;
+            routeCombo.Visibility = descriptor.Routes.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
             foreach (var r in descriptor.Routes)
             {
                 routeCombo.Items.Add(new ComboBoxItem
@@ -416,12 +602,84 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             };
         }
 
-        var modelBox = new TextBox
+        var passwordBox = new PasswordBox
         {
-            Header = _loc.ModelLabel,
-            Text = profile.SelectedModel,
+            Header = $"{_loc.ApiKeyLabel} (Leave blank to keep current key)",
+            PlaceholderText = profile.KeyPreview,
+            IsPasswordRevealButtonEnabled = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+
+        var compatibilityInfoBar = new InfoBar
+        {
+            IsOpen = profile.CompatibilityLevel != CodexCompatibilityLevel.Unknown,
+            IsClosable = true,
+            Margin = new Thickness(0, 2, 0, 2),
+        };
+
+        if (profile.CompatibilityLevel != CodexCompatibilityLevel.Unknown)
+        {
+            compatibilityInfoBar.Severity = profile.CompatibilityLevel switch
+            {
+                CodexCompatibilityLevel.CodexCompatible => InfoBarSeverity.Success,
+                CodexCompatibilityLevel.PartiallyCompatible => InfoBarSeverity.Warning,
+                _ => InfoBarSeverity.Error
+            };
+            compatibilityInfoBar.Title = profile.CompatibilityLevel switch
+            {
+                CodexCompatibilityLevel.CodexCompatible => "Codex Compatible",
+                CodexCompatibilityLevel.PartiallyCompatible => "Partially Compatible",
+                _ => "Not Compatible with Codex"
+            };
+            compatibilityInfoBar.Message = profile.LastProbeReport?.DiagnosticSummary ?? "Previously qualified";
+        }
+
+        var discoverProgress = new ProgressRing
+        {
+            IsActive = false,
+            Visibility = Visibility.Collapsed,
+            Width = 16,
+            Height = 16,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+
+        var discoverButtonText = new TextBlock
+        {
+            Text = "Test Compatibility & Discover Models",
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+
+        var discoverButtonContent = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Children = { discoverProgress, discoverButtonText }
+        };
+
+        var discoverButton = new Button
+        {
+            Content = discoverButtonContent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 2, 0, 2),
+        };
+
+        var modelCombo = new ComboBox
+        {
+            Header = _loc.ModelLabel,
+            PlaceholderText = "e.g. grok-4.6, deepseek-reasoner, gpt-5.6-sol",
+            Text = profile.SelectedModel ?? string.Empty,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            IsEditable = true,
+        };
+
+        if (profile.DiscoveredModels != null && profile.DiscoveredModels.Count > 0)
+        {
+            foreach (var m in profile.DiscoveredModels)
+            {
+                modelCombo.Items.Add(new ComboBoxItem { Content = m });
+            }
+        }
 
         var errorBar = new InfoBar
         {
@@ -430,16 +688,137 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             IsClosable = true,
         };
 
+        string GetSelectedModelString()
+        {
+            var txt = modelCombo.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(txt)) return txt;
+            if (modelCombo.SelectedItem is ComboBoxItem cbi && cbi.Content is string s) return s.Trim();
+            return profile.SelectedModel ?? string.Empty;
+        }
+
+        CodexCompatibilityLevel probedCompatibilityLevel = profile.CompatibilityLevel;
+        ProviderProbeReport? probedReport = profile.LastProbeReport;
+        List<string>? discoveredModelsList = profile.DiscoveredModels;
+
+        discoverButton.Click += async (_, _) =>
+        {
+            var url = baseUrlBox.Text?.Trim();
+            var enteredKey = passwordBox.Password?.Trim();
+            var key = !string.IsNullOrWhiteSpace(enteredKey) ? enteredKey : (_secretStore != null ? _secretStore.GetApiKey(profile.Id) : null);
+            var currentModel = GetSelectedModelString();
+            if (string.IsNullOrWhiteSpace(currentModel)) currentModel = "gpt-5.6-sol";
+
+            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Base URL Required";
+                compatibilityInfoBar.Message = "Please specify a valid absolute Base URL before probing.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                compatibilityInfoBar.Title = "API Key Required";
+                compatibilityInfoBar.Message = "Please enter an API Key to run compatibility qualification.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            discoverButton.IsEnabled = false;
+            discoverProgress.Visibility = Visibility.Visible;
+            discoverProgress.IsActive = true;
+            discoverButtonText.Text = "Probing Codex compatibility...";
+            compatibilityInfoBar.IsOpen = false;
+
+            try
+            {
+                if (_probeService != null)
+                {
+                    var report = await _probeService.ProbeCompatibilityAsync(url, key, currentModel);
+                    probedReport = report;
+                    probedCompatibilityLevel = report.CompatibilityLevel;
+
+                    if (report.DiscoveredModelIds != null && report.DiscoveredModelIds.Count > 0)
+                    {
+                        discoveredModelsList = report.DiscoveredModelIds;
+                        var prevModel = GetSelectedModelString();
+                        modelCombo.Items.Clear();
+                        foreach (var m in report.DiscoveredModelIds)
+                        {
+                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
+                        }
+                        if (!string.IsNullOrWhiteSpace(prevModel))
+                        {
+                            modelCombo.Text = prevModel;
+                        }
+                        else
+                        {
+                            modelCombo.SelectedIndex = 0;
+                        }
+                    }
+
+                    switch (report.CompatibilityLevel)
+                    {
+                        case CodexCompatibilityLevel.CodexCompatible:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Success;
+                            compatibilityInfoBar.Title = "Codex Compatible";
+                            compatibilityInfoBar.Message = "Endpoint verified compatible with OpenAI Codex (/responses passed)." +
+                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                            break;
+                        case CodexCompatibilityLevel.PartiallyCompatible:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                            compatibilityInfoBar.Title = "Partially Compatible";
+                            compatibilityInfoBar.Message = "Responses endpoint responded, but CLI smoke test or proprietary namespace tools had issues." +
+                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                            break;
+                        case CodexCompatibilityLevel.NotCompatible:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                            compatibilityInfoBar.Title = "Not Compatible with Codex";
+                            compatibilityInfoBar.Message = "Not compatible with Codex: /responses is not supported. Codex Switchboard requires wire_api = 'responses'." +
+                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                            break;
+                        default:
+                            compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+                            compatibilityInfoBar.Title = "Qualification Incomplete";
+                            compatibilityInfoBar.Message = report.DiagnosticSummary ?? "Probe completed.";
+                            break;
+                    }
+                    compatibilityInfoBar.IsOpen = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Probe Failed";
+                compatibilityInfoBar.Message = ex.Message;
+                compatibilityInfoBar.IsOpen = true;
+            }
+            finally
+            {
+                discoverButton.IsEnabled = true;
+                discoverProgress.Visibility = Visibility.Collapsed;
+                discoverProgress.IsActive = false;
+                discoverButtonText.Text = "Test Compatibility & Discover Models";
+            }
+        };
+
         panel.Children.Add(nicknameBox);
+        panel.Children.Add(routePoolLabelBox);
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
-        panel.Children.Add(modelBox);
+        panel.Children.Add(passwordBox);
+        panel.Children.Add(discoverButton);
+        panel.Children.Add(compatibilityInfoBar);
+        panel.Children.Add(modelCombo);
 
         var advanced = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc, _metadataResolver);
         advanced.AttachTo(panel);
 
-        modelBox.TextChanged += (_, _) => advanced.UpdateModelContextHint(modelBox.Text?.Trim());
-        advanced.UpdateModelContextHint(modelBox.Text?.Trim());
+        modelCombo.SelectionChanged += (_, _) => advanced.UpdateModelContextHint(GetSelectedModelString());
+        modelCombo.TextSubmitted += (_, _) => advanced.UpdateModelContextHint(GetSelectedModelString());
+        advanced.UpdateModelContextHint(GetSelectedModelString());
 
         panel.Children.Add(errorBar);
 
@@ -481,7 +860,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc, modelBox.Text?.Trim());
+            var selModel = GetSelectedModelString();
+            var (m, t, err) = advanced.ValidateAndExtract(_loc, selModel);
             if (err != null)
             {
                 errorBar.Title = err;
@@ -492,6 +872,15 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
             extractedModel = m;
             extractedTransport = t;
+
+            // If a new key was entered in the passwordBox, rotate it
+            var newKey = passwordBox.Password?.Trim();
+            if (!string.IsNullOrWhiteSpace(newKey) && _secretStore != null)
+            {
+                _secretStore.SaveApiKey(profile.Id, newKey);
+                profile.KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey);
+                profile.Status = ApiProviderProfileStatus.Active;
+            }
         };
 
         var res = await dialog.ShowAsync();
@@ -503,14 +892,18 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 Nickname = nicknameBox.Text.Trim(),
                 BaseUrl = baseUrlBox.Text.Trim(),
                 SelectedRouteId = routeTag,
-                SelectedModel = modelBox.Text?.Trim() ?? string.Empty,
+                SelectedModel = GetSelectedModelString(),
                 ModelOverrides = extractedModel,
                 TransportOverrides = extractedTransport,
+                RoutePoolLabel = string.IsNullOrWhiteSpace(routePoolLabelBox.Text) ? null : routePoolLabelBox.Text.Trim(),
+                ProviderPresetId = profile.ProviderPresetId,
+                DiscoveredModels = discoveredModelsList ?? profile.DiscoveredModels,
+                CompatibilityLevel = probedCompatibilityLevel,
+                LastProbeReport = probedReport,
             };
         }
         return null;
     }
-
 
     public async Task<string?> PromptRotateApiKeyAsync(string providerDisplayName)
     {

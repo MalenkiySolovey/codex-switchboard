@@ -82,6 +82,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     private readonly AppSettings _settings;
     private readonly IAppNotificationService _notifications;
     private readonly IAppBusyService _busyService;
+    private readonly IProviderCompatibilityProbeService? _probeService;
     private readonly CancellationTokenSource _cts = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task<ApiProviderSnapshot>> _inFlightInspections = new();
 
@@ -112,7 +113,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         AppSettings settings,
         IAppNotificationService notifications,
         IAppBusyService busyService,
-        IAppLifetime? appLifetime = null)
+        IAppLifetime? appLifetime = null,
+        IProviderCompatibilityProbeService? probeService = null)
     {
         _apiProviderStore = apiProviderStore ?? throw new ArgumentNullException(nameof(apiProviderStore));
         _inspectionService = inspectionService ?? throw new ArgumentNullException(nameof(inspectionService));
@@ -127,6 +129,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
         _busyService = busyService ?? throw new ArgumentNullException(nameof(busyService));
+        _probeService = probeService;
 
         appLifetime?.ApplicationStopping.Register(() => CancelOperations());
     }
@@ -262,6 +265,11 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             CreatedAt = _clock.UtcNow,
             ModelOverrides = result.ModelOverrides,
             TransportOverrides = result.TransportOverrides,
+            RoutePoolLabel = result.RoutePoolLabel,
+            ProviderPresetId = result.ProviderPresetId,
+            DiscoveredModels = result.DiscoveredModels,
+            CompatibilityLevel = result.CompatibilityLevel,
+            LastProbeReport = result.LastProbeReport,
         };
 
         if (!string.IsNullOrWhiteSpace(result.ApiKey))
@@ -385,8 +393,14 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         item.Profile.SelectedModel = result.SelectedModel;
         item.Profile.ModelOverrides = result.ModelOverrides;
         item.Profile.TransportOverrides = result.TransportOverrides;
+        item.Profile.RoutePoolLabel = result.RoutePoolLabel;
+        if (result.ProviderPresetId != null) item.Profile.ProviderPresetId = result.ProviderPresetId;
+        if (result.DiscoveredModels != null) item.Profile.DiscoveredModels = result.DiscoveredModels;
+        if (result.CompatibilityLevel != CodexCompatibilityLevel.Unknown) item.Profile.CompatibilityLevel = result.CompatibilityLevel;
+        if (result.LastProbeReport != null) item.Profile.LastProbeReport = result.LastProbeReport;
 
         _apiProviderStore.Save(item.Profile);
+        item.UpdateProfile(item.Profile, item.Descriptor, item.HasSecret, item.IsTargetActive);
 
         if (item.IsTargetActive)
         {
@@ -624,5 +638,224 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         {
             item.IsLoadingModels = false;
         }
+    }
+
+    [RelayCommand]
+    public void CloneProfile(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+
+        var newId = Guid.NewGuid();
+        var original = item.Profile;
+
+        var clone = new ApiProviderProfile
+        {
+            Id = newId,
+            Nickname = $"{original.Nickname} (Copy)",
+            CatalogProviderId = original.CatalogProviderId,
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
+            BaseUrl = original.BaseUrl,
+            SelectedRouteId = original.SelectedRouteId,
+            SelectedModel = original.SelectedModel,
+            WireApi = original.WireApi,
+            KeyPreview = original.KeyPreview,
+            Status = original.Status,
+            CreatedAt = _clock.UtcNow,
+            ModelOverrides = original.ModelOverrides,
+            TransportOverrides = original.TransportOverrides,
+            EndpointId = original.EndpointId ?? original.Id,
+            ProviderPresetId = original.ProviderPresetId,
+            RoutePoolLabel = original.RoutePoolLabel,
+            DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
+            CompatibilityLevel = original.CompatibilityLevel,
+            LastProbeReport = original.LastProbeReport,
+        };
+
+        if (item.HasSecret)
+        {
+            _secretStore.CloneApiKey(original.Id, newId);
+            clone.Status = ApiProviderProfileStatus.Active;
+        }
+        else
+        {
+            clone.Status = ApiProviderProfileStatus.CredentialMissing;
+        }
+
+        _apiProviderStore.Save(clone);
+        TargetStateChanged?.Invoke(this, EventArgs.Empty);
+        ShowInfo("Provider Cloned", $"Cloned '{original.Nickname}' to '{clone.Nickname}'. Key copied via secure DPAPI store.", InfoBarSeverity.Success);
+    }
+
+    [RelayCommand]
+    public async Task CloneWithNewKeyAsync(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+
+        var newKey = await _ui.PromptRotateApiKeyAsync($"Clone of {item.DisplayName}");
+        if (string.IsNullOrWhiteSpace(newKey)) return;
+
+        var newId = Guid.NewGuid();
+        var original = item.Profile;
+
+        var clone = new ApiProviderProfile
+        {
+            Id = newId,
+            Nickname = $"{original.Nickname} (New Key)",
+            CatalogProviderId = original.CatalogProviderId,
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
+            BaseUrl = original.BaseUrl,
+            SelectedRouteId = original.SelectedRouteId,
+            SelectedModel = original.SelectedModel,
+            WireApi = original.WireApi,
+            KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey),
+            Status = ApiProviderProfileStatus.Active,
+            CreatedAt = _clock.UtcNow,
+            ModelOverrides = original.ModelOverrides,
+            TransportOverrides = original.TransportOverrides,
+            EndpointId = original.EndpointId ?? original.Id,
+            ProviderPresetId = original.ProviderPresetId,
+            RoutePoolLabel = original.RoutePoolLabel,
+            DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
+            CompatibilityLevel = original.CompatibilityLevel,
+            LastProbeReport = original.LastProbeReport,
+        };
+
+        _secretStore.SaveApiKey(newId, newKey);
+        _apiProviderStore.Save(clone);
+
+        TargetStateChanged?.Invoke(this, EventArgs.Empty);
+        ShowInfo("Provider Cloned", $"Created '{clone.Nickname}' with new API key.", InfoBarSeverity.Success);
+    }
+
+    [RelayCommand]
+    public async Task AddAnotherModelAsync(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+
+        var newId = Guid.NewGuid();
+        var original = item.Profile;
+
+        if (item.HasSecret)
+        {
+            _secretStore.CloneApiKey(original.Id, newId);
+        }
+
+        var candidate = new ApiProviderProfile
+        {
+            Id = newId,
+            Nickname = $"{original.Nickname} - New Model",
+            CatalogProviderId = original.CatalogProviderId,
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
+            BaseUrl = original.BaseUrl,
+            SelectedRouteId = original.SelectedRouteId,
+            SelectedModel = original.SelectedModel,
+            WireApi = original.WireApi,
+            KeyPreview = original.KeyPreview,
+            Status = item.HasSecret ? ApiProviderProfileStatus.Active : ApiProviderProfileStatus.CredentialMissing,
+            CreatedAt = _clock.UtcNow,
+            ModelOverrides = original.ModelOverrides,
+            TransportOverrides = original.TransportOverrides,
+            EndpointId = original.EndpointId ?? original.Id,
+            ProviderPresetId = original.ProviderPresetId,
+            RoutePoolLabel = original.RoutePoolLabel,
+            DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
+            CompatibilityLevel = original.CompatibilityLevel,
+            LastProbeReport = original.LastProbeReport,
+        };
+
+        var result = await _ui.PromptEditApiProviderAsync(candidate, item.Descriptor);
+        if (result is null)
+        {
+            _secretStore.DeleteApiKey(newId);
+            return;
+        }
+
+        candidate.Nickname = result.Nickname;
+        candidate.BaseUrl = result.BaseUrl;
+        candidate.SelectedRouteId = result.SelectedRouteId;
+        candidate.SelectedModel = result.SelectedModel;
+        candidate.ModelOverrides = result.ModelOverrides;
+        candidate.TransportOverrides = result.TransportOverrides;
+        candidate.RoutePoolLabel = result.RoutePoolLabel;
+        if (result.DiscoveredModels != null) candidate.DiscoveredModels = result.DiscoveredModels;
+        if (result.CompatibilityLevel != CodexCompatibilityLevel.Unknown) candidate.CompatibilityLevel = result.CompatibilityLevel;
+        if (result.LastProbeReport != null) candidate.LastProbeReport = result.LastProbeReport;
+
+        _apiProviderStore.Save(candidate);
+        TargetStateChanged?.Invoke(this, EventArgs.Empty);
+        ShowInfo("Model Added", $"Added '{candidate.SelectedModel}' under '{candidate.Nickname}'.", InfoBarSeverity.Success);
+    }
+
+    [RelayCommand]
+    public async Task RetestCompatibilityAsync(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+        if (!item.HasSecret)
+        {
+            ShowInfo("Retest Error", "Cannot retest compatibility: API key is missing.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        await RunBusyAsync($"Testing compatibility for {item.DisplayName}...", async () =>
+        {
+            try
+            {
+                var key = _secretStore.GetApiKey(item.Profile.Id);
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    ShowInfo("Retest Error", "Could not retrieve API key for probe.", InfoBarSeverity.Warning);
+                    return;
+                }
+
+                if (_probeService != null)
+                {
+                    var report = await _probeService.ProbeCompatibilityAsync(
+                        item.Profile.BaseUrl,
+                        key,
+                        item.Profile.SelectedModel ?? "gpt-5.6-sol");
+
+                    item.Profile.LastProbeReport = report;
+                    item.Profile.CompatibilityLevel = report.CompatibilityLevel;
+                    if (report.DiscoveredModelIds != null && report.DiscoveredModelIds.Count > 0)
+                    {
+                        item.Profile.DiscoveredModels = report.DiscoveredModelIds;
+                    }
+
+                    _apiProviderStore.Save(item.Profile);
+                    item.UpdateProfile(item.Profile, item.Descriptor, item.HasSecret, item.IsTargetActive);
+
+                    var severity = report.CompatibilityLevel switch
+                    {
+                        CodexCompatibilityLevel.CodexCompatible => InfoBarSeverity.Success,
+                        CodexCompatibilityLevel.PartiallyCompatible => InfoBarSeverity.Warning,
+                        _ => InfoBarSeverity.Error
+                    };
+                    ShowInfo("Compatibility Result", $"{item.DisplayName}: {report.CompatibilityLevel}. {report.DiagnosticSummary}", severity);
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowInfo("Compatibility Test Failed", ex.Message, InfoBarSeverity.Error);
+            }
+        });
+    }
+
+    [RelayCommand]
+    public void ExportDiagnostics(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+
+        if (item.Profile.LastProbeReport is null)
+        {
+            ShowInfo("Diagnostic Export", "No compatibility report available. Please run a compatibility test first.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        var json = item.Profile.LastProbeReport.GenerateSanitizedExport(item.DisplayName, item.Profile.RoutePoolLabel);
+        var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        dp.SetText(json);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+
+        ShowInfo("Export Complete", "Sanitized diagnostic report copied to clipboard. Raw secrets excluded.", InfoBarSeverity.Success);
     }
 }

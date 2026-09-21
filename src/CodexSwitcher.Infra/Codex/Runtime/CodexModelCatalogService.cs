@@ -63,16 +63,28 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
         _customValidator = customValidator;
     }
 
-    public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens)
+    public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens) =>
+        EnsureModelCatalog(modelSlug, contextWindowTokens, null);
+
+    public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens, CodexModelOverrides? modelOverrides)
     {
-        if (string.IsNullOrWhiteSpace(modelSlug) || !contextWindowTokens.HasValue || contextWindowTokens.Value <= FallbackContextCeiling)
+        if (string.IsNullOrWhiteSpace(modelSlug))
+        {
+            return null;
+        }
+
+        var effectiveContext = modelOverrides?.ContextWindowTokens ?? contextWindowTokens;
+        var needsCatalog = (effectiveContext.HasValue && effectiveContext.Value > FallbackContextCeiling) ||
+                           (modelOverrides != null && (modelOverrides.ReasoningEffort != CodexReasoningEffort.Default || modelOverrides.Verbosity != CodexVerbosity.Default));
+
+        if (!needsCatalog)
         {
             return null;
         }
 
         lock (_sync)
         {
-            var requestedContext = contextWindowTokens.Value;
+            var requestedContext = effectiveContext ?? FallbackContextCeiling;
 
             // Resolve model limit fact (Blocker B)
             var fact = _metadataResolver.ResolveLimitFact(modelSlug);
@@ -138,12 +150,24 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
             else
             {
                 // Modern schema (>= 0.150 / active production runtime 0.155)
+                var defaultReasoning = modelOverrides?.ReasoningEffort switch
+                {
+                    CodexReasoningEffort.None => "none",
+                    CodexReasoningEffort.Minimal => "low",
+                    CodexReasoningEffort.Low => "low",
+                    CodexReasoningEffort.Medium => "medium",
+                    CodexReasoningEffort.High => "high",
+                    CodexReasoningEffort.XHigh => "xhigh",
+                    _ => "none"
+                };
+                var supportVerbosity = modelOverrides?.Verbosity is not null and not CodexVerbosity.Default;
+
                 var modernEntry = new Dictionary<string, object?>
                 {
                     ["slug"] = modelSlug,
                     ["display_name"] = modelSlug,
                     ["description"] = "Switchboard-managed model configuration",
-                    ["default_reasoning_level"] = "none",
+                    ["default_reasoning_level"] = defaultReasoning,
                     ["supported_reasoning_levels"] = new object[]
                     {
                         new Dictionary<string, string> { ["effort"] = "none", ["description"] = "No reasoning effort" },
@@ -158,7 +182,7 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                     ["priority"] = 1,
                     ["context_window"] = targetContext,
                     ["max_context_window"] = maxContext,
-                    ["support_verbosity"] = false,
+                    ["support_verbosity"] = supportVerbosity,
                     ["truncation_policy"] = new Dictionary<string, object> { ["mode"] = "tokens", ["limit"] = 10000 },
                     ["experimental_supported_tools"] = Array.Empty<string>(),
                     ["base_instructions"] = "You are a helpful AI assistant."

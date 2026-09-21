@@ -222,6 +222,28 @@ public sealed class ApiKeySecretStore : IApiKeySecretStore
         }
     }
 
+    /// <inheritdoc/>
+    public void CloneApiKey(Guid sourceProfileId, Guid targetProfileId)
+    {
+        EnsureMigrated(sourceProfileId);
+        var srcPath = KeyPath(sourceProfileId);
+        var dstPath = KeyPath(targetProfileId);
+
+        using (_coordinator.Lock(sourceProfileId))
+        using (_coordinator.Lock(targetProfileId))
+        {
+            if (!_fs.FileExists(srcPath))
+                throw new InvalidOperationException($"Cannot clone API key: source key for profile '{sourceProfileId}' not found.");
+
+            var cipher = _fs.ReadAllBytes(srcPath);
+            var dir = Path.GetDirectoryName(dstPath);
+            if (!string.IsNullOrEmpty(dir))
+                _fs.CreateDirectory(dir);
+
+            _fs.WriteAllBytesAtomic(dstPath, cipher);
+        }
+    }
+
     private sealed class ApiKeyRecord
     {
         [JsonPropertyName("schemaVersion")]

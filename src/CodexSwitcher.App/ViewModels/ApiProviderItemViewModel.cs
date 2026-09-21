@@ -138,6 +138,39 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
     [ObservableProperty]
     public partial string Initials { get; set; } = "AP";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRoutePoolLabel))]
+    public partial string? RoutePoolLabel { get; set; }
+
+    public bool HasRoutePoolLabel => !string.IsNullOrWhiteSpace(RoutePoolLabel);
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCompatibilityBadge))]
+    [NotifyPropertyChangedFor(nameof(CompatibilityBadgeText))]
+    [NotifyPropertyChangedFor(nameof(CompatibilityBadgeBackground))]
+    public partial CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
+
+    public bool HasCompatibilityBadge => CompatibilityLevel != CodexCompatibilityLevel.Unknown;
+
+    public string CompatibilityBadgeText => CompatibilityLevel switch
+    {
+        CodexCompatibilityLevel.CodexCompatible => "Codex Verified",
+        CodexCompatibilityLevel.PartiallyCompatible => "Partial Compatibility",
+        CodexCompatibilityLevel.NotCompatible => "Not Compatible",
+        _ => string.Empty
+    };
+
+    private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush SuccessBrush = new(Windows.UI.Color.FromArgb(255, 16, 124, 65));
+    private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush WarningBrush = new(Windows.UI.Color.FromArgb(255, 216, 59, 1));
+    private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush DangerBrush = new(Windows.UI.Color.FromArgb(255, 168, 0, 0));
+
+    public Microsoft.UI.Xaml.Media.Brush CompatibilityBadgeBackground => CompatibilityLevel switch
+    {
+        CodexCompatibilityLevel.CodexCompatible => SuccessBrush,
+        CodexCompatibilityLevel.PartiallyCompatible => WarningBrush,
+        _ => DangerBrush
+    };
+
     public IReadOnlyList<ProviderRoute> Routes => Descriptor?.Routes ?? [];
     public bool CanToggleRoute => Routes.Count > 1;
     public bool CanSwitch => !IsTargetActive && HasSecret;
@@ -172,6 +205,8 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
         SelectedModel = profile.SelectedModel ?? string.Empty;
         KeyPreview = profile.KeyPreview;
         Status = profile.Status;
+        RoutePoolLabel = profile.RoutePoolLabel;
+        CompatibilityLevel = profile.CompatibilityLevel;
 
         CatalogProviderName = descriptor?.DisplayName ?? (string.IsNullOrWhiteSpace(profile.CatalogProviderId) ? "Custom Provider" : profile.CatalogProviderId);
         SelectedRoute = ResolveRouteName(profile, descriptor);
@@ -192,6 +227,8 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
         SelectedModel = updated.SelectedModel ?? string.Empty;
         KeyPreview = updated.KeyPreview;
         Status = updated.Status;
+        RoutePoolLabel = updated.RoutePoolLabel;
+        CompatibilityLevel = updated.CompatibilityLevel;
 
         CatalogProviderName = descriptor?.DisplayName ?? (string.IsNullOrWhiteSpace(updated.CatalogProviderId) ? "Custom Provider" : updated.CatalogProviderId);
         SelectedRoute = ResolveRouteName(updated, descriptor);

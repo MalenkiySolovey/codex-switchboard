@@ -816,6 +816,19 @@
                                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                                                     <TextBlock Text="{x:Bind SelectedRoute}" FontSize="11" FontWeight="Medium" />
                                                 </Border>
+                                                <!-- Route Pool Label Badge -->
+                                                <Border CornerRadius="4" Padding="6,2"
+                                                        Visibility="{x:Bind HasRoutePoolLabel, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                        Background="{ThemeResource LayerFillColorAltBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                                    <TextBlock Text="{x:Bind RoutePoolLabel, Mode=OneWay}" FontSize="11" FontWeight="Medium" />
+                                                </Border>
+                                                <!-- Compatibility Level Badge -->
+                                                <Border CornerRadius="4" Padding="6,2"
+                                                        Visibility="{x:Bind HasCompatibilityBadge, Mode=OneWay, Converter={StaticResource BoolToVis}}"
+                                                        Background="{x:Bind CompatibilityBadgeBackground, Mode=OneWay}">
+                                                    <TextBlock Text="{x:Bind CompatibilityBadgeText, Mode=OneWay}" FontSize="11" FontWeight="Bold" Foreground="White" />
+                                                </Border>
                                                 <!-- Active Badge -->
                                                 <Border CornerRadius="4" Padding="6,2"
                                                         Visibility="{x:Bind IsTargetActive, Mode=OneWay, Converter={StaticResource BoolToVis}}"
@@ -894,6 +907,33 @@
                                                                 <FontIcon Glyph="&#xE70F;" />
                                                             </MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
+                                                        <MenuFlyoutItem Text="Clone Provider" Click="OnCloneApiProviderClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8C8;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem Text="Clone with New Key" Click="OnCloneWithNewKeyClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8D7;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem Text="Add Model from this Endpoint" Click="OnAddAnotherModelClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE710;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator />
+                                                        <MenuFlyoutItem Text="Retest Compatibility" Click="OnRetestCompatibilityClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE721;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem Text="Export Diagnostics" Click="OnExportDiagnosticsClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xEDE1;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator />
                                                         <MenuFlyoutItem Text="Replace API Key" Click="OnRotateApiKeyClick">
                                                             <MenuFlyoutItem.Icon>
                                                                 <FontIcon Glyph="&#xE8D7;" />

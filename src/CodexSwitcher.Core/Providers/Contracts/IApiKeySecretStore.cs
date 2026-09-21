@@ -53,4 +53,10 @@ public interface IApiKeySecretStore
 
     /// <summary>Permanently deletes the encrypted API key file for the given profile.</summary>
     bool DeleteApiKey(Guid profileId);
+
+    /// <summary>
+    /// Atomically copies the encrypted API key payload from a source profile to a target profile.
+    /// Invariant: Does not decrypt the payload to plaintext during the clone operation.
+    /// </summary>
+    void CloneApiKey(Guid sourceProfileId, Guid targetProfileId);
 }

@@ -1,10 +1,366 @@
 {
   "$schema": "./providers.catalog.schema.json",
   "schemaVersion": 1,
-  "catalogVersion": 2,
-  "updatedAt": "2026-09-15T17:49:39Z",
+  "catalogVersion": 3,
+  "updatedAt": "2026-09-21T20:45:00Z",
   "minAppVersion": "0.1.0",
   "providers": [
+    {
+      "id": "generic-responses",
+      "displayName": "Generic Responses API",
+      "description": "Standard OpenAI Responses-compatible endpoint (wire_api = responses). Works with any compliant custom gateway.",
+      "aliases": [
+        "generic",
+        "custom",
+        "responses",
+        "gateway"
+      ],
+      "match": {
+        "exactHosts": [
+          "localhost",
+          "127.0.0.1",
+          "api.example.com"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "gpt-5.6-sol"
+      },
+      "routes": [
+        {
+          "id": "custom",
+          "displayName": "Custom Endpoint",
+          "baseUrl": "https://api.example.com/v1",
+          "isDefault": true,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "localhost",
+        "127.0.0.1",
+        "api.example.com"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "unknown",
+          "strategy": "unknown"
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "official-doc",
+          "source": "Codex configuration specifications for custom wire_api = responses providers",
+          "verifiedAt": "2026-09-21T20:45:00Z",
+          "note": "Standard Responses protocol endpoint for third-party inference proxies"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-21T20:45:00Z",
+        "deprecated": false
+      }
+    },
+    {
+      "id": "deepseek",
+      "displayName": "DeepSeek",
+      "description": "DeepSeek official Responses API endpoint for coding and reasoning models.",
+      "aliases": [
+        "deepseek",
+        "deepseek.com",
+        "api.deepseek.com"
+      ],
+      "match": {
+        "exactHosts": [
+          "api.deepseek.com"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "deepseek-reasoner"
+      },
+      "routes": [
+        {
+          "id": "primary",
+          "displayName": "Official API",
+          "baseUrl": "https://api.deepseek.com/v1",
+          "isDefault": true,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "api.deepseek.com"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "unknown",
+          "strategy": "unknown"
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "official-doc",
+          "source": "https://api-docs.deepseek.com/",
+          "verifiedAt": "2026-09-21T20:45:00Z",
+          "note": "DeepSeek official API with OpenAI-compatible endpoint structure"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-21T20:45:00Z",
+        "deprecated": false
+      }
+    },
+    {
+      "id": "xai",
+      "displayName": "xAI / Grok",
+      "description": "Official xAI Grok API endpoint supporting Responses protocol.",
+      "aliases": [
+        "xai",
+        "grok",
+        "api.x.ai"
+      ],
+      "match": {
+        "exactHosts": [
+          "api.x.ai"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "grok-4.6"
+      },
+      "routes": [
+        {
+          "id": "primary",
+          "displayName": "Primary",
+          "baseUrl": "https://api.x.ai/v1",
+          "isDefault": true,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "api.x.ai"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "unknown",
+          "strategy": "unknown"
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "official-doc",
+          "source": "https://docs.x.ai/",
+          "verifiedAt": "2026-09-21T20:45:00Z",
+          "note": "Official xAI Grok API documentation"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-21T20:45:00Z",
+        "deprecated": false
+      }
+    },
+    {
+      "id": "modelflare",
+      "displayName": "Modelflare",
+      "description": "Multi-model OpenAI-compatible gateway with dedicated Grok and reasoning routes.",
+      "aliases": [
+        "modelflare",
+        "modelflare.com",
+        "api.modelflare.com"
+      ],
+      "match": {
+        "exactHosts": [
+          "api.modelflare.com"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "grok-4.6"
+      },
+      "routes": [
+        {
+          "id": "primary",
+          "displayName": "Default",
+          "baseUrl": "https://api.modelflare.com/v1",
+          "isDefault": true,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "api.modelflare.com"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "unknown",
+          "strategy": "unknown"
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "observed-readonly",
+          "source": "Modelflare live qualification",
+          "verifiedAt": "2026-09-21T20:45:00Z",
+          "note": "Responses, reasoning, vision, and tool calling qualified live"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-21T20:45:00Z",
+        "deprecated": false
+      }
+    },
+    {
+      "id": "new-api",
+      "displayName": "New API / One API Relay",
+      "description": "Open-source New API / One API compatible relay gateway supporting Responses protocol.",
+      "aliases": [
+        "newapi",
+        "oneapi",
+        "new-api",
+        "one-api"
+      ],
+      "match": {
+        "exactHosts": [
+          "api.openai-proxy.org"
+        ]
+      },
+      "codex": {
+        "wireApi": "responses",
+        "authStrategy": "bearer",
+        "defaultModel": "gpt-5.6-sol"
+      },
+      "routes": [
+        {
+          "id": "primary",
+          "displayName": "Relay Route",
+          "baseUrl": "https://api.openai-proxy.org/v1",
+          "isDefault": true,
+          "isReserve": false
+        }
+      ],
+      "trustedHosts": [
+        "api.openai-proxy.org"
+      ],
+      "capabilities": {
+        "models": {
+          "status": "supported",
+          "strategy": "openai-models",
+          "request": {
+            "method": "GET",
+            "path": "/models",
+            "auth": "bearer"
+          },
+          "response": {
+            "models": {
+              "pointer": "/data",
+              "type": "array"
+            }
+          }
+        },
+        "balance": {
+          "status": "unknown",
+          "strategy": "unknown"
+        },
+        "usage": {
+          "status": "unknown",
+          "strategy": "unknown"
+        }
+      },
+      "evidence": [
+        {
+          "capability": "wireApi",
+          "sourceType": "official-source",
+          "source": "https://github.com/QuantumNous/new-api",
+          "verifiedAt": "2026-09-21T20:45:00Z",
+          "note": "Open-source New API / One API gateway specification"
+        }
+      ],
+      "metadata": {
+        "verifiedAt": "2026-09-21T20:45:00Z",
+        "deprecated": false
+      }
+    },
     {
       "id": "router-cheap",
       "displayName": "Router.Cheap",
@@ -76,7 +432,7 @@
           "sourceType": "observed-readonly",
           "source": "Phase 10A Codex live validation",
           "verifiedAt": "2026-09-11T09:00:00Z",
-          "note": "Confirmed wire_api responses compatibility with codex-cli 0.130.0-alpha.5"
+          "note": "Confirmed wire_api responses compatibility with codex-cli"
         },
         {
           "capability": "models",

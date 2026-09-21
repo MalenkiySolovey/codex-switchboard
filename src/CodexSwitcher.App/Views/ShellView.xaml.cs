@@ -285,6 +285,31 @@ public sealed partial class ShellView : UserControl
         if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.EditApiProviderCommand.Execute(item);
     }
 
+    private void OnCloneApiProviderClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.CloneProfileCommand.Execute(item);
+    }
+
+    private void OnCloneWithNewKeyClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.CloneWithNewKeyCommand.Execute(item);
+    }
+
+    private void OnAddAnotherModelClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.AddAnotherModelCommand.Execute(item);
+    }
+
+    private void OnRetestCompatibilityClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.RetestCompatibilityCommand.Execute(item);
+    }
+
+    private void OnExportDiagnosticsClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.ExportDiagnosticsCommand.Execute(item);
+    }
+
     private void OnRotateApiKeyClick(object sender, RoutedEventArgs e)
     {
         if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.RotateApiKeyCommand.Execute(item);

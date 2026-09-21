@@ -38,6 +38,11 @@ public sealed class ProviderInspectionServiceTests
         public string? GetApiKey(Guid profileId) => Secrets.TryGetValue(profileId, out var s) ? s : null;
         public bool HasApiKey(Guid profileId) => Secrets.ContainsKey(profileId);
         public void SaveApiKey(Guid profileId, string apiKey) => Secrets[profileId] = apiKey;
+        public void CloneApiKey(Guid sourceProfileId, Guid targetProfileId)
+        {
+            if (Secrets.TryGetValue(sourceProfileId, out var s))
+                Secrets[targetProfileId] = s;
+        }
     }
 
     private sealed class FakeCatalogService : IProviderCatalogService
