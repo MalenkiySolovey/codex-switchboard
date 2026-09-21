@@ -15,40 +15,54 @@ public sealed record ProviderProbeOptions(
     bool IncludeStreaming = false,
     bool IncludeHostedSearch = false,
     bool RunCodexSmokeTest = true,
+    bool RunToolSmokeTest = true,
+    bool IncludeAdvancedNamespaceProbes = false,
     TimeSpan Timeout = default);
 
 /// <summary>
 /// Diagnostic report summarizing results from dual-layer provider capability probes:
 /// Layer 1: HTTP protocol qualification (/models, /responses, reasoning, vision, tools, streaming)
-/// Layer 2: Real isolated Codex execution smoke test
+/// Layer 2: Real isolated Codex execution smoke test (basic turn + tool smoke test)
 /// </summary>
 public sealed record ProviderProbeReport(
     string BaseUrl,
     string ModelSlug,
     CodexCompatibilityLevel CompatibilityLevel,
+    ResponsesFailureClassification ResponsesStatus,
     CapabilityEvidence ModelsEndpoint,
     CapabilityEvidence ResponsesEndpoint,
+    CapabilityEvidence BasicCodexTurn,
+    CapabilityEvidence BuiltInFunctionTools,
+    CapabilityEvidence ExecTool,
+    CapabilityEvidence Reasoning,
+    CapabilityEvidence Vision,
     CapabilityEvidence StreamingSupport,
-    CapabilityEvidence ReasoningSupport,
-    CapabilityEvidence VisionSupport,
-    CapabilityEvidence ToolCallingSupport,
     CapabilityEvidence HostedSearchSupport,
-    CapabilityEvidence CodexRuntimeSmokeTest,
-    CapabilityEvidence ModelActuallyUsed,
-    CapabilityEvidence ProviderActuallyUsed,
-    CapabilityEvidence TokenUsageVerified,
-    CapabilityEvidence BuiltInToolsExposed,
-    CapabilityEvidence NamespaceToolsSupport,
+    CapabilityEvidence McpNamespaceTools,
+    CapabilityEvidence AppsNamespaceTools,
+    CapabilityEvidence Plugins,
+    CapabilityEvidence MultiAgent,
     DateTimeOffset ProbedAt,
     string? CodexRuntimeIdentity,
     List<string>? DiscoveredModelIds = null,
     string? DiagnosticSummary = null)
 {
+    // Backwards-compatibility aliases and helper properties
+    public CapabilityEvidence CodexRuntimeSmokeTest => BasicCodexTurn;
+    public CapabilityEvidence ToolCallingSupport => BuiltInFunctionTools;
+    public CapabilityEvidence ReasoningSupport => Reasoning;
+    public CapabilityEvidence VisionSupport => Vision;
+    public CapabilityEvidence NamespaceToolsSupport => McpNamespaceTools;
+    public CapabilityEvidence ModelActuallyUsed => BasicCodexTurn;
+    public CapabilityEvidence ProviderActuallyUsed => BasicCodexTurn;
+    public CapabilityEvidence TokenUsageVerified => BasicCodexTurn;
+    public CapabilityEvidence BuiltInToolsExposed => ExecTool;
+
     public bool AllStandardChecksPassed =>
         ModelsEndpoint.IsSupported &&
         ResponsesEndpoint.IsSupported &&
-        ToolCallingSupport.IsSupported &&
-        (CodexRuntimeSmokeTest.State == CapabilityEvidenceState.Unknown || CodexRuntimeSmokeTest.IsSupported);
+        (BasicCodexTurn.State == CapabilityEvidenceState.Unknown || BasicCodexTurn.IsSupported) &&
+        (ExecTool.State == CapabilityEvidenceState.Unknown || ExecTool.IsSupported);
 
     /// <summary>
     /// Generates a sanitized JSON export containing diagnostic metadata, runtime hashes,
@@ -64,18 +78,27 @@ public sealed record ProviderProbeReport(
             ["model"] = ModelSlug,
             ["baseUrl"] = BaseUrl,
             ["compatibilityLevel"] = CompatibilityLevel.ToString(),
+            ["responsesStatus"] = ResponsesStatus.ToString(),
             ["codexRuntimeIdentity"] = CodexRuntimeIdentity,
             ["probedAt"] = ProbedAt.ToString("O"),
             ["capabilities"] = new Dictionary<string, object?>
             {
                 ["modelsEndpoint"] = FormatEvidence(ModelsEndpoint),
                 ["responsesEndpoint"] = FormatEvidence(ResponsesEndpoint),
+                ["basicCodexTurn"] = FormatEvidence(BasicCodexTurn),
+                ["builtInFunctionTools"] = FormatEvidence(BuiltInFunctionTools),
+                ["execTool"] = FormatEvidence(ExecTool),
+                ["reasoning"] = FormatEvidence(Reasoning),
+                ["vision"] = FormatEvidence(Vision),
                 ["streaming"] = FormatEvidence(StreamingSupport),
-                ["reasoning"] = FormatEvidence(ReasoningSupport),
-                ["vision"] = FormatEvidence(VisionSupport),
-                ["toolCalling"] = FormatEvidence(ToolCallingSupport),
                 ["hostedSearch"] = FormatEvidence(HostedSearchSupport),
+                ["mcpNamespaceTools"] = FormatEvidence(McpNamespaceTools),
+                ["appsNamespaceTools"] = FormatEvidence(AppsNamespaceTools),
+                ["plugins"] = FormatEvidence(Plugins),
+                ["multiAgent"] = FormatEvidence(MultiAgent),
+                // Legacy compatibility keys
                 ["codexSmokeTest"] = FormatEvidence(CodexRuntimeSmokeTest),
+                ["toolCalling"] = FormatEvidence(ToolCallingSupport),
                 ["modelActuallyUsed"] = FormatEvidence(ModelActuallyUsed),
                 ["providerActuallyUsed"] = FormatEvidence(ProviderActuallyUsed),
                 ["tokenUsageVerified"] = FormatEvidence(TokenUsageVerified),

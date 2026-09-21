@@ -199,24 +199,28 @@ public sealed class ProviderCompatibilityProbeTests
     }
 
     [Fact]
-    public async Task ProbeCompatibility_WhenResponsesPassesAndSmokeTestFails_ReportsPartiallyCompatible()
+    public async Task ProbeCompatibility_ResponsesPass_PlainTurnPass_ToolSmokePass_ReportsCodexCompatible()
     {
         var handler = new MockHttpMessageHandler
         {
-            OnSend = req =>
+            OnSend = req => new HttpResponseMessage(HttpStatusCode.OK)
             {
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}")
-                };
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}")
             }
         };
 
         using var client = new HttpClient(handler);
 
-        // Custom process runner simulating smoke test failure (exit code 1)
-        ProcessRunnerFunc mockRunner = (_, _) =>
-            Task.FromResult((1, "", "Error: Tool dispatch unsupported by runtime proxy"));
+        ProcessRunnerFunc mockRunner = (psi, _) =>
+        {
+            if (psi.Arguments.Contains("canary.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                // Simulate tool turn emitting tool_call event for canary.txt
+                return Task.FromResult((0, "{\"type\":\"tool_call\",\"tool\":\"write_file\",\"file\":\"canary.txt\"}", ""));
+            }
+            // Basic ping turn
+            return Task.FromResult((0, "{\"type\":\"message\",\"content\":\"pong\"}", ""));
+        };
 
         var mockResolver = new MockRuntimeResolver(Environment.ProcessPath ?? typeof(ProviderCompatibilityProbeTests).Assembly.Location);
 
@@ -228,7 +232,8 @@ public sealed class ProviderCompatibilityProbeTests
 
         var options = new ProviderProbeOptions
         {
-            RunCodexSmokeTest = true
+            RunCodexSmokeTest = true,
+            RunToolSmokeTest = true
         };
 
         var report = await probeService.ProbeCompatibilityAsync(
@@ -237,11 +242,225 @@ public sealed class ProviderCompatibilityProbeTests
             "test-model",
             options);
 
+        Assert.Equal(ResponsesFailureClassification.ResponsesPassed, report.ResponsesStatus);
+        Assert.Equal(CodexCompatibilityLevel.CodexCompatible, report.CompatibilityLevel);
+        Assert.True(report.BasicCodexTurn.IsSupported);
+        Assert.True(report.ExecTool.IsSupported);
+        Assert.True(report.BuiltInFunctionTools.IsSupported);
+        // MCP namespace tools must remain Unknown by default
+        Assert.Equal(CapabilityEvidenceState.Unknown, report.McpNamespaceTools.State);
+    }
 
-        Assert.Equal(CapabilityEvidenceState.ProbePassed, report.ResponsesEndpoint.State);
-        Assert.Equal(CapabilityEvidenceState.ProbeFailed, report.CodexRuntimeSmokeTest.State);
+    [Fact]
+    public async Task ProbeCompatibility_ResponsesPass_PlainTurnPass_ToolSmokeFail_ReportsPartiallyCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"pong\"}}]}")
+            }
+        };
+
+        using var client = new HttpClient(handler);
+
+        ProcessRunnerFunc mockRunner = (psi, _) =>
+        {
+            if (psi.Arguments.Contains("canary.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                // Tool turn fails (provider rejected tool calling)
+                return Task.FromResult((1, "", "Error: Provider rejected tool call execution"));
+            }
+            // Basic ping turn passes
+            return Task.FromResult((0, "{\"type\":\"message\",\"content\":\"pong\"}", ""));
+        };
+
+        var mockResolver = new MockRuntimeResolver(Environment.ProcessPath ?? typeof(ProviderCompatibilityProbeTests).Assembly.Location);
+
+        var probeService = new ProviderCompatibilityProbeService(
+            httpClient: client,
+            runtimeResolver: mockResolver,
+            fs: null,
+            processRunner: mockRunner);
+
+        var options = new ProviderProbeOptions
+        {
+            RunCodexSmokeTest = true,
+            RunToolSmokeTest = true
+        };
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model",
+            options);
+
+        // Minimal responses PASS + plain turn PASS + tool smoke FAIL must be PartiallyCompatible, not NotCompatible!
         Assert.Equal(CodexCompatibilityLevel.PartiallyCompatible, report.CompatibilityLevel);
+        Assert.True(report.BasicCodexTurn.IsSupported);
+        Assert.False(report.ExecTool.IsSupported);
+        Assert.Equal(CapabilityEvidenceState.ProbeFailed, report.ExecTool.State);
         Assert.Contains("Partially compatible", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses404_ReportsEndpointMissing_AndNotCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NotFound)
+                    {
+                        ReasonPhrase = "Not Found",
+                        Content = new StringContent("Cannot POST /responses")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model");
+
+        Assert.Equal(ResponsesFailureClassification.EndpointMissing, report.ResponsesStatus);
+        Assert.Equal(CodexCompatibilityLevel.NotCompatible, report.CompatibilityLevel);
+        Assert.Contains("404", report.DiagnosticSummary);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses401_ReportsAuthenticationFailed_AndNotCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                    {
+                        ReasonPhrase = "Unauthorized",
+                        Content = new StringContent("{\"error\":\"Invalid bearer token\"}")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "bad-key",
+            "test-model");
+
+        Assert.Equal(ResponsesFailureClassification.AuthenticationFailed, report.ResponsesStatus);
+        Assert.Equal(CodexCompatibilityLevel.NotCompatible, report.CompatibilityLevel);
+        Assert.Contains("Authentication failed", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses400_UnsupportedModel_ReportsModelUnavailable_AndPartiallyCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        ReasonPhrase = "Bad Request",
+                        Content = new StringContent("{\"error\":{\"message\":\"The model 'grok-unknown' does not exist.\"}}")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "grok-unknown");
+
+        Assert.Equal(ResponsesFailureClassification.ModelUnavailable, report.ResponsesStatus);
+        Assert.Equal(CodexCompatibilityLevel.PartiallyCompatible, report.CompatibilityLevel);
+        Assert.Contains("model", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses400_UnsupportedToolField_ReportsPayloadRejected_AndPartiallyCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        ReasonPhrase = "Bad Request",
+                        Content = new StringContent("{\"error\":{\"message\":\"Unsupported parameter: stream_options is not supported.\"}}")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model");
+
+        Assert.Equal(ResponsesFailureClassification.PayloadRejected, report.ResponsesStatus);
+        Assert.Equal(CodexCompatibilityLevel.PartiallyCompatible, report.CompatibilityLevel);
+        Assert.Contains("payload", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ProbeCompatibility_Responses400_NamespaceStyleRejection_ReportsCodexEnvelopeRejected_AndPartiallyCompatible()
+    {
+        var handler = new MockHttpMessageHandler
+        {
+            OnSend = req =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        ReasonPhrase = "Bad Request",
+                        Content = new StringContent("{\"error\":{\"message\":\"Provider rejected tool namespace: openai/code_interpreter\"}}")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+        };
+
+        using var client = new HttpClient(handler);
+        var probeService = new ProviderCompatibilityProbeService(client);
+
+        var report = await probeService.ProbeCompatibilityAsync(
+            "https://api.test/v1",
+            "test-key",
+            "test-model");
+
+        Assert.Equal(ResponsesFailureClassification.CodexEnvelopeRejected, report.ResponsesStatus);
+        Assert.Equal(CodexCompatibilityLevel.PartiallyCompatible, report.CompatibilityLevel);
+        Assert.Contains("envelope", report.DiagnosticSummary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -278,9 +497,12 @@ public sealed class ProviderCompatibilityProbeTests
         Assert.Equal("pool-east-1", root.GetProperty("routePoolLabel").GetString());
         Assert.Equal("test-model", root.GetProperty("model").GetString());
         Assert.Equal("https://api.test/v1", root.GetProperty("baseUrl").GetString());
+        Assert.Equal("ResponsesPassed", root.GetProperty("responsesStatus").GetString());
         Assert.True(root.TryGetProperty("capabilities", out var caps));
         Assert.True(caps.TryGetProperty("responsesEndpoint", out _));
-        Assert.True(caps.TryGetProperty("hostedSearch", out _));
+        Assert.True(caps.TryGetProperty("basicCodexTurn", out _));
+        Assert.True(caps.TryGetProperty("execTool", out _));
+        Assert.True(caps.TryGetProperty("mcpNamespaceTools", out _));
         Assert.NotNull(root.GetProperty("diagnosticSummary").GetString());
     }
 }
