@@ -211,12 +211,24 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(modelBox);
+
+        var advanced = new ApiProviderAdvancedSettingsControlGroup(null, null, _loc);
+        advanced.AttachTo(panel);
+
         panel.Children.Add(errorBar);
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = panel,
+            MaxHeight = 560,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
 
         var dialog = new ContentDialog
         {
             Title = _loc.ProviderDialogTitle,
-            Content = panel,
+            Content = scrollViewer,
             PrimaryButtonText = _loc.SaveAndSwitch,
             SecondaryButtonText = _loc.SaveOnly,
             CloseButtonText = _loc.Cancel,
@@ -226,6 +238,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
         bool isPrimary = false;
         bool confirmed = false;
+        CodexModelOverrides? extractedModel = null;
+        ApiProviderTransportOverrides? extractedTransport = null;
 
         dialog.PrimaryButtonClick += (s, args) =>
         {
@@ -253,6 +267,18 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 args.Cancel = true;
                 return;
             }
+
+            var (m, t, err) = advanced.ValidateAndExtract(_loc);
+            if (err != null)
+            {
+                errorBar.Title = err;
+                errorBar.IsOpen = true;
+                args.Cancel = true;
+                return;
+            }
+
+            extractedModel = m;
+            extractedTransport = t;
             isPrimary = true;
             confirmed = true;
         };
@@ -283,6 +309,18 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 args.Cancel = true;
                 return;
             }
+
+            var (m, t, err) = advanced.ValidateAndExtract(_loc);
+            if (err != null)
+            {
+                errorBar.Title = err;
+                errorBar.IsOpen = true;
+                args.Cancel = true;
+                return;
+            }
+
+            extractedModel = m;
+            extractedTransport = t;
             isPrimary = false;
             confirmed = true;
         };
@@ -304,6 +342,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     BaseUrl = baseUrlBox.Text.Trim(),
                     SelectedRouteId = selectedRouteTag,
                     SelectedModel = modelBox.Text.Trim(),
+                    ModelOverrides = extractedModel,
+                    TransportOverrides = extractedTransport,
                     SaveAndSwitch = isPrimary,
                 };
             }
@@ -386,17 +426,32 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(modelBox);
+
+        var advanced = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc);
+        advanced.AttachTo(panel);
+
         panel.Children.Add(errorBar);
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = panel,
+            MaxHeight = 560,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
 
         var dialog = new ContentDialog
         {
             Title = _loc.EditProviderDialogTitle,
-            Content = panel,
+            Content = scrollViewer,
             PrimaryButtonText = _loc.Save,
             CloseButtonText = _loc.Cancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
         };
+
+        CodexModelOverrides? extractedModel = null;
+        ApiProviderTransportOverrides? extractedTransport = null;
 
         dialog.PrimaryButtonClick += (s, args) =>
         {
@@ -414,6 +469,18 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 args.Cancel = true;
                 return;
             }
+
+            var (m, t, err) = advanced.ValidateAndExtract(_loc);
+            if (err != null)
+            {
+                errorBar.Title = err;
+                errorBar.IsOpen = true;
+                args.Cancel = true;
+                return;
+            }
+
+            extractedModel = m;
+            extractedTransport = t;
         };
 
         var res = await dialog.ShowAsync();
@@ -426,6 +493,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 BaseUrl = baseUrlBox.Text.Trim(),
                 SelectedRouteId = routeTag,
                 SelectedModel = modelBox.Text?.Trim() ?? string.Empty,
+                ModelOverrides = extractedModel,
+                TransportOverrides = extractedTransport,
             };
         }
         return null;
@@ -617,5 +686,456 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         };
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private sealed class ApiProviderAdvancedSettingsControlGroup
+    {
+        public ComboBox ContextPresetCombo { get; }
+        public TextBox CustomContextBox { get; }
+        public TextBox AutoCompactBox { get; }
+        public ComboBox CompactScopeCombo { get; }
+        public ComboBox ReasoningEffortCombo { get; }
+        public ComboBox ReasoningSummaryCombo { get; }
+        public ComboBox VerbosityCombo { get; }
+        public TextBox ToolOutputLimitBox { get; }
+        public TextBox RequestRetriesBox { get; }
+        public TextBox StreamRetriesBox { get; }
+        public TextBox StreamTimeoutBox { get; }
+        public TextBox WsTimeoutBox { get; }
+        public CheckBox WebSocketsCheck { get; }
+        public CheckBox StandaloneWebSearchCheck { get; }
+        public TextBox HeadersBox { get; }
+        public TextBox QueryParamsBox { get; }
+        public Expander Expander { get; }
+
+        public ApiProviderAdvancedSettingsControlGroup(
+            CodexModelOverrides? initialModel,
+            ApiProviderTransportOverrides? initialTransport,
+            Strings loc)
+        {
+            // Context Window Presets
+            ContextPresetCombo = new ComboBox
+            {
+                Header = loc.ContextWindowLabel,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            ContextPresetCombo.Items.Add(new ComboBoxItem { Content = "Auto (Codex / Catalog default)", Tag = "auto" });
+            ContextPresetCombo.Items.Add(new ComboBoxItem { Content = "256k tokens (262,144)", Tag = "262144" });
+            ContextPresetCombo.Items.Add(new ComboBoxItem { Content = "500k tokens (500,000)", Tag = "500000" });
+            ContextPresetCombo.Items.Add(new ComboBoxItem { Content = "1M tokens (1,000,000)", Tag = "1000000" });
+            ContextPresetCombo.Items.Add(new ComboBoxItem { Content = "Custom...", Tag = "custom" });
+
+            CustomContextBox = new TextBox
+            {
+                Header = "Custom Context Window (tokens)",
+                PlaceholderText = "e.g. 500000",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Visibility = Visibility.Collapsed,
+            };
+
+            var initialTokens = initialModel?.ContextWindowTokens;
+            if (initialTokens is null)
+            {
+                ContextPresetCombo.SelectedIndex = 0;
+            }
+            else if (initialTokens == 262144)
+            {
+                ContextPresetCombo.SelectedIndex = 1;
+            }
+            else if (initialTokens == 500000)
+            {
+                ContextPresetCombo.SelectedIndex = 2;
+            }
+            else if (initialTokens == 1000000)
+            {
+                ContextPresetCombo.SelectedIndex = 3;
+            }
+            else
+            {
+                ContextPresetCombo.SelectedIndex = 4;
+                CustomContextBox.Text = initialTokens.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                CustomContextBox.Visibility = Visibility.Visible;
+            }
+
+            ContextPresetCombo.SelectionChanged += (_, _) =>
+            {
+                if (ContextPresetCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+                {
+                    CustomContextBox.Visibility = tag == "custom" ? Visibility.Visible : Visibility.Collapsed;
+                }
+            };
+
+            // Auto-compact Token Limit
+            AutoCompactBox = new TextBox
+            {
+                Header = loc.AutoCompactLabel,
+                PlaceholderText = "e.g. 200000 (empty = default)",
+                Text = initialModel?.AutoCompactTokenLimit?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            CompactScopeCombo = new ComboBox
+            {
+                Header = "Auto-compact Scope",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            CompactScopeCombo.Items.Add(new ComboBoxItem { Content = "Default", Tag = CompactLimitScope.Default });
+            CompactScopeCombo.Items.Add(new ComboBoxItem { Content = "Total context (total)", Tag = CompactLimitScope.Total });
+            CompactScopeCombo.Items.Add(new ComboBoxItem { Content = "Body after prefix (body_after_prefix)", Tag = CompactLimitScope.BodyAfterPrefix });
+            CompactScopeCombo.SelectedIndex = initialModel?.AutoCompactTokenLimitScope switch
+            {
+                CompactLimitScope.Total => 1,
+                CompactLimitScope.BodyAfterPrefix => 2,
+                _ => 0
+            };
+
+            // Reasoning Effort
+            ReasoningEffortCombo = new ComboBox
+            {
+                Header = "Reasoning Effort",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "Default", Tag = CodexReasoningEffort.Default });
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "None", Tag = CodexReasoningEffort.None });
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "Minimal", Tag = CodexReasoningEffort.Minimal });
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "Low", Tag = CodexReasoningEffort.Low });
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "Medium", Tag = CodexReasoningEffort.Medium });
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "High", Tag = CodexReasoningEffort.High });
+            ReasoningEffortCombo.Items.Add(new ComboBoxItem { Content = "XHigh", Tag = CodexReasoningEffort.XHigh });
+            ReasoningEffortCombo.SelectedIndex = (int)(initialModel?.ReasoningEffort ?? CodexReasoningEffort.Default);
+
+            // Reasoning Summary
+            ReasoningSummaryCombo = new ComboBox
+            {
+                Header = "Reasoning Summary",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            ReasoningSummaryCombo.Items.Add(new ComboBoxItem { Content = "Default", Tag = CodexReasoningSummary.Default });
+            ReasoningSummaryCombo.Items.Add(new ComboBoxItem { Content = "Auto", Tag = CodexReasoningSummary.Auto });
+            ReasoningSummaryCombo.Items.Add(new ComboBoxItem { Content = "Concise", Tag = CodexReasoningSummary.Concise });
+            ReasoningSummaryCombo.Items.Add(new ComboBoxItem { Content = "Detailed", Tag = CodexReasoningSummary.Detailed });
+            ReasoningSummaryCombo.Items.Add(new ComboBoxItem { Content = "None", Tag = CodexReasoningSummary.None });
+            ReasoningSummaryCombo.SelectedIndex = (int)(initialModel?.ReasoningSummary ?? CodexReasoningSummary.Default);
+
+            // Verbosity
+            VerbosityCombo = new ComboBox
+            {
+                Header = "Output Verbosity",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            VerbosityCombo.Items.Add(new ComboBoxItem { Content = "Default", Tag = CodexVerbosity.Default });
+            VerbosityCombo.Items.Add(new ComboBoxItem { Content = "Low", Tag = CodexVerbosity.Low });
+            VerbosityCombo.Items.Add(new ComboBoxItem { Content = "Medium", Tag = CodexVerbosity.Medium });
+            VerbosityCombo.Items.Add(new ComboBoxItem { Content = "High", Tag = CodexVerbosity.High });
+            VerbosityCombo.SelectedIndex = (int)(initialModel?.Verbosity ?? CodexVerbosity.Default);
+
+            // Tool Output Limit
+            ToolOutputLimitBox = new TextBox
+            {
+                Header = "Tool Output Token Limit",
+                PlaceholderText = "e.g. 4000 (empty = default)",
+                Text = initialModel?.ToolOutputTokenLimit?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            // Retries & Timeouts
+            RequestRetriesBox = new TextBox
+            {
+                Header = "Request Max Retries",
+                PlaceholderText = "e.g. 3 (empty = default)",
+                Text = initialTransport?.RequestMaxRetries?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            StreamRetriesBox = new TextBox
+            {
+                Header = "Stream Max Retries",
+                PlaceholderText = "e.g. 5 (empty = default)",
+                Text = initialTransport?.StreamMaxRetries?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            StreamTimeoutBox = new TextBox
+            {
+                Header = "Stream Idle Timeout (ms)",
+                PlaceholderText = "e.g. 60000 (empty = default)",
+                Text = initialTransport?.StreamIdleTimeoutMs?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            WsTimeoutBox = new TextBox
+            {
+                Header = "WebSocket Connect Timeout (ms)",
+                PlaceholderText = "e.g. 15000 (empty = default)",
+                Text = initialTransport?.WebSocketConnectTimeoutMs?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            // CheckBoxes
+            WebSocketsCheck = new CheckBox
+            {
+                Content = "Supports WebSockets (wire_api = responses)",
+                IsThreeState = true,
+                IsChecked = initialTransport?.SupportsWebSockets,
+            };
+
+            StandaloneWebSearchCheck = new CheckBox
+            {
+                Content = "Supports Standalone Web Search",
+                IsThreeState = true,
+                IsChecked = initialTransport?.SupportsStandaloneWebSearch,
+            };
+
+            // Custom HTTP Headers
+            var initialHeaders = initialTransport?.HttpHeaders != null
+                ? string.Join(Environment.NewLine, initialTransport.HttpHeaders.Select(kv => $"{kv.Key}: {kv.Value}"))
+                : string.Empty;
+            HeadersBox = new TextBox
+            {
+                Header = "Custom HTTP Headers (Name: Value, one per line)",
+                PlaceholderText = "OpenAI-Organization: org-123",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Height = 60,
+                Text = initialHeaders,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            // Custom Query Params
+            var initialParams = initialTransport?.QueryParams != null
+                ? string.Join(Environment.NewLine, initialTransport.QueryParams.Select(kv => $"{kv.Key}={kv.Value}"))
+                : string.Empty;
+            QueryParamsBox = new TextBox
+            {
+                Header = "Custom Query Parameters (Key=Value, one per line)",
+                PlaceholderText = "api-version=2024-02-01",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Height = 60,
+                Text = initialParams,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+
+            var expanderPanel = new StackPanel { Spacing = 10, Padding = new Thickness(4) };
+            expanderPanel.Children.Add(ReasoningEffortCombo);
+            expanderPanel.Children.Add(ReasoningSummaryCombo);
+            expanderPanel.Children.Add(VerbosityCombo);
+            expanderPanel.Children.Add(ToolOutputLimitBox);
+            expanderPanel.Children.Add(RequestRetriesBox);
+            expanderPanel.Children.Add(StreamRetriesBox);
+            expanderPanel.Children.Add(StreamTimeoutBox);
+            expanderPanel.Children.Add(WsTimeoutBox);
+            expanderPanel.Children.Add(WebSocketsCheck);
+            expanderPanel.Children.Add(StandaloneWebSearchCheck);
+            expanderPanel.Children.Add(HeadersBox);
+            expanderPanel.Children.Add(QueryParamsBox);
+
+            Expander = new Expander
+            {
+                Header = loc.AdvancedSettingsLabel,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                IsExpanded = false,
+                Content = expanderPanel,
+            };
+        }
+
+        public void AttachTo(Panel parent)
+        {
+            parent.Children.Add(ContextPresetCombo);
+            parent.Children.Add(CustomContextBox);
+            parent.Children.Add(AutoCompactBox);
+            parent.Children.Add(CompactScopeCombo);
+            parent.Children.Add(Expander);
+        }
+
+        public (CodexModelOverrides? Model, ApiProviderTransportOverrides? Transport, string? Error) ValidateAndExtract(Strings loc)
+        {
+            long? contextTokens = null;
+            if (ContextPresetCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+            {
+                if (tag == "auto")
+                {
+                    contextTokens = null;
+                }
+                else if (long.TryParse(tag, out var presetVal))
+                {
+                    contextTokens = presetVal;
+                }
+                else if (tag == "custom")
+                {
+                    var customText = CustomContextBox.Text?.Trim();
+                    if (!string.IsNullOrWhiteSpace(customText))
+                    {
+                        if (!long.TryParse(customText, out var parsedCustom) || parsedCustom <= 0)
+                        {
+                            return (null, null, "Custom Context Window must be a positive integer.");
+                        }
+                        contextTokens = parsedCustom;
+                    }
+                }
+            }
+
+            long? compactTokens = null;
+            var compactText = AutoCompactBox.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(compactText))
+            {
+                if (!long.TryParse(compactText, out var parsedCompact) || parsedCompact <= 0)
+                {
+                    return (null, null, "Auto-compact token limit must be a positive integer.");
+                }
+                if (contextTokens.HasValue && parsedCompact > contextTokens.Value)
+                {
+                    return (null, null, "Auto-compact token limit cannot exceed context window.");
+                }
+                compactTokens = parsedCompact;
+            }
+
+            var compactScope = (CompactLimitScope)(CompactScopeCombo.SelectedIndex >= 0 ? CompactScopeCombo.SelectedIndex : 0);
+            var reasoningEffort = (CodexReasoningEffort)(ReasoningEffortCombo.SelectedIndex >= 0 ? ReasoningEffortCombo.SelectedIndex : 0);
+            var reasoningSummary = (CodexReasoningSummary)(ReasoningSummaryCombo.SelectedIndex >= 0 ? ReasoningSummaryCombo.SelectedIndex : 0);
+            var verbosity = (CodexVerbosity)(VerbosityCombo.SelectedIndex >= 0 ? VerbosityCombo.SelectedIndex : 0);
+
+            int? toolLimit = null;
+            var toolLimitText = ToolOutputLimitBox.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(toolLimitText))
+            {
+                if (!int.TryParse(toolLimitText, out var parsedTool) || parsedTool <= 0)
+                {
+                    return (null, null, "Tool Output Token Limit must be a positive integer.");
+                }
+                toolLimit = parsedTool;
+            }
+
+            ulong? reqRetries = null;
+            var reqRetriesText = RequestRetriesBox.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(reqRetriesText))
+            {
+                if (!ulong.TryParse(reqRetriesText, out var parsedReq))
+                {
+                    return (null, null, "Request Max Retries must be a non-negative integer.");
+                }
+                reqRetries = parsedReq;
+            }
+
+            ulong? streamRetries = null;
+            var streamRetriesText = StreamRetriesBox.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(streamRetriesText))
+            {
+                if (!ulong.TryParse(streamRetriesText, out var parsedStream))
+                {
+                    return (null, null, "Stream Max Retries must be a non-negative integer.");
+                }
+                streamRetries = parsedStream;
+            }
+
+            ulong? streamTimeout = null;
+            var streamTimeoutText = StreamTimeoutBox.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(streamTimeoutText))
+            {
+                if (!ulong.TryParse(streamTimeoutText, out var parsedTimeout))
+                {
+                    return (null, null, "Stream Idle Timeout must be a non-negative integer in milliseconds.");
+                }
+                streamTimeout = parsedTimeout;
+            }
+
+            ulong? wsTimeout = null;
+            var wsTimeoutText = WsTimeoutBox.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(wsTimeoutText))
+            {
+                if (!ulong.TryParse(wsTimeoutText, out var parsedWs))
+                {
+                    return (null, null, "WebSocket Connect Timeout must be a non-negative integer in milliseconds.");
+                }
+                wsTimeout = parsedWs;
+            }
+
+            Dictionary<string, string>? headers = null;
+            var rawHeaders = HeadersBox.Text?.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+            if (rawHeaders != null && rawHeaders.Length > 0)
+            {
+                headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var line in rawHeaders)
+                {
+                    var colonIdx = line.IndexOf(':');
+                    if (colonIdx <= 0) continue;
+                    var hName = line[..colonIdx].Trim();
+                    var hVal = line[(colonIdx + 1)..].Trim();
+                    if (string.IsNullOrWhiteSpace(hName)) continue;
+
+                    if (ApiProviderTransportOverrides.ForbiddenHeaders.Any(f => f.Equals(hName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return (null, null, loc.ForbiddenHeaderError);
+                    }
+                    headers[hName] = hVal;
+                }
+                if (headers.Count == 0) headers = null;
+            }
+
+            Dictionary<string, string>? queryParams = null;
+            var rawParams = QueryParamsBox.Text?.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+            if (rawParams != null && rawParams.Length > 0)
+            {
+                queryParams = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var line in rawParams)
+                {
+                    var eqIdx = line.IndexOf('=');
+                    if (eqIdx <= 0) continue;
+                    var qName = line[..eqIdx].Trim();
+                    var qVal = line[(eqIdx + 1)..].Trim();
+                    if (string.IsNullOrWhiteSpace(qName)) continue;
+                    queryParams[qName] = qVal;
+                }
+                if (queryParams.Count == 0) queryParams = null;
+            }
+
+            CodexModelOverrides? modelOverrides = null;
+            if (contextTokens.HasValue ||
+                compactTokens.HasValue ||
+                compactScope != CompactLimitScope.Default ||
+                reasoningEffort != CodexReasoningEffort.Default ||
+                reasoningSummary != CodexReasoningSummary.Default ||
+                verbosity != CodexVerbosity.Default ||
+                toolLimit.HasValue)
+            {
+                modelOverrides = new CodexModelOverrides
+                {
+                    ContextWindowTokens = contextTokens,
+                    AutoCompactTokenLimit = compactTokens,
+                    AutoCompactTokenLimitScope = compactScope,
+                    ReasoningEffort = reasoningEffort,
+                    ReasoningSummary = reasoningSummary,
+                    Verbosity = verbosity,
+                    ToolOutputTokenLimit = toolLimit,
+                };
+            }
+
+            ApiProviderTransportOverrides? transportOverrides = null;
+            if (reqRetries.HasValue ||
+                streamRetries.HasValue ||
+                streamTimeout.HasValue ||
+                wsTimeout.HasValue ||
+                WebSocketsCheck.IsChecked.HasValue ||
+                StandaloneWebSearchCheck.IsChecked.HasValue ||
+                headers != null ||
+                queryParams != null)
+            {
+                transportOverrides = new ApiProviderTransportOverrides
+                {
+                    RequestMaxRetries = reqRetries,
+                    StreamMaxRetries = streamRetries,
+                    StreamIdleTimeoutMs = streamTimeout,
+                    WebSocketConnectTimeoutMs = wsTimeout,
+                    SupportsWebSockets = WebSocketsCheck.IsChecked,
+                    SupportsStandaloneWebSearch = StandaloneWebSearchCheck.IsChecked,
+                    HttpHeaders = headers,
+                    QueryParams = queryParams,
+                };
+            }
+
+            return (modelOverrides, transportOverrides, null);
+        }
     }
 }

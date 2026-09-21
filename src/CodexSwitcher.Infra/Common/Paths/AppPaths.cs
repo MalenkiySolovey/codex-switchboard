@@ -83,6 +83,8 @@ public sealed class AppPaths
     public string BrokerExecutablePath => Path.Combine(BrokerDir, "CodexSwitchboard.KeyBroker.exe");
     public string ApiKeysDir => Path.Combine(Root, "api-keys");
     public string LegacyApiKeysDir => Path.Combine(Root, "keys");
+    public string CatalogsDir => Path.Combine(Root, "catalogs");
+    public string RoutingStatePath => Path.Combine(Root, "routing-state.json");
 
     /// <summary>Caminho do arquivo de credencial TOTP cifrado de um perfil.</summary>
     public string GetTotpPath(Guid profileId) => Path.Combine(TotpDir, $"{profileId:N}.bin");

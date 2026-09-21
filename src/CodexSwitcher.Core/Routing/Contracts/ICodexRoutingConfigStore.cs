@@ -48,7 +48,15 @@ public sealed record CodexProviderBlock(
     string WireApi,
     string BrokerCommand,
     IReadOnlyList<string> BrokerArgs,
-    int TimeoutMs = 5000);
+    int TimeoutMs = 5000,
+    ulong? RequestMaxRetries = null,
+    ulong? StreamMaxRetries = null,
+    ulong? StreamIdleTimeoutMs = null,
+    ulong? WebSocketConnectTimeoutMs = null,
+    bool? SupportsWebSockets = null,
+    bool? SupportsStandaloneWebSearch = null,
+    IReadOnlyDictionary<string, string>? QueryParams = null,
+    IReadOnlyDictionary<string, string>? HttpHeaders = null);
 
 public class ConcurrentModificationException : InvalidOperationException
 {
@@ -70,6 +78,8 @@ public interface ICodexRoutingConfigStore
         string configTomlPath,
         CodexProviderBlock providerBlock,
         string model,
+        CodexModelOverrides? modelOverrides = null,
+        string? modelCatalogJson = null,
         string? expectedFingerprint = null);
 
     string UpdateProviderRoute(

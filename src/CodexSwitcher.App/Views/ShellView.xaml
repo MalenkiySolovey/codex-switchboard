@@ -777,7 +777,9 @@
                 <!-- API Provider Cards -->
                 <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.ApiProviders.Items}"
                           SelectionMode="None" Padding="24,0,24,24"
-                          ScrollViewer.HorizontalScrollMode="Disabled">
+                          ScrollViewer.HorizontalScrollMode="Disabled"
+                          CanReorderItems="True" CanDragItems="True" AllowDrop="True"
+                          DragItemsCompleted="OnApiProvidersReordered">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -876,6 +878,17 @@
                                                 <FontIcon Glyph="&#xE712;" FontSize="14" />
                                                 <Button.Flyout>
                                                     <MenuFlyout>
+                                                        <MenuFlyoutItem Text="{x:Bind MoveUpLabel}" Click="OnMoveUpApiProviderClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE74A;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem Text="{x:Bind MoveDownLabel}" Click="OnMoveDownApiProviderClick">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE74B;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator />
                                                         <MenuFlyoutItem Text="Edit Provider" Click="OnEditApiProviderClick">
                                                             <MenuFlyoutItem.Icon>
                                                                 <FontIcon Glyph="&#xE70F;" />

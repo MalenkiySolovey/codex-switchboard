@@ -83,6 +83,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     private readonly IAppNotificationService _notifications;
     private readonly IAppBusyService _busyService;
     private readonly CancellationTokenSource _cts = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task<ApiProviderSnapshot>> _inFlightInspections = new();
 
     public ObservableCollection<ApiProviderItemViewModel> Items { get; } = [];
 
@@ -259,6 +260,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             KeyPreview = ApiProviderProfile.ComputeKeyPreview(result.ApiKey),
             Status = string.IsNullOrWhiteSpace(result.ApiKey) ? ApiProviderProfileStatus.CredentialMissing : ApiProviderProfileStatus.Active,
             CreatedAt = _clock.UtcNow,
+            ModelOverrides = result.ModelOverrides,
+            TransportOverrides = result.TransportOverrides,
         };
 
         if (!string.IsNullOrWhiteSpace(result.ApiKey))
@@ -380,6 +383,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         item.Profile.BaseUrl = result.BaseUrl;
         item.Profile.SelectedRouteId = result.SelectedRouteId;
         item.Profile.SelectedModel = result.SelectedModel;
+        item.Profile.ModelOverrides = result.ModelOverrides;
+        item.Profile.TransportOverrides = result.TransportOverrides;
 
         _apiProviderStore.Save(item.Profile);
 
@@ -464,6 +469,54 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     }
 
     [RelayCommand]
+    public void MoveUp(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+        var idx = Items.IndexOf(item);
+        if (idx <= 0) return;
+
+        Items.Move(idx, idx - 1);
+        for (int i = 0; i < Items.Count; i++)
+        {
+            Items[i].Profile.SortOrder = i;
+        }
+
+        _apiProviderStore.SaveAll(Items.Select(x => x.Profile), ApiProviderSaveIntent.NormalUpdate);
+    }
+
+    [RelayCommand]
+    public void MoveDown(ApiProviderItemViewModel? item)
+    {
+        if (item is null) return;
+        var idx = Items.IndexOf(item);
+        if (idx < 0 || idx >= Items.Count - 1) return;
+
+        Items.Move(idx, idx + 1);
+        for (int i = 0; i < Items.Count; i++)
+        {
+            Items[i].Profile.SortOrder = i;
+        }
+
+        _apiProviderStore.SaveAll(Items.Select(x => x.Profile), ApiProviderSaveIntent.NormalUpdate);
+    }
+
+    [RelayCommand]
+    public void Reorder(IReadOnlyList<Guid>? orderedIds)
+    {
+        if (orderedIds is null || orderedIds.Count == 0) return;
+
+        var order = 0;
+        foreach (var id in orderedIds)
+        {
+            var item = Items.FirstOrDefault(x => x.Id == id);
+            if (item is null) continue;
+            item.Profile.SortOrder = order++;
+        }
+
+        _apiProviderStore.SaveAll(Items.OrderBy(x => x.Profile.SortOrder).Select(x => x.Profile), ApiProviderSaveIntent.NormalUpdate);
+    }
+
+    [RelayCommand]
     public async Task ContinueOnAsync(ApiProviderItemViewModel? item)
     {
         if (item is null) return;
@@ -528,13 +581,23 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     public async Task DiscoverModelsAsync(ApiProviderItemViewModel? item)
     {
         if (item is null) return;
+        if (item.IsLoadingModels && _inFlightInspections.ContainsKey(item.Profile.Id)) return;
 
         item.IsLoadingModels = true;
         item.ModelsStatusMessage = Loc.DiscoveringModels;
 
         try
         {
-            var snapshot = await _inspectionService.InspectAsync(item.Profile.Id, _cts.Token);
+            var task = _inFlightInspections.GetOrAdd(item.Profile.Id, id => _inspectionService.InspectAsync(id, _cts.Token));
+            ApiProviderSnapshot snapshot;
+            try
+            {
+                snapshot = await task;
+            }
+            finally
+            {
+                _inFlightInspections.TryRemove(item.Profile.Id, out _);
+            }
 
             if (snapshot.Models.Count > 0)
             {

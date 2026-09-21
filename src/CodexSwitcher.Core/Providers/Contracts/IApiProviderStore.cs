@@ -44,7 +44,7 @@ public interface IApiProviderStore
     ApiProviderProfile? GetById(Guid id);
     ApiProviderProfile? GetByStableCodexProviderId(string stableId);
     void Save(ApiProviderProfile profile);
-    void SaveAll(IEnumerable<ApiProviderProfile> profiles);
+    void SaveAll(IEnumerable<ApiProviderProfile> profiles, ApiProviderSaveIntent intent = ApiProviderSaveIntent.NormalUpdate);
     bool Delete(Guid id);
     bool SetStatus(Guid id, ApiProviderProfileStatus status);
 }

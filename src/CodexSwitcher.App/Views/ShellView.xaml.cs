@@ -300,6 +300,23 @@ public sealed partial class ShellView : UserControl
         if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.RemoveApiProviderCommand.Execute(item);
     }
 
+    private void OnMoveUpApiProviderClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.MoveUpCommand.Execute(item);
+    }
+
+    private void OnMoveDownApiProviderClick(object sender, RoutedEventArgs e)
+    {
+        if (ApiItemOf(sender) is { } item) ViewModel.ApiProviders.MoveDownCommand.Execute(item);
+    }
+
+    private void OnApiProvidersReordered(object sender, DragItemsCompletedEventArgs e)
+    {
+        if (e.DropResult != DataPackageOperation.Move) return;
+        var orderedIds = ViewModel.ApiProviders.Items.Select(a => a.Id).ToList();
+        ViewModel.ApiProviders.ReorderCommand.Execute(orderedIds);
+    }
+
     private void OnSelectChatGptTabClick(object sender, RoutedEventArgs e)
     {
         ViewModel.SelectedTab = 0;

@@ -293,6 +293,10 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ICodexRoutingConfigStore>(),
             paths.Codex));
 
+        services.AddSingleton<ICodexModelCatalogService>(sp => new CodexModelCatalogService(
+            sp.GetRequiredService<IFileSystem>(),
+            paths));
+
         services.AddSingleton<ISwitchTransactionExecutor>(sp => new SwitchTransactionExecutor(
             sp.GetRequiredService<SwitchService>(),
             sp.GetRequiredService<ICodexRoutingConfigStore>(),
@@ -301,7 +305,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IFileSystem>(),
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IAuditLog>(),
-            paths.Codex));
+            paths.Codex,
+            modelCatalogService: sp.GetRequiredService<ICodexModelCatalogService>()));
 
         services.AddSingleton<ICodexTargetSwitchService>(sp => new CodexTargetSwitchService(
             sp.GetRequiredService<ISwitchPlanBuilder>(),

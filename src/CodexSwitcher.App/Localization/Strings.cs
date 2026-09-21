@@ -504,6 +504,8 @@ public sealed class Strings
         "Continues the selected conversation in a new thread using the active API provider, preserving original history.");
     public string RotateKey => S("Substituir chave de API", "Replace API key");
     public string RemoveCredential => S("Remover credencial", "Remove credential");
+    public string MoveUp => S("Mover para cima", "Move up");
+    public string MoveDown => S("Mover para baixo", "Move down");
     public string RouteLabel => S("Rota", "Route");
     public string PrimaryRoute => S("Principal", "Primary");
     public string ReserveRoute => S("Reserva", "Reserve");
@@ -540,4 +542,10 @@ public sealed class Strings
     public string ForkSuccessMessage(string provider, string threadTitle) => S(
         $"Conversa bifurcada com sucesso no {provider} ({threadTitle}). O roteamento do Codex foi atualizado.",
         $"Conversation successfully continued on {provider} ({threadTitle}). Codex routing was updated.");
+    public string ContextWindowLabel => S("Janela de contexto", "Context window");
+    public string AutoCompactLabel => S("Limite de auto-compactação", "Auto-compact token limit");
+    public string AdvancedSettingsLabel => S("Configurações avançadas (modelo e rede)", "Advanced model & transport settings");
+    public string ForbiddenHeaderError => S(
+        "Cabeçalhos de autenticação sensíveis não são permitidos em cabeçalhos personalizados. Use o campo Chave de API.",
+        "Sensitive authentication headers (Authorization, X-API-Key, etc.) are forbidden in custom static headers. Use the API Key field above.");
 }

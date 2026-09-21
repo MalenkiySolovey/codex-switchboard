@@ -85,6 +85,12 @@ public sealed class ApiProviderProfile
     /// <summary>Display ordering index for UI.</summary>
     public int SortOrder { get; set; }
 
+    /// <summary>Optional model configuration overrides for Codex runtime (context window, compaction, reasoning, etc.).</summary>
+    public CodexModelOverrides? ModelOverrides { get; set; }
+
+    /// <summary>Optional network and transport configuration overrides for the model provider block.</summary>
+    public ApiProviderTransportOverrides? TransportOverrides { get; set; }
+
     /// <summary>User-facing display name.</summary>
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(Nickname) ? Nickname :

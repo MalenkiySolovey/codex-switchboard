@@ -1,51 +1,5 @@
-using CodexSwitcher.Core.Accounts.Contracts;
-using CodexSwitcher.Core.Accounts.Formatting;
-using CodexSwitcher.Core.Accounts.Models;
-using CodexSwitcher.Core.Accounts.Services;
-using CodexSwitcher.Core.Common.Dispatcher;
-using CodexSwitcher.Core.Common.Enums;
-using CodexSwitcher.Core.Common.Environment;
 using CodexSwitcher.Core.Common.Errors;
-using CodexSwitcher.Core.Common.Lifecycle;
-using CodexSwitcher.Core.Common.Logging;
 using CodexSwitcher.Core.Common.Storage;
-using CodexSwitcher.Core.Common.Time;
-using CodexSwitcher.Core.Providers.Catalog;
-using CodexSwitcher.Core.Providers.Services;
-using CodexSwitcher.Core.Routing.Contracts;
-using CodexSwitcher.Core.Routing.Models;
-using CodexSwitcher.Core.Routing.Services;
-using CodexSwitcher.Core.Security.Secrets;
-using CodexSwitcher.Core.Security.Totp;
-using CodexSwitcher.Core.Security.Verification;
-using CodexSwitcher.Core.Settings.Contracts;
-using CodexSwitcher.Core.Settings.Models;
-using CodexSwitcher.Core.Threads.Contracts;
-using CodexSwitcher.Core.Threads.Models;
-using CodexSwitcher.Core.Transfer.Contracts;
-using CodexSwitcher.Core.Transfer.Models;
-using CodexSwitcher.Core.Transfer.Services;
-using CodexSwitcher.Core.Usage.Contracts;
-using CodexSwitcher.Core.Usage.Formatting;
-using CodexSwitcher.Core.Usage.Models;
-using CodexSwitcher.Core.Usage.Services;
-using CodexSwitcher.Infra.Accounts.Storage;
-using CodexSwitcher.Infra.Codex.Routing;
-using CodexSwitcher.Infra.Codex.Runtime;
-using CodexSwitcher.Infra.Codex.Threads;
-using CodexSwitcher.Infra.Codex.Usage;
-using CodexSwitcher.Infra.Common.Logging;
-using CodexSwitcher.Infra.Common.Paths;
-using CodexSwitcher.Infra.Common.Storage;
-using CodexSwitcher.Infra.Common.Time;
-using CodexSwitcher.Infra.Providers.Inspection;
-using CodexSwitcher.Infra.Providers.Secrets;
-using CodexSwitcher.Infra.Providers.Storage;
-using CodexSwitcher.Infra.Scheduling;
-using CodexSwitcher.Infra.Security.Dpapi;
-using CodexSwitcher.Infra.Security.Hardening;
-using CodexSwitcher.Infra.Security.Totp;
-using CodexSwitcher.Infra.Settings;
 using CodexSwitcher.Core.Providers.Contracts;
 using CodexSwitcher.Core.Providers.Models;
 using System.Text.Json;
@@ -54,11 +8,14 @@ using System.Text.Json.Serialization;
 namespace CodexSwitcher.Infra.Providers.Storage;
 
 /// <summary>
-/// Persists API provider metadata to api-providers.json with atomic writes and credential status validation.
+/// Persists API provider metadata to api-providers.json with atomic writes, rolling backups,
+/// anti-truncation invariants, and corrupt-index recovery fail-safe.
 /// Plaintext secrets are strictly excluded from this store.
 /// </summary>
 public sealed class ApiProviderStore : IApiProviderStore
 {
+    private const int MaxRollingBackups = 10;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -71,12 +28,22 @@ public sealed class ApiProviderStore : IApiProviderStore
     private readonly string _filePath;
     private readonly IApiKeySecretStore? _secretStore;
     private readonly object _sync = new();
+    private string? _lastSavedJson;
+    private int? _lastKnownCount;
 
     public ApiProviderStore(IFileSystem fs, string filePath, IApiKeySecretStore? secretStore = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _filePath = filePath ?? throw new ArgumentNullException(nameof(filePath));
         _secretStore = secretStore;
+    }
+
+    private string GetBackupsDir()
+    {
+        var parentDir = Path.GetDirectoryName(_filePath);
+        return string.IsNullOrEmpty(parentDir)
+            ? Path.Combine("backups", "api-providers")
+            : Path.Combine(parentDir, "backups", "api-providers");
     }
 
     public IReadOnlyList<ApiProviderProfile> GetAll()
@@ -130,16 +97,16 @@ public sealed class ApiProviderStore : IApiProviderStore
             {
                 list.Add(profile);
             }
-            SaveInternal(list);
+            SaveInternal(list, ApiProviderSaveIntent.NormalUpdate);
         }
     }
 
-    public void SaveAll(IEnumerable<ApiProviderProfile> profiles)
+    public void SaveAll(IEnumerable<ApiProviderProfile> profiles, ApiProviderSaveIntent intent = ApiProviderSaveIntent.NormalUpdate)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         lock (_sync)
         {
-            SaveInternal(profiles.ToList());
+            SaveInternal(profiles.ToList(), intent);
         }
     }
 
@@ -151,7 +118,7 @@ public sealed class ApiProviderStore : IApiProviderStore
             var removed = list.RemoveAll(p => p.Id == id) > 0;
             if (removed)
             {
-                SaveInternal(list);
+                SaveInternal(list, ApiProviderSaveIntent.ExplicitDelete);
             }
             return removed;
         }
@@ -165,7 +132,7 @@ public sealed class ApiProviderStore : IApiProviderStore
             var profile = list.FirstOrDefault(p => p.Id == id);
             if (profile is null) return false;
             profile.Status = status;
-            SaveInternal(list);
+            SaveInternal(list, ApiProviderSaveIntent.NormalUpdate);
             return true;
         }
     }
@@ -173,31 +140,204 @@ public sealed class ApiProviderStore : IApiProviderStore
     private List<ApiProviderProfile> LoadInternal()
     {
         if (!_fs.FileExists(_filePath))
+        {
+            _lastKnownCount = 0;
+            _lastSavedJson = null;
             return [];
+        }
+
+        string json;
+        try
+        {
+            json = _fs.ReadAllText(_filePath);
+        }
+        catch (Exception ex)
+        {
+            return AttemptBackupRecoveryOrThrow("Falha ao ler api-providers.json do disco.", ex);
+        }
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            _lastKnownCount = 0;
+            _lastSavedJson = null;
+            return [];
+        }
 
         try
         {
-            var json = _fs.ReadAllText(_filePath);
-            if (string.IsNullOrWhiteSpace(json))
-                return [];
+            var list = JsonSerializer.Deserialize<List<ApiProviderProfile>>(json, JsonOptions);
+            if (list == null)
+            {
+                return AttemptBackupRecoveryOrThrow("Desserialização de api-providers.json retornou nulo.", null);
+            }
 
-            return JsonSerializer.Deserialize<List<ApiProviderProfile>>(json, JsonOptions) ?? [];
+            _lastSavedJson = json;
+            _lastKnownCount = list.Count;
+            return list;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            return [];
+            return AttemptBackupRecoveryOrThrow("JSON malformado em api-providers.json.", ex);
         }
     }
 
-    private void SaveInternal(List<ApiProviderProfile> profiles)
+    private void SaveInternal(List<ApiProviderProfile> profiles, ApiProviderSaveIntent intent)
     {
+        // 1. Verificação de unicidade de IDs
+        var uniqueIds = new HashSet<Guid>();
+        foreach (var p in profiles)
+        {
+            if (!uniqueIds.Add(p.Id))
+            {
+                throw new InvalidOperationException($"ID de provedor API duplicado '{p.Id}' detectado na coleção a ser gravada.");
+            }
+        }
+
+        // 2. Determina contagem existente no disco
+        var existingCount = GetCurrentProfileCountUnderLock();
+
+        // 3. Invariante anti-truncamento: NormalUpdate NUNCA pode reduzir o número de perfis
+        if (intent == ApiProviderSaveIntent.NormalUpdate && profiles.Count < existingCount)
+        {
+            throw new ApiProviderTruncationException(existingCount, profiles.Count);
+        }
+
+        var json = JsonSerializer.Serialize(profiles, JsonOptions);
+        if (string.Equals(_lastSavedJson, json, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // 4. Backup rotativo antes de modificar o arquivo se já existia conteúdo válido
+        if (existingCount > 0 && _fs.FileExists(_filePath))
+        {
+            CreateBackupUnderLock();
+        }
+
         var dir = Path.GetDirectoryName(_filePath);
         if (!string.IsNullOrEmpty(dir) && !_fs.DirectoryExists(dir))
         {
             _fs.CreateDirectory(dir);
         }
 
-        var json = JsonSerializer.Serialize(profiles, JsonOptions);
         _fs.WriteAllTextAtomic(_filePath, json);
+        _lastSavedJson = json;
+        _lastKnownCount = profiles.Count;
+
+        // 5. Rotação / expurgo de backups antigos
+        PruneBackupsUnderLock();
+    }
+
+    private int GetCurrentProfileCountUnderLock()
+    {
+        if (_lastKnownCount.HasValue)
+        {
+            return _lastKnownCount.Value;
+        }
+
+        if (!_fs.FileExists(_filePath))
+        {
+            _lastKnownCount = 0;
+            return 0;
+        }
+
+        try
+        {
+            var existingJson = _fs.ReadAllText(_filePath);
+            if (string.IsNullOrWhiteSpace(existingJson))
+            {
+                _lastKnownCount = 0;
+                return 0;
+            }
+
+            var existingList = JsonSerializer.Deserialize<List<ApiProviderProfile>>(existingJson, JsonOptions);
+            var count = existingList?.Count ?? 0;
+            _lastKnownCount = count;
+            return count;
+        }
+        catch
+        {
+            return _lastKnownCount ?? 0;
+        }
+    }
+
+    private void CreateBackupUnderLock()
+    {
+        try
+        {
+            var backupsDir = GetBackupsDir();
+            _fs.CreateDirectory(backupsDir);
+
+            var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture);
+            var backupPath = Path.Combine(backupsDir, $"api-providers.{timestamp}.json");
+            var currentJson = _fs.ReadAllText(_filePath);
+            _fs.WriteAllTextAtomic(backupPath, currentJson);
+        }
+        catch
+        {
+            // Falha na criação do backup não deve impedir a escrita principal se esta for válida
+        }
+    }
+
+    private void PruneBackupsUnderLock()
+    {
+        try
+        {
+            var backupsDir = GetBackupsDir();
+            if (!_fs.DirectoryExists(backupsDir))
+                return;
+
+            var files = _fs.EnumerateFiles(backupsDir, "api-providers.*.json")
+                .OrderByDescending(f => f)
+                .ToList();
+
+            if (files.Count > MaxRollingBackups)
+            {
+                for (int i = MaxRollingBackups; i < files.Count; i++)
+                {
+                    try { _fs.Delete(files[i]); } catch { }
+                }
+            }
+        }
+        catch { }
+    }
+
+    private List<ApiProviderProfile> AttemptBackupRecoveryOrThrow(string reason, Exception? inner)
+    {
+        var backupsDir = GetBackupsDir();
+        if (_fs.DirectoryExists(backupsDir))
+        {
+            var backupFiles = _fs.EnumerateFiles(backupsDir, "api-providers.*.json")
+                .OrderByDescending(f => f)
+                .ToList();
+
+            foreach (var backupFile in backupFiles)
+            {
+                try
+                {
+                    var backupJson = _fs.ReadAllText(backupFile);
+                    if (!string.IsNullOrWhiteSpace(backupJson))
+                    {
+                        var list = JsonSerializer.Deserialize<List<ApiProviderProfile>>(backupJson, JsonOptions);
+                        if (list is not null && list.Count > 0)
+                        {
+                            // Recuperado com sucesso de um backup anterior válido! Restaura atomicamente
+                            _fs.WriteAllTextAtomic(_filePath, backupJson);
+                            _lastSavedJson = backupJson;
+                            _lastKnownCount = list.Count;
+                            return list;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Tenta o próximo backup mais antigo
+                }
+            }
+        }
+
+        throw new CorruptApiProviderIndexException(
+            $"{reason} Nenhum backup rotativo válido encontrado em '{backupsDir}'. Operação abortada para evitar conversão silenciosa em estado vazio.",
+            inner);
     }
 }

@@ -153,6 +153,8 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
     public string EditLabel => Loc.Rename;
     public string RotateKeyLabel => Loc.RotateKey;
     public string RemoveLabel => Loc.RemoveCredential;
+    public string MoveUpLabel => Loc.MoveUp;
+    public string MoveDownLabel => Loc.MoveDown;
 
     public ApiProviderItemViewModel(
         ApiProviderProfile profile,

@@ -33,6 +33,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
     private readonly IAuditLog _audit;
     private readonly CodexPaths _paths;
     private readonly Func<ISwitchCompensationCoordinator>? _coordinatorFactory;
+    private readonly ICodexModelCatalogService? _modelCatalogService;
 
     public SwitchTransactionExecutor(
         SwitchService chatGptSwitchService,
@@ -43,7 +44,8 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         IClock clock,
         IAuditLog audit,
         CodexPaths paths,
-        Func<ISwitchCompensationCoordinator>? coordinatorFactory = null)
+        Func<ISwitchCompensationCoordinator>? coordinatorFactory = null,
+        ICodexModelCatalogService? modelCatalogService = null)
     {
         _chatGptSwitchService = chatGptSwitchService ?? throw new ArgumentNullException(nameof(chatGptSwitchService));
         _routingConfig = routingConfig ?? throw new ArgumentNullException(nameof(routingConfig));
@@ -54,6 +56,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         _audit = audit ?? throw new ArgumentNullException(nameof(audit));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _coordinatorFactory = coordinatorFactory;
+        _modelCatalogService = modelCatalogService;
     }
 
     private ISwitchCompensationCoordinator CreateCompensationCoordinator() =>
@@ -163,6 +166,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
 
         try
         {
+            var transport = targetProfile.TransportOverrides;
             var providerBlock = new CodexProviderBlock(
                 targetProfile.StableCodexProviderId,
                 targetProfile.DisplayName,
@@ -170,10 +174,20 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 targetProfile.WireApi,
                 apiPlan.BrokerPath,
                 new[] { "--key-id", targetProfile.Id.ToString("D") },
-                5000);
+                5000,
+                transport?.RequestMaxRetries,
+                transport?.StreamMaxRetries,
+                transport?.StreamIdleTimeoutMs,
+                transport?.WebSocketConnectTimeoutMs,
+                transport?.SupportsWebSockets,
+                transport?.SupportsStandaloneWebSearch,
+                transport?.QueryParams,
+                transport?.HttpHeaders);
 
             var model = targetProfile.SelectedModel ?? "gpt-5.6-sol";
-            _routingConfig.ApplySwitchboardRouting(_paths.ConfigTomlPath, providerBlock, model);
+            var modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(model, targetProfile.ModelOverrides?.ContextWindowTokens);
+
+            _routingConfig.ApplySwitchboardRouting(_paths.ConfigTomlPath, providerBlock, model, targetProfile.ModelOverrides, modelCatalogJson);
 
             // 4. Verify auth.json is UNTOUCHED
             if (authPreHash is not null)

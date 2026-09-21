@@ -45,6 +45,8 @@ public sealed class AddApiProviderResult
     public string BaseUrl { get; set; } = string.Empty;
     public string SelectedRouteId { get; set; } = "primary";
     public string SelectedModel { get; set; } = string.Empty;
+    public CodexModelOverrides? ModelOverrides { get; set; }
+    public ApiProviderTransportOverrides? TransportOverrides { get; set; }
     public bool SaveAndSwitch { get; set; }
 }
 
@@ -57,4 +59,6 @@ public sealed class EditApiProviderResult
     public string BaseUrl { get; set; } = string.Empty;
     public string SelectedRouteId { get; set; } = string.Empty;
     public string SelectedModel { get; set; } = string.Empty;
+    public CodexModelOverrides? ModelOverrides { get; set; }
+    public ApiProviderTransportOverrides? TransportOverrides { get; set; }
 }

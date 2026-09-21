@@ -15,7 +15,7 @@ public sealed class ProviderInspectionServiceTests
         public ApiProviderProfile? GetByStableCodexProviderId(string stableId) =>
             Profiles.Values.FirstOrDefault(p => p.StableCodexProviderId == stableId);
         public void Save(ApiProviderProfile profile) => Profiles[profile.Id] = profile;
-        public void SaveAll(IEnumerable<ApiProviderProfile> profiles)
+        public void SaveAll(IEnumerable<ApiProviderProfile> profiles, ApiProviderSaveIntent intent = ApiProviderSaveIntent.NormalUpdate)
         {
             foreach (var p in profiles) Profiles[p.Id] = p;
         }
