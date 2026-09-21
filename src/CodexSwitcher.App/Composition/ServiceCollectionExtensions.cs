@@ -272,6 +272,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IProviderCatalogService>(),
             sp.GetRequiredService<IDeclarativeProviderInspector>(),
             sp.GetRequiredService<IProviderModelCache>()));
+        services.AddSingleton<IProviderCompatibilityProbeService>(sp => new ProviderCompatibilityProbeService(
+            runtimeResolver: sp.GetService<ICodexRuntimeResolver>()));
 
         return services;
     }
@@ -293,9 +295,13 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ICodexRoutingConfigStore>(),
             paths.Codex));
 
+        services.AddSingleton<CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver, CodexSwitcher.Core.Providers.Services.CodexModelMetadataResolver>();
+
         services.AddSingleton<ICodexModelCatalogService>(sp => new CodexModelCatalogService(
             sp.GetRequiredService<IFileSystem>(),
-            paths));
+            paths,
+            runtimeResolver: sp.GetRequiredService<ICodexRuntimeResolver>(),
+            metadataResolver: sp.GetRequiredService<CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver>()));
 
         services.AddSingleton<ISwitchTransactionExecutor>(sp => new SwitchTransactionExecutor(
             sp.GetRequiredService<SwitchService>(),

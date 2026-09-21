@@ -34,9 +34,17 @@ public sealed class FakeProcessManager : IProcessManager
     public List<CodexProcessInfo> Running { get; set; } = [];
     public bool RemnantAfterClose { get; set; }
     public bool ThrowOnRelaunch { get; set; }
-    public bool CloseCalled { get; private set; }
+    public bool CloseCalled { get; set; }
     public List<CodexProcessInfo> Relaunched { get; } = [];
     private bool _closed;
+
+    public void Reset()
+    {
+        CloseCalled = false;
+        _closed = false;
+        Relaunched.Clear();
+        Running.Clear();
+    }
 
     public IReadOnlyList<CodexProcessInfo> FindRunningCodexProcesses() => Running;
 

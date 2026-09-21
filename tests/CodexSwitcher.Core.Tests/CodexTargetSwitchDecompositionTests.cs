@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using CodexSwitcher.Core.Accounts.Models;
 using CodexSwitcher.Core.Common.Enums;
 using CodexSwitcher.Core.Common.Errors;
@@ -8,6 +9,7 @@ using CodexSwitcher.Core.Routing.Contracts;
 using CodexSwitcher.Core.Routing.Models;
 using CodexSwitcher.Core.Routing.Services;
 using CodexSwitcher.Core.Tests.TestSupport;
+using CodexSwitcher.Infra.Codex.Runtime;
 using Xunit;
 
 namespace CodexSwitcher.Core.Tests;
@@ -29,6 +31,7 @@ public sealed class CodexTargetSwitchDecompositionTests
         public ApiKeySecretStore SecretStore { get; }
         public ApiProviderStore ApiStore { get; }
         public KeyBrokerInstaller BrokerInstaller { get; }
+        public CodexModelCatalogService CatalogService { get; }
         public SwitchService ChatGptSwitch { get; }
         public SwitchPlanBuilder PlanBuilder { get; }
         public SwitchTransactionExecutor Executor { get; }
@@ -50,10 +53,11 @@ public sealed class CodexTargetSwitchDecompositionTests
             ApiStore = new ApiProviderStore(Fs, Paths.ApiProvidersPath, SecretStore);
             RoutingStore = new CodexRoutingConfigStore(Fs, Paths);
             BrokerInstaller = new KeyBrokerInstaller(Paths, Fs, brokerExe);
+            CatalogService = new CodexModelCatalogService(Fs, Paths);
 
             ChatGptSwitch = new SwitchService(Vault, ProfileStore, Fs, Proc, Config, Clock, Audit, Paths.Codex, Paths.BackupsDir);
             PlanBuilder = new SwitchPlanBuilder(ApiStore, SecretStore, BrokerInstaller, RoutingStore, Paths.Codex);
-            Executor = new SwitchTransactionExecutor(ChatGptSwitch, RoutingStore, ApiStore, Proc, Fs, Clock, Audit, Paths.Codex);
+            Executor = new SwitchTransactionExecutor(ChatGptSwitch, RoutingStore, ApiStore, Proc, Fs, Clock, Audit, Paths.Codex, modelCatalogService: CatalogService);
             Facade = new CodexTargetSwitchService(PlanBuilder, Executor);
         }
 
@@ -272,5 +276,224 @@ public sealed class CodexTargetSwitchDecompositionTests
         // Final state in config.toml is deterministically one of the two, not corrupt
         var finalState = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
         Assert.True(finalState.ModelProvider == profA.StableCodexProviderId || finalState.ModelProvider == profB.StableCodexProviderId);
+    }
+
+    [Fact]
+    public async Task SwitchToApiProvider_WhenCatalogIntroduced_ForcesProcessRestartEvenWithDoNothingMode()
+    {
+        using var env = new DecompositionTestEnv();
+        var auth = "{\"auth_mode\":\"chatgpt\"}"u8.ToArray();
+        env.SetActiveSlot(auth);
+        File.WriteAllText(env.Paths.Codex.ConfigTomlPath, "model_provider = \"openai\"\n");
+
+        var runningApp = new CodexProcessInfo(101, "Codex", @"C:\Apps\Codex\Codex.exe", null, CodexProcessKind.DesktopApp);
+        env.Proc.Running.Add(runningApp);
+
+        var id = Guid.NewGuid();
+        var profile = new ApiProviderProfile
+        {
+            Id = id,
+            CatalogProviderId = "xai",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
+            Nickname = "xAI Grok",
+            BaseUrl = "https://api.x.ai/v1",
+            SelectedModel = "grok-4.6",
+            ModelOverrides = new CodexModelOverrides { ContextWindowTokens = 500000 }
+        };
+        env.ApiStore.Save(profile);
+        env.SecretStore.SaveApiKey(id, "xai-key-123");
+
+        // Execute with CloseReopenMode.DoNothing
+        var result = await env.Facade.SwitchToApiProviderAsync(id, DoNothingOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.True(env.Proc.CloseCalled, "Running process must be closed when model catalog is introduced.");
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 101);
+
+        var finalRouting = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.NotNull(finalRouting.ModelCatalogJson);
+        Assert.True(File.Exists(finalRouting.ModelCatalogJson));
+
+        var catalogJson = File.ReadAllText(finalRouting.ModelCatalogJson);
+        using var doc = JsonDocument.Parse(catalogJson);
+        var model = doc.RootElement.GetProperty("models")[0];
+        Assert.Equal(500000L, model.GetProperty("context_window").GetInt64());
+        Assert.Equal(500000L, model.GetProperty("max_context_window").GetInt64());
+    }
+
+    [Fact]
+    public async Task SwitchToApiProvider_WhenCatalogChangedBetweenModels_ForcesProcessRestartAndUpdatesMetadata()
+    {
+        using var env = new DecompositionTestEnv();
+        var auth = "{\"auth_mode\":\"chatgpt\"}"u8.ToArray();
+        env.SetActiveSlot(auth);
+
+        var id46 = Guid.NewGuid();
+        var prof46 = new ApiProviderProfile
+        {
+            Id = id46,
+            CatalogProviderId = "xai",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id46),
+            Nickname = "Grok 4.6",
+            BaseUrl = "https://api.x.ai/v1",
+            SelectedModel = "grok-4.6",
+            ModelOverrides = new CodexModelOverrides { ContextWindowTokens = 500000 }
+        };
+        env.ApiStore.Save(prof46);
+        env.SecretStore.SaveApiKey(id46, "key-46");
+
+        var id420 = Guid.NewGuid();
+        var prof420 = new ApiProviderProfile
+        {
+            Id = id420,
+            CatalogProviderId = "xai",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id420),
+            Nickname = "Grok 4.20",
+            BaseUrl = "https://api.x.ai/v1",
+            SelectedModel = "grok-4.20",
+            ModelOverrides = new CodexModelOverrides { ContextWindowTokens = 1000000 }
+        };
+        env.ApiStore.Save(prof420);
+        env.SecretStore.SaveApiKey(id420, "key-420");
+
+        // First switch to 4.6
+        await env.Facade.SwitchToApiProviderAsync(id46, DoNothingOpts);
+
+        // Reset process manager tracking and add running app
+        env.Proc.Reset();
+        var runningApp = new CodexProcessInfo(202, "Codex", @"C:\Apps\Codex\Codex.exe", null, CodexProcessKind.DesktopApp);
+        env.Proc.Running = [runningApp];
+
+        // Second switch: 4.6 -> 4.20 with DoNothingOpts
+        var result = await env.Facade.SwitchToApiProviderAsync(id420, DoNothingOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.True(env.Proc.CloseCalled, "Running process must be closed when model catalog path/content changes.");
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 202);
+
+        var finalRouting = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.NotNull(finalRouting.ModelCatalogJson);
+        var catalogJson = File.ReadAllText(finalRouting.ModelCatalogJson);
+        using var doc = JsonDocument.Parse(catalogJson);
+        var model = doc.RootElement.GetProperty("models")[0];
+        Assert.Equal("grok-4.20", model.GetProperty("slug").GetString());
+        Assert.Equal(1000000L, model.GetProperty("context_window").GetInt64());
+        Assert.Equal(1000000L, model.GetProperty("max_context_window").GetInt64());
+    }
+
+    [Fact]
+    public async Task SwitchToChatGpt_WhenReturningFromCatalogProvider_ForcesProcessRestartAndRemovesCatalog()
+    {
+        using var env = new DecompositionTestEnv();
+        var aBytes = Sample.AuthJson(accountId: "acct_chatgpt");
+        var chatGptProfile = env.AddChatGptProfile("ChatGPT Main", aBytes, active: true);
+        env.SetActiveSlot(aBytes);
+
+        var apiId = Guid.NewGuid();
+        var apiProf = new ApiProviderProfile
+        {
+            Id = apiId,
+            CatalogProviderId = "xai",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(apiId),
+            Nickname = "Grok 4.6",
+            BaseUrl = "https://api.x.ai/v1",
+            SelectedModel = "grok-4.6",
+            ModelOverrides = new CodexModelOverrides { ContextWindowTokens = 500000 }
+        };
+        env.ApiStore.Save(apiProf);
+        env.SecretStore.SaveApiKey(apiId, "xai-key");
+
+        // Switch to Grok 4.6 with catalog
+        await env.Facade.SwitchToApiProviderAsync(apiId, DoNothingOpts);
+
+        var routingWithCatalog = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.NotNull(routingWithCatalog.ModelCatalogJson);
+
+        // Reset process manager and set running process
+        env.Proc.Reset();
+        var runningApp = new CodexProcessInfo(303, "Codex", @"C:\Apps\Codex\Codex.exe", null, CodexProcessKind.DesktopApp);
+        env.Proc.Running = [runningApp];
+
+        // Return to ChatGPT
+        var result = await env.Facade.SwitchToChatGptAsync(chatGptProfile.Id, env.ChatGptProfiles, DoNothingOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.True(env.Proc.CloseCalled, "Running process must be closed when returning from catalog provider to ChatGPT.");
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 303);
+
+        var finalRouting = env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath);
+        Assert.Equal("openai", finalRouting.ModelProvider);
+        Assert.Null(finalRouting.ModelCatalogJson);
+    }
+
+    [Fact]
+    public async Task SwitchRoute_WhenSameProviderAndCatalogUnchanged_DoesNotRestartProcesses()
+    {
+        using var env = new DecompositionTestEnv();
+        var auth = "{\"auth_mode\":\"chatgpt\"}"u8.ToArray();
+        env.SetActiveSlot(auth);
+
+        var id = Guid.NewGuid();
+        var profile = new ApiProviderProfile
+        {
+            Id = id,
+            CatalogProviderId = "custom-router",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
+            Nickname = "Custom Router",
+            BaseUrl = "https://router.primary/v1",
+            SelectedRouteId = "primary",
+            SelectedModel = "gpt-5.6-sol"
+        };
+        env.ApiStore.Save(profile);
+        env.SecretStore.SaveApiKey(id, "router-key");
+
+        await env.Facade.SwitchToApiProviderAsync(id, DoNothingOpts);
+
+        // Setup running process
+        env.Proc.Reset();
+        var runningApp = new CodexProcessInfo(404, "Codex", @"C:\Apps\Codex\Codex.exe", null, CodexProcessKind.DesktopApp);
+        env.Proc.Running = [runningApp];
+
+        // Route switch (same provider/model, no catalog change)
+        var plan = new ApiRouteSwitchPlan(profile, "fallback", "https://router.fallback/v1", IsCurrentlyActiveInToml: true, DoNothingOpts);
+        var result = await env.Executor.ExecuteAsync(plan);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.Empty(env.Proc.Relaunched);
+        Assert.False(env.Proc.CloseCalled, "Route-only switch with unchanged catalog must not restart running processes.");
+    }
+
+    [Fact]
+    public async Task SwitchToApiProvider_WhenCliRemnantDetected_AbortsAndRestoresConfiguration()
+    {
+        using var env = new DecompositionTestEnv();
+        var auth = "{\"auth_mode\":\"chatgpt\"}"u8.ToArray();
+        env.SetActiveSlot(auth);
+        var originalConfig = "model_provider = \"openai\"\n";
+        File.WriteAllText(env.Paths.Codex.ConfigTomlPath, originalConfig);
+
+        var runningApp = new CodexProcessInfo(505, "Codex", @"C:\Apps\Codex\Codex.exe", null, CodexProcessKind.DesktopApp);
+        env.Proc.Running = [runningApp];
+        env.Proc.RemnantAfterClose = true; // Simulates CLI remnant refusing to die
+
+        var id = Guid.NewGuid();
+        var profile = new ApiProviderProfile
+        {
+            Id = id,
+            CatalogProviderId = "xai",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
+            Nickname = "Grok 4.6",
+            BaseUrl = "https://api.x.ai/v1",
+            SelectedModel = "grok-4.6",
+            ModelOverrides = new CodexModelOverrides { ContextWindowTokens = 500000 }
+        };
+        env.ApiStore.Save(profile);
+        env.SecretStore.SaveApiKey(id, "key-505");
+
+        var result = await env.Facade.SwitchToApiProviderAsync(id, DoNothingOpts);
+
+        Assert.Equal(TargetSwitchOutcome.AbortedProcessRemnant, result.Outcome);
+        Assert.Equal(originalConfig, File.ReadAllText(env.Paths.Codex.ConfigTomlPath));
+        Assert.Contains(env.Proc.Relaunched, p => p.Pid == 505);
     }
 }

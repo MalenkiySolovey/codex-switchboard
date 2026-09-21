@@ -39,6 +39,17 @@ public sealed class ApiProviderTransportOverrides
     public Dictionary<string, string>? HttpHeaders { get; set; }
 
     /// <summary>
+    /// Dynamic HTTP headers backed by environment variables (e.g. Authorization = "MY_PROVIDER_KEY").
+    /// Secret header values must be passed via environment variables rather than plain text.
+    /// </summary>
+    public Dictionary<string, string>? EnvHttpHeaders { get; set; }
+
+    /// <summary>
+    /// Compatibility policy for /responses wire API endpoint.
+    /// </summary>
+    public ResponsesCompatibilityPolicy ResponsesPolicy { get; set; } = ResponsesCompatibilityPolicy.Auto;
+
+    /// <summary>
     /// Forbidden sensitive header names that could leak credentials into config.toml or logs.
     /// </summary>
     public static readonly string[] ForbiddenHeaders =
@@ -50,11 +61,12 @@ public sealed class ApiProviderTransportOverrides
     ];
 
     /// <summary>
-    /// Asserts that custom HTTP headers do not contain credential or authorization keys.
+    /// Asserts that custom HTTP headers and env-backed headers conform to security invariants.
     /// </summary>
     public void Validate()
     {
         ValidateHeaders(HttpHeaders);
+        ValidateEnvHeaders(EnvHttpHeaders);
     }
 
     /// <summary>
@@ -71,7 +83,36 @@ public sealed class ApiProviderTransportOverrides
             {
                 throw new InvalidOperationException(
                     $"Header '{trimmedKey}' is a sensitive authorization header and cannot be stored in static custom headers. " +
-                    "API keys must be managed exclusively through the secure KeyBroker credential store.");
+                    "API keys must be managed exclusively through the secure KeyBroker credential store or env_http_headers.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates environment variable references in env_http_headers to ensure valid variable names.
+    /// </summary>
+    public static void ValidateEnvHeaders(IDictionary<string, string>? envHeaders)
+    {
+        if (envHeaders == null) return;
+
+        foreach (var (header, envVar) in envHeaders)
+        {
+            if (string.IsNullOrWhiteSpace(header))
+            {
+                throw new InvalidOperationException("Header name in env_http_headers cannot be empty.");
+            }
+
+            var trimmedVar = envVar?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedVar))
+            {
+                throw new InvalidOperationException($"Environment variable for header '{header}' in env_http_headers cannot be empty.");
+            }
+
+            // Check that value is a valid environment variable identifier, not a raw token
+            if (trimmedVar.Contains(' ') || trimmedVar.Contains('\t') || trimmedVar.Contains('\n') || trimmedVar.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Value '{trimmedVar}' for header '{header}' in env_http_headers must be an environment variable name, not a raw secret token.");
             }
         }
     }

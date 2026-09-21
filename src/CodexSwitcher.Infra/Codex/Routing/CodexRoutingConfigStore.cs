@@ -42,6 +42,9 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
     [GeneratedRegex(@"^\s*model\s*=\s*""(?<val>[^""]*)""", RegexOptions.IgnoreCase)]
     private static partial Regex ModelRegex();
 
+    [GeneratedRegex(@"^\s*model_catalog_json\s*=\s*""(?<val>[^""]*)""", RegexOptions.IgnoreCase)]
+    private static partial Regex ModelCatalogJsonRegex();
+
     [GeneratedRegex(@"^\s*\[")]
     private static partial Regex TableHeaderRegex();
 
@@ -69,6 +72,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
 
         string? modelProvider = null;
         string? model = null;
+        string? modelCatalogJson = null;
 
         var firstTable = FirstTableIndex(lines);
         for (var i = 0; i < firstTable; i++)
@@ -78,10 +82,13 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
 
             var mMod = ModelRegex().Match(lines[i]);
             if (mMod.Success) model = mMod.Groups["val"].Value;
+
+            var mCat = ModelCatalogJsonRegex().Match(lines[i]);
+            if (mCat.Success) modelCatalogJson = mCat.Groups["val"].Value;
         }
 
         var switchboardProviders = ParseSwitchboardProviders(lines);
-        return new CodexRoutingState(modelProvider, model, switchboardProviders, fingerprint);
+        return new CodexRoutingState(modelProvider, model, switchboardProviders, fingerprint, modelCatalogJson);
     }
 
     public string ApplySwitchboardRouting(
@@ -634,6 +641,16 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
             }
         }
 
+        if (b.EnvHttpHeaders is { Count: > 0 })
+        {
+            lines.Add(string.Empty);
+            lines.Add($"[model_providers.{b.ProviderId}.env_http_headers]");
+            foreach (var (k, v) in b.EnvHttpHeaders)
+            {
+                lines.Add($"{k} = \"{TomlEscape(v)}\"");
+            }
+        }
+
         lines.Add(string.Empty);
         lines.Add($"[model_providers.{b.ProviderId}.auth]");
         lines.Add($"command = \"{escapedCmd}\"");
@@ -700,6 +717,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 bool? supportsSearch = null;
                 var queryParams = new Dictionary<string, string>();
                 var httpHeaders = new Dictionary<string, string>();
+                var envHttpHeaders = new Dictionary<string, string>();
 
                 string? currentSubtable = null;
                 for (var j = i + 1; j < lines.Length; j++)
@@ -720,6 +738,11 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                         if (trimmedHeader.Equals($"model_providers.{id}.http_headers", StringComparison.OrdinalIgnoreCase))
                         {
                             currentSubtable = "http_headers";
+                            continue;
+                        }
+                        if (trimmedHeader.Equals($"model_providers.{id}.env_http_headers", StringComparison.OrdinalIgnoreCase))
+                        {
+                            currentSubtable = "env_http_headers";
                             continue;
                         }
                         break;
@@ -760,6 +783,16 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                             var k = line[..eq].Trim();
                             var v = line[(eq + 1)..].Trim().Trim('"');
                             httpHeaders[k] = v;
+                        }
+                    }
+                    else if (currentSubtable == "env_http_headers")
+                    {
+                        var eq = line.IndexOf('=');
+                        if (eq > 0)
+                        {
+                            var k = line[..eq].Trim();
+                            var v = line[(eq + 1)..].Trim().Trim('"');
+                            envHttpHeaders[k] = v;
                         }
                     }
                     else
@@ -816,7 +849,8 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                     id, name, baseUrl, wireApi, command, args, timeoutMs,
                     reqRetries, streamRetries, streamIdleTimeout, wsTimeout, supportsWs, supportsSearch,
                     queryParams.Count > 0 ? queryParams : null,
-                    httpHeaders.Count > 0 ? httpHeaders : null);
+                    httpHeaders.Count > 0 ? httpHeaders : null,
+                    envHttpHeaders.Count > 0 ? envHttpHeaders : null);
             }
         }
 

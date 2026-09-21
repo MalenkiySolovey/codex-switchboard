@@ -39,7 +39,8 @@ public sealed record CodexRoutingState(
     string? ModelProvider,
     string? Model,
     IReadOnlyDictionary<string, CodexProviderBlock> SwitchboardProviders,
-    string Fingerprint);
+    string Fingerprint,
+    string? ModelCatalogJson = null);
 
 public sealed record CodexProviderBlock(
     string ProviderId,
@@ -56,7 +57,9 @@ public sealed record CodexProviderBlock(
     bool? SupportsWebSockets = null,
     bool? SupportsStandaloneWebSearch = null,
     IReadOnlyDictionary<string, string>? QueryParams = null,
-    IReadOnlyDictionary<string, string>? HttpHeaders = null);
+    IReadOnlyDictionary<string, string>? HttpHeaders = null,
+    IReadOnlyDictionary<string, string>? EnvHttpHeaders = null,
+    ResponsesCompatibilityPolicy ResponsesPolicy = ResponsesCompatibilityPolicy.Auto);
 
 public class ConcurrentModificationException : InvalidOperationException
 {

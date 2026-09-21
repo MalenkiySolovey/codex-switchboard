@@ -105,4 +105,48 @@ public sealed class ApiProviderAdvancedConfigTests
         // Should not throw
         transport.Validate();
     }
+
+    [Fact]
+    public void TransportOverrides_AcceptsValidEnvHttpHeaders()
+    {
+        var transport = new ApiProviderTransportOverrides
+        {
+            EnvHttpHeaders = new Dictionary<string, string>
+            {
+                ["Authorization"] = "MY_PROVIDER_API_KEY",
+                ["X-API-Key"] = "GLOBAL_TOKEN_ENV"
+            }
+        };
+
+        // Should not throw since values are environment variable names, not plain text credentials
+        transport.Validate();
+    }
+
+    [Theory]
+    [InlineData("Bearer sk-ant-api-12345")]
+    [InlineData("sk-proj-xyz token with spaces")]
+    [InlineData("")]
+    public void TransportOverrides_RejectsRawSecretTokensInEnvHttpHeaders(string rawSecret)
+    {
+        var transport = new ApiProviderTransportOverrides
+        {
+            EnvHttpHeaders = new Dictionary<string, string>
+            {
+                ["Authorization"] = rawSecret
+            }
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => transport.Validate());
+        Assert.Contains("env_http_headers", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TransportOverrides_ResponsesPolicy_DefaultsToAuto()
+    {
+        var transport = new ApiProviderTransportOverrides();
+        Assert.Equal(ResponsesCompatibilityPolicy.Auto, transport.ResponsesPolicy);
+
+        transport.ResponsesPolicy = ResponsesCompatibilityPolicy.StandardResponses;
+        Assert.Equal(ResponsesCompatibilityPolicy.StandardResponses, transport.ResponsesPolicy);
+    }
 }

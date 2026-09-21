@@ -122,7 +122,15 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
     {
         var targetProfile = apiPlan.TargetProfile;
         var options = apiPlan.Options;
-        var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic;
+        var model = targetProfile.SelectedModel ?? "gpt-5.6-sol";
+        var modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(model, targetProfile.ModelOverrides?.ContextWindowTokens);
+
+        var currentRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
+        var oldCatalogHash = GetFileSha256(currentRouting.ModelCatalogJson);
+        var newCatalogHash = GetFileSha256(modelCatalogJson);
+        var catalogChanged = !string.Equals(oldCatalogHash, newCatalogHash, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(currentRouting.ModelCatalogJson) != !string.IsNullOrWhiteSpace(modelCatalogJson));
+        var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic || catalogChanged;
 
         var compensator = CreateCompensationCoordinator();
         IReadOnlyList<CodexProcessInfo> captured = [];
@@ -182,10 +190,9 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 transport?.SupportsWebSockets,
                 transport?.SupportsStandaloneWebSearch,
                 transport?.QueryParams,
-                transport?.HttpHeaders);
-
-            var model = targetProfile.SelectedModel ?? "gpt-5.6-sol";
-            var modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(model, targetProfile.ModelOverrides?.ContextWindowTokens);
+                transport?.HttpHeaders,
+                transport?.EnvHttpHeaders,
+                transport?.ResponsesPolicy ?? ResponsesCompatibilityPolicy.Auto);
 
             _routingConfig.ApplySwitchboardRouting(_paths.ConfigTomlPath, providerBlock, model, targetProfile.ModelOverrides, modelCatalogJson);
 
@@ -255,6 +262,9 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
             compensator.RegisterConfigBackup(configOriginalBytes);
         }
 
+        var initialRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
+        var catalogChanged = isApiRoutingActive && !string.IsNullOrWhiteSpace(initialRouting.ModelCatalogJson);
+
         // If API provider routing was active, reset config.toml to openai BEFORE SwitchService switches credentials
         // so that when SwitchService relaunches desktop apps, config.toml already points to openai.
         if (isApiRoutingActive)
@@ -274,10 +284,14 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         }
 
         // Execute the full ChatGPT account switch transaction using SwitchService
+        var switchOptions = (options.CloseReopenMode != CloseReopenMode.Automatic && catalogChanged)
+            ? options with { CloseReopenMode = CloseReopenMode.Automatic }
+            : options;
+
         var chatGptResult = await _chatGptSwitchService.SwitchAsync(
             accountPlan.AllChatGptProfiles,
             targetProfile.Id,
-            options,
+            switchOptions,
             cancellationToken).ConfigureAwait(false);
 
         if (chatGptResult.Outcome != SwitchOutcome.Success && chatGptResult.Outcome != SwitchOutcome.SuccessWithReopenWarning)
@@ -333,7 +347,9 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
     {
         var targetProfile = returnPlan.ActiveProfile;
         var options = returnPlan.Options;
-        var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic;
+        var currentRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
+        var catalogChanged = !string.IsNullOrWhiteSpace(currentRouting.ModelCatalogJson);
+        var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic || catalogChanged;
 
         var compensator = CreateCompensationCoordinator();
         IReadOnlyList<CodexProcessInfo> captured = [];
@@ -396,5 +412,18 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
             null,
             closed,
             reopenFailures);
+    }
+
+    private string? GetFileSha256(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !_fs.FileExists(path)) return null;
+        try
+        {
+            return Convert.ToHexString(SHA256.HashData(_fs.ReadAllBytes(path)));
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

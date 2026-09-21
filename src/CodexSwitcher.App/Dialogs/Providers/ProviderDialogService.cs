@@ -66,10 +66,15 @@ namespace CodexSwitcher.App.Dialogs.Providers;
 public sealed class ProviderDialogService : CommonDialogService, IProviderDialogService
 {
     private readonly AppPaths _paths;
+    private readonly CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver _metadataResolver;
 
-    public ProviderDialogService(IDialogHost host, AppPaths paths) : base(host)
+    public ProviderDialogService(
+        IDialogHost host,
+        AppPaths paths,
+        CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver? metadataResolver = null) : base(host)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+        _metadataResolver = metadataResolver ?? new CodexSwitcher.Core.Providers.Services.CodexModelMetadataResolver();
     }
 
     public async Task<AddApiProviderResult?> PromptAddApiProviderAsync(IReadOnlyList<ProviderDescriptor> descriptors)
@@ -212,8 +217,11 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(modelBox);
 
-        var advanced = new ApiProviderAdvancedSettingsControlGroup(null, null, _loc);
+        var advanced = new ApiProviderAdvancedSettingsControlGroup(null, null, _loc, _metadataResolver);
         advanced.AttachTo(panel);
+
+        modelBox.TextChanged += (_, _) => advanced.UpdateModelContextHint(modelBox.Text?.Trim());
+        advanced.UpdateModelContextHint(modelBox.Text?.Trim());
 
         panel.Children.Add(errorBar);
 
@@ -268,7 +276,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc);
+            var (m, t, err) = advanced.ValidateAndExtract(_loc, modelBox.Text?.Trim());
             if (err != null)
             {
                 errorBar.Title = err;
@@ -310,7 +318,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc);
+            var (m, t, err) = advanced.ValidateAndExtract(_loc, modelBox.Text?.Trim());
             if (err != null)
             {
                 errorBar.Title = err;
@@ -341,7 +349,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     ApiKey = key,
                     BaseUrl = baseUrlBox.Text.Trim(),
                     SelectedRouteId = selectedRouteTag,
-                    SelectedModel = modelBox.Text.Trim(),
+                    SelectedModel = modelBox.Text?.Trim() ?? string.Empty,
                     ModelOverrides = extractedModel,
                     TransportOverrides = extractedTransport,
                     SaveAndSwitch = isPrimary,
@@ -427,8 +435,11 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(modelBox);
 
-        var advanced = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc);
+        var advanced = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc, _metadataResolver);
         advanced.AttachTo(panel);
+
+        modelBox.TextChanged += (_, _) => advanced.UpdateModelContextHint(modelBox.Text?.Trim());
+        advanced.UpdateModelContextHint(modelBox.Text?.Trim());
 
         panel.Children.Add(errorBar);
 
@@ -470,7 +481,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc);
+            var (m, t, err) = advanced.ValidateAndExtract(_loc, modelBox.Text?.Trim());
             if (err != null)
             {
                 errorBar.Title = err;
@@ -690,8 +701,12 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
     private sealed class ApiProviderAdvancedSettingsControlGroup
     {
+        private readonly CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver _metadataResolver;
+        private string? _currentModelSlug;
+
         public ComboBox ContextPresetCombo { get; }
         public TextBox CustomContextBox { get; }
+        public TextBlock UnverifiedContextWarning { get; }
         public TextBox AutoCompactBox { get; }
         public ComboBox CompactScopeCombo { get; }
         public ComboBox ReasoningEffortCombo { get; }
@@ -711,8 +726,11 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         public ApiProviderAdvancedSettingsControlGroup(
             CodexModelOverrides? initialModel,
             ApiProviderTransportOverrides? initialTransport,
-            Strings loc)
+            Strings loc,
+            CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver? metadataResolver = null)
         {
+            _metadataResolver = metadataResolver ?? new CodexSwitcher.Core.Providers.Services.CodexModelMetadataResolver();
+
             // Context Window Presets
             ContextPresetCombo = new ComboBox
             {
@@ -732,6 +750,16 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 PlaceholderText = "e.g. 500000",
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Visibility = Visibility.Collapsed,
+            };
+
+            UnverifiedContextWarning = new TextBlock
+            {
+                Text = "Provider maximum is not verified for this model. Custom context will be applied as an unverified override.",
+                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 230, 149, 0)),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 2, 0, 4)
             };
 
             var initialTokens = initialModel?.ContextWindowTokens;
@@ -763,8 +791,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 if (ContextPresetCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
                 {
                     CustomContextBox.Visibility = tag == "custom" ? Visibility.Visible : Visibility.Collapsed;
+                    UpdateWarningVisibility();
                 }
             };
+            CustomContextBox.TextChanged += (_, _) => UpdateWarningVisibility();
 
             // Auto-compact Token Limit
             AutoCompactBox = new TextBox
@@ -941,16 +971,37 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             };
         }
 
+        public void UpdateModelContextHint(string? modelSlug)
+        {
+            _currentModelSlug = modelSlug;
+            UpdateWarningVisibility();
+        }
+
+        private void UpdateWarningVisibility()
+        {
+            var fact = _metadataResolver.ResolveLimitFact(_currentModelSlug ?? string.Empty);
+            if (!fact.IsKnown)
+            {
+                var isCustom = (ContextPresetCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag && tag != "auto");
+                UnverifiedContextWarning.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else
+            {
+                UnverifiedContextWarning.Visibility = Visibility.Collapsed;
+            }
+        }
+
         public void AttachTo(Panel parent)
         {
             parent.Children.Add(ContextPresetCombo);
             parent.Children.Add(CustomContextBox);
+            parent.Children.Add(UnverifiedContextWarning);
             parent.Children.Add(AutoCompactBox);
             parent.Children.Add(CompactScopeCombo);
             parent.Children.Add(Expander);
         }
 
-        public (CodexModelOverrides? Model, ApiProviderTransportOverrides? Transport, string? Error) ValidateAndExtract(Strings loc)
+        public (CodexModelOverrides? Model, ApiProviderTransportOverrides? Transport, string? Error) ValidateAndExtract(Strings loc, string? selectedModel = null)
         {
             long? contextTokens = null;
             if (ContextPresetCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
@@ -977,6 +1028,16 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 }
             }
 
+            var effectiveModelSlug = selectedModel ?? _currentModelSlug ?? string.Empty;
+            var fact = _metadataResolver.ResolveLimitFact(effectiveModelSlug);
+            if (fact.IsKnown && fact.DocumentedMaxContext.HasValue)
+            {
+                if (contextTokens.HasValue && contextTokens.Value > fact.DocumentedMaxContext.Value)
+                {
+                    return (null, null, $"Context window ({contextTokens.Value:N0} tokens) exceeds documented maximum of {fact.DocumentedMaxContext.Value:N0} for {fact.ModelSlug} ({fact.SourceDescription}).");
+                }
+            }
+
             long? compactTokens = null;
             var compactText = AutoCompactBox.Text?.Trim();
             if (!string.IsNullOrWhiteSpace(compactText))
@@ -988,6 +1049,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 if (contextTokens.HasValue && parsedCompact > contextTokens.Value)
                 {
                     return (null, null, "Auto-compact token limit cannot exceed context window.");
+                }
+                if (fact.IsKnown && fact.DocumentedMaxContext.HasValue && parsedCompact > fact.DocumentedMaxContext.Value)
+                {
+                    return (null, null, $"Auto-compact token limit ({parsedCompact:N0} tokens) exceeds documented maximum of {fact.DocumentedMaxContext.Value:N0} for {fact.ModelSlug}.");
                 }
                 compactTokens = parsedCompact;
             }
