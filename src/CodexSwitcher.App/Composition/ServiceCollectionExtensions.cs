@@ -226,7 +226,8 @@ public static class ServiceCollectionExtensions
             appLifetime: sp.GetRequiredService<IAppLifetime>(),
             fs: sp.GetRequiredService<IFileSystem>(),
             codexPaths: paths.Codex,
-            profileStore: sp.GetRequiredService<ProfileStore>()));
+            profileStore: null,
+            onProfilesPersistNeeded: () => sp.GetRequiredService<ProfileService>().Save()));
 
         services.AddSingleton(sp => new UsagePollingCoordinator(
             sp.GetRequiredService<IUsageService>(),

@@ -60,6 +60,7 @@ public sealed class UsageService : IUsageService, IDisposable
     private readonly IFileSystem? _fs;
     private readonly CodexPaths? _codexPaths;
     private readonly IProfileStore? _profileStore;
+    private readonly Action? _onProfilesPersistNeeded;
 
     public UsageService(
         ICodexUsageProvider provider,
@@ -68,7 +69,7 @@ public sealed class UsageService : IUsageService, IDisposable
         IProfileOperationCoordinator coordinator,
         IClock clock,
         IAppLifetime? appLifetime)
-        : this(provider, cache, vault, coordinator, clock, null, appLifetime, null, null, null)
+        : this(provider, cache, vault, coordinator, clock, null, appLifetime, null, null, null, null)
     {
     }
 
@@ -82,7 +83,8 @@ public sealed class UsageService : IUsageService, IDisposable
         IAppLifetime? appLifetime = null,
         IFileSystem? fs = null,
         CodexPaths? codexPaths = null,
-        IProfileStore? profileStore = null)
+        IProfileStore? profileStore = null,
+        Action? onProfilesPersistNeeded = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
@@ -93,6 +95,7 @@ public sealed class UsageService : IUsageService, IDisposable
         _fs = fs;
         _codexPaths = codexPaths;
         _profileStore = profileStore;
+        _onProfilesPersistNeeded = onProfilesPersistNeeded;
 
         _serviceCts = appLifetime is not null
             ? CancellationTokenSource.CreateLinkedTokenSource(appLifetime.ApplicationStopping)
@@ -208,7 +211,7 @@ public sealed class UsageService : IUsageService, IDisposable
                                     profile.LastRefreshedAt = _clock.UtcNow;
                                     var sub = SubscriptionJwtClaimExtractor.Extract(activeBytes, _clock.UtcNow);
                                     if (sub is not null) profile.DetectedSubscription = sub;
-                                    _profileStore?.SaveAll([profile]);
+                                    _onProfilesPersistNeeded?.Invoke();
                                 }
                             }
                         }
@@ -262,7 +265,7 @@ public sealed class UsageService : IUsageService, IDisposable
                         profile.DetectedSubscription = profile.DetectedSubscription with { IsStale = true };
                     }
                 }
-                _profileStore?.SaveAll([profile]);
+                _onProfilesPersistNeeded?.Invoke();
             }
 
             // Step 3: Handle rotation and update cache

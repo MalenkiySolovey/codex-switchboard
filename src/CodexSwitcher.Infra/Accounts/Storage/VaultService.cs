@@ -168,6 +168,24 @@ public sealed class VaultService : CodexSwitcher.Core.Accounts.Contracts.IVaultS
             _fs.Delete(path);
     }
 
+    /// <summary>Lista todos os GUIDs de credenciais existentes fisicamente no cofre.</summary>
+    public IReadOnlyList<Guid> EnumerateBlobs()
+    {
+        if (!_fs.DirectoryExists(_vaultDir))
+            return [];
+
+        var list = new List<Guid>();
+        foreach (var file in _fs.EnumerateFiles(_vaultDir, "*.bin"))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            if (Guid.TryParseExact(name, "N", out var id))
+            {
+                list.Add(id);
+            }
+        }
+        return list;
+    }
+
     /// <summary>Grava bytes cifrados atomicamente em um caminho arbitrário (ex.: backups do slot ativo).</summary>
     public void SaveEncryptedFile(string path, byte[] plaintext)
     {

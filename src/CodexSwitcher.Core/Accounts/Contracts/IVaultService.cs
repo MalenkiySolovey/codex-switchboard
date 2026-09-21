@@ -54,6 +54,7 @@ public interface IVaultService
         CancellationToken cancellationToken = default);
     byte[] LoadBlob(Guid profileId);
     void DeleteBlob(Guid profileId);
+    IReadOnlyList<Guid> EnumerateBlobs();
     void SaveEncryptedFile(string path, byte[] plaintext);
     byte[] LoadEncryptedFile(string path);
 }

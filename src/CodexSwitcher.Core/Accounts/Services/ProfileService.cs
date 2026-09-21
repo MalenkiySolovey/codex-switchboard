@@ -50,6 +50,7 @@ public sealed class ProfileService
     private readonly IClock _clock;
     private readonly IAuditLog _audit;
     private readonly ITotpCredentialStore? _totpStore;
+    private readonly object _sync = new();
 
     public List<ProfileMetadata> Profiles { get; private set; } = [];
 
@@ -71,10 +72,18 @@ public sealed class ProfileService
     /// <summary>Carrega os perfis do disco e reconcilia com o slot ativo.</summary>
     public ReconciliationResult Load()
     {
-        Profiles = _store.LoadAll();
-        EnsureSortOrderInitialized();
-        EnsureDetectedSubscriptions();
-        return Reconcile();
+        lock (_sync)
+        {
+            Profiles = _store.LoadAll();
+            EnsureSortOrderInitialized();
+            EnsureDetectedSubscriptions();
+            var orphanBlobs = DetectOrphanVaultBlobs();
+            if (orphanBlobs.Count > 0)
+            {
+                _audit.Record("vault-audit", "orphans-detected", $"{orphanBlobs.Count} orphan vault blob(s) detected.");
+            }
+            return Reconcile();
+        }
     }
 
     /// <summary>
@@ -352,13 +361,85 @@ public sealed class ProfileService
 
     public void Remove(Guid id)
     {
-        var p = Profiles.FirstOrDefault(x => x.Id == id);
-        if (p is null) return;
-        _vault.DeleteBlob(id);
-        _totpStore?.Delete(id);
-        Profiles.Remove(p);
-        _store.SaveAll(Profiles);
-        _audit.Record("remove", "ok", p.DisplayName);
+        lock (_sync)
+        {
+            var p = Profiles.FirstOrDefault(x => x.Id == id);
+            if (p is null) return;
+            _vault.DeleteBlob(id);
+            _totpStore?.Delete(id);
+            Profiles.Remove(p);
+            _store.SaveAll(Profiles, ProfileSaveIntent.ExplicitDelete);
+            _audit.Record("remove", "ok", p.DisplayName);
+        }
+    }
+
+    /// <summary>
+    /// Detecta GUIDs de credenciais presentes fisicamente no cofre mas ausentes no índice profiles.json.
+    /// Invariante de segurança: blobs órfãos NUNCA são deletados automaticamente pelo app.
+    /// </summary>
+    public IReadOnlyList<Guid> DetectOrphanVaultBlobs()
+    {
+        lock (_sync)
+        {
+            var blobs = _vault.EnumerateBlobs();
+            var knownIds = Profiles.Select(p => p.Id).ToHashSet();
+            return blobs.Where(id => !knownIds.Contains(id)).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Reconstitui perfis a partir de blobs órfãos descriptografáveis preservando os GUIDs originais.
+    /// </summary>
+    public int RecoverOrphanProfiles()
+    {
+        lock (_sync)
+        {
+            var orphans = DetectOrphanVaultBlobs();
+            if (orphans.Count == 0) return 0;
+
+            int recovered = 0;
+            foreach (var orphanId in orphans)
+            {
+                try
+                {
+                    var bytes = _vault.LoadBlob(orphanId);
+                    var (file, claims) = AuthJsonReader.Identify(bytes);
+                    if (file is null && string.IsNullOrEmpty(claims.Sub))
+                        continue;
+
+                    var profile = new ProfileMetadata
+                    {
+                        Id = orphanId,
+                        Nickname = claims.Email ?? string.Empty,
+                        AccountEmail = claims.Email,
+                        AccountSub = claims.Sub,
+                        AuthMode = file?.AuthMode ?? "chatgpt",
+                        PlanType = claims.PlanType ?? "free",
+                        CreatedAt = file?.LastRefresh ?? _clock.UtcNow,
+                        LastRefreshedAt = file?.LastRefresh,
+                        HealthStatus = HealthStatus.Valid,
+                        SortOrder = Profiles.Count == 0 ? 0 : Profiles.Max(p => p.SortOrder) + 1,
+                        DetectedSubscription = SubscriptionJwtClaimExtractor.Extract(bytes, _clock.UtcNow),
+                        BlobFingerprint = Fingerprint.Compute(bytes),
+                    };
+
+                    Profiles.Add(profile);
+                    recovered++;
+                }
+                catch (Exception ex)
+                {
+                    _audit.Record("recovery", "failed-orphan", $"{orphanId:N}: {ex.Message}");
+                }
+            }
+
+            if (recovered > 0)
+            {
+                _store.SaveAll(Profiles, ProfileSaveIntent.NormalUpdate);
+                _audit.Record("recovery", "ok", $"{recovered} orphan profile(s) recovered.");
+            }
+
+            return recovered;
+        }
     }
 
     public void MarkNeedsReLogin(Guid id)

@@ -38,5 +38,5 @@ namespace CodexSwitcher.Core.Accounts.Contracts;
 public interface IProfileStore
 {
     List<ProfileMetadata> LoadAll();
-    void SaveAll(IEnumerable<ProfileMetadata> profiles);
+    void SaveAll(IEnumerable<ProfileMetadata> profiles, ProfileSaveIntent intent = ProfileSaveIntent.NormalUpdate);
 }
