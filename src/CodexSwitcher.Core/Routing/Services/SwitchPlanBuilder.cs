@@ -47,7 +47,8 @@ public sealed class SwitchPlanBuilder : ISwitchPlanBuilder
             return new InvalidSwitchPlan(new ActiveTarget.Unknown(), ErrorCategory.Unknown, $"API provider profile {apiProfileId} not found.");
         }
 
-        if (!_secretStore.HasApiKey(targetProfile.Id))
+        var secretOwnerId = targetProfile.EndpointId ?? targetProfile.Id;
+        if (!_secretStore.HasApiKey(secretOwnerId))
         {
             targetProfile.Status = ApiProviderProfileStatus.CredentialMissing;
             _apiProviderStore.Save(targetProfile);

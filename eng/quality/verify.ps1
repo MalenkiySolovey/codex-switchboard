@@ -4,6 +4,7 @@
 # ==============================================================================
 [CmdletBinding()]
 param(
+    [string]$Version = "0.2.1-preview.9",
     [switch]$SkipPackaging = $false
 )
 
@@ -102,7 +103,7 @@ Run-Gate "Regression & Architecture Tests (653+ Offline Suite)" {
 # --- GATE 7: Release Packaging & Dual Sanitization (Optional) ---
 if (-not $SkipPackaging) {
     Run-Gate "Deterministic Release Packaging & Artifact Sanitization" {
-        & powershell -ExecutionPolicy Bypass -File $BuildReleaseScript -SkipTests
+        & powershell -ExecutionPolicy Bypass -File $BuildReleaseScript -Version $Version -SkipTests
         if ($LASTEXITCODE -ne 0) {
             throw "Deterministic release packaging or artifact sanitization failed."
         }

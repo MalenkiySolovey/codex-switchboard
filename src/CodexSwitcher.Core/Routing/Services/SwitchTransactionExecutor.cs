@@ -123,46 +123,26 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         var targetProfile = apiPlan.TargetProfile;
         var options = apiPlan.Options;
         var model = targetProfile.SelectedModel ?? "gpt-5.6-sol";
-        var modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(model, targetProfile.ModelOverrides?.ContextWindowTokens, targetProfile.ModelOverrides);
 
+        var secretOwnerId = targetProfile.EndpointId ?? targetProfile.Id;
         var currentRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
-        var oldCatalogHash = GetFileSha256(currentRouting.ModelCatalogJson);
-        var newCatalogHash = GetFileSha256(modelCatalogJson);
-        var catalogChanged = !string.Equals(oldCatalogHash, newCatalogHash, StringComparison.OrdinalIgnoreCase) ||
-            (!string.IsNullOrWhiteSpace(currentRouting.ModelCatalogJson) != !string.IsNullOrWhiteSpace(modelCatalogJson));
-        var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic || catalogChanged;
+        var previousTargetSummary = currentRouting.ModelProvider ?? "openai";
+
+        var trace = new SwitchDiagnosticTrace
+        {
+            RequestedEndpointId = targetProfile.EndpointId,
+            RequestedModelConfigId = targetProfile.Id,
+            RequestedModel = model,
+            PreviousTargetSummary = previousTargetSummary,
+            SecretOwnerResolved = secretOwnerId,
+            SwitchPlan = nameof(ApiProviderSwitchPlan),
+        };
 
         var compensator = CreateCompensationCoordinator();
         IReadOnlyList<CodexProcessInfo> captured = [];
         IReadOnlyList<CodexProcessInfo> closed = [];
 
-        // 1. Capture & close Codex processes
-        if (closeApps)
-        {
-            captured = _processes.FindRunningCodexProcesses().Where(p => p.IsClosable).ToList();
-            closed = await _processes.CloseGracefullyThenKillAsync(captured, options.GracefulCloseTimeout, cancellationToken).ConfigureAwait(false);
-            compensator.RegisterCapturedProcesses(captured);
-
-            if (_processes.AnyCodexCliRunning())
-            {
-                compensator.ReopenDesktop(captured, out _);
-                _audit.Record("api-switch", "aborted", "process remnant");
-                return new TargetSwitchResult(
-                    TargetSwitchOutcome.AbortedProcessRemnant,
-                    "Switch aborted: Codex CLI process is still running. No changes made.",
-                    new ActiveTarget.Api(targetProfile),
-                    ErrorInfo.Create(ErrorCategory.ProcessRemnant, "Process remnant", _clock.UtcNow),
-                    closed);
-            }
-        }
-
-        // 2. Assert auth.json pre-switch hash
-        byte[]? authPreBytes = _fs.FileExists(_paths.ActiveAuthPath)
-            ? _fs.ReadAllBytes(_paths.ActiveAuthPath)
-            : null;
-        byte[]? authPreHash = authPreBytes is not null ? SHA256.HashData(authPreBytes) : null;
-
-        // 3. Read and backup config.toml exact bytes
+        // 1. Read and backup config.toml exact bytes
         byte[]? configOriginalBytes = _fs.FileExists(_paths.ConfigTomlPath)
             ? _fs.ReadAllBytes(_paths.ConfigTomlPath)
             : null;
@@ -172,8 +152,66 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
             compensator.RegisterConfigBackup(configOriginalBytes);
         }
 
+        // 2. Assert auth.json pre-switch hash
+        byte[]? authPreBytes = _fs.FileExists(_paths.ActiveAuthPath)
+            ? _fs.ReadAllBytes(_paths.ActiveAuthPath)
+            : null;
+        byte[]? authPreHash = authPreBytes is not null ? SHA256.HashData(authPreBytes) : null;
+
         try
         {
+            // Catalog generation INSIDE transaction try block
+            string? modelCatalogJson = null;
+            try
+            {
+                modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(
+                    model,
+                    targetProfile.ModelOverrides?.ContextWindowTokens,
+                    targetProfile.ModelOverrides);
+            }
+            catch (Exception catEx)
+            {
+                trace.PostconditionFailureReason = $"Model catalog generation failed: {catEx.Message}";
+                _audit.Record("switch-target", "failed", $"catalog error: {catEx.Message}");
+                return new TargetSwitchResult(
+                    TargetSwitchOutcome.Failed,
+                    $"Failed to generate model catalog for {model}: {catEx.Message}",
+                    new ActiveTarget.Api(targetProfile),
+                    ErrorInfo.Create(ErrorCategory.Unknown, catEx.Message, _clock.UtcNow),
+                    DiagnosticTrace: trace);
+            }
+
+            var oldCatalogHash = GetFileSha256(currentRouting.ModelCatalogJson);
+            var newCatalogHash = GetFileSha256(modelCatalogJson);
+            var catalogChanged = !string.Equals(oldCatalogHash, newCatalogHash, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(currentRouting.ModelCatalogJson) != !string.IsNullOrWhiteSpace(modelCatalogJson));
+            var closeApps = options.CloseReopenMode == CloseReopenMode.Automatic || catalogChanged;
+
+            trace.CatalogChanged = catalogChanged;
+            trace.RuntimeRestartRequired = closeApps;
+
+            // 3. Capture & close Codex processes if catalog changed or automatic close requested
+            if (closeApps)
+            {
+                captured = _processes.FindRunningCodexProcesses().Where(p => p.IsClosable).ToList();
+                closed = await _processes.CloseGracefullyThenKillAsync(captured, options.GracefulCloseTimeout, cancellationToken).ConfigureAwait(false);
+                compensator.RegisterCapturedProcesses(captured);
+
+                if (_processes.AnyCodexCliRunning())
+                {
+                    compensator.ReopenDesktop(captured, out _);
+                    _audit.Record("api-switch", "aborted", "process remnant");
+                    trace.PostconditionFailureReason = "Codex CLI process is still running.";
+                    return new TargetSwitchResult(
+                        TargetSwitchOutcome.AbortedProcessRemnant,
+                        "Switch aborted: Codex CLI process is still running. No changes made.",
+                        new ActiveTarget.Api(targetProfile),
+                        ErrorInfo.Create(ErrorCategory.ProcessRemnant, "Process remnant", _clock.UtcNow),
+                        closed,
+                        DiagnosticTrace: trace);
+                }
+            }
+
             var transport = targetProfile.TransportOverrides;
             var providerBlock = new CodexProviderBlock(
                 targetProfile.StableCodexProviderId,
@@ -181,7 +219,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 targetProfile.BaseUrl,
                 targetProfile.WireApi,
                 apiPlan.BrokerPath,
-                new[] { "--key-id", targetProfile.Id.ToString("D") },
+                new[] { "--key-id", secretOwnerId.ToString("D") },
                 5000,
                 transport?.RequestMaxRetries,
                 transport?.StreamMaxRetries,
@@ -195,6 +233,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 transport?.ResponsesPolicy ?? ResponsesCompatibilityPolicy.Auto);
 
             _routingConfig.ApplySwitchboardRouting(_paths.ConfigTomlPath, providerBlock, model, targetProfile.ModelOverrides, modelCatalogJson);
+            trace.ConfigChanged = true;
 
             // 4. Verify auth.json is UNTOUCHED
             if (authPreHash is not null)
@@ -207,16 +246,52 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 }
             }
 
+            // SECTION G: Postcondition Verification
+            var postRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
+            trace.EffectiveModelProvider = postRouting.ModelProvider;
+            trace.EffectiveModel = postRouting.Model;
+            trace.EffectiveModelCatalogJson = postRouting.ModelCatalogJson;
+
+            // Postcondition 1: generated config contains desired model_provider
+            if (!string.Equals(postRouting.ModelProvider, targetProfile.StableCodexProviderId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Postcondition failed: config model_provider was '{postRouting.ModelProvider}', expected '{targetProfile.StableCodexProviderId}'.");
+            }
+
+            // Postcondition 2: generated config contains desired model
+            if (!string.Equals(postRouting.Model, model, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Postcondition failed: config model was '{postRouting.Model}', expected '{model}'.");
+            }
+
+            // Postcondition 3: required catalog is valid and persisted if requested
+            if (!string.IsNullOrWhiteSpace(modelCatalogJson))
+            {
+                var normalizedExpected = Path.GetFullPath(modelCatalogJson).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var actualClean = postRouting.ModelCatalogJson?.Replace(@"\\", @"\");
+                var normalizedActual = !string.IsNullOrWhiteSpace(actualClean)
+                    ? Path.GetFullPath(actualClean).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    : null;
+
+                if (!_fs.FileExists(modelCatalogJson) || !string.Equals(normalizedActual, normalizedExpected, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Postcondition failed: model catalog '{modelCatalogJson}' was not properly configured in config.toml (actual: '{postRouting.ModelCatalogJson}').");
+                }
+            }
+
             // 5. Update profile metadata
             targetProfile.LastSwitchedAt = _clock.UtcNow;
             _apiProviderStore.Save(targetProfile);
-            _audit.Record("switch-target", "ok", $"-> API {targetProfile.DisplayName}");
+            trace.RoutingStateCommitted = true;
+            trace.FinalTargetMatchesRequested = true;
+            _audit.Record("switch-target", "ok", $"-> API {targetProfile.DisplayName} [{trace.ToSanitizedSummary().Replace('\n', ' ').Replace('\r', ' ')}]");
 
             // 6. Reopen Codex if captured
             var reopenFailures = new List<CodexProcessInfo>();
             if (closeApps)
             {
                 compensator.ReopenDesktop(captured, out reopenFailures);
+                trace.RuntimeRestartCompleted = reopenFailures.Count == 0;
             }
 
             var activeTarget = new ActiveTarget.Api(targetProfile);
@@ -225,22 +300,27 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 return new TargetSwitchResult(
                     TargetSwitchOutcome.SuccessWithReopenWarning,
                     $"Switched routing to {targetProfile.DisplayName}, but some apps failed to reopen.",
-                    activeTarget, null, closed, reopenFailures);
+                    activeTarget, null, closed, reopenFailures,
+                    DiagnosticTrace: trace);
             }
 
             return new TargetSwitchResult(
                 TargetSwitchOutcome.Success,
                 $"Active inference route switched to {targetProfile.DisplayName}.",
-                activeTarget, null, closed);
+                activeTarget, null, closed,
+                DiagnosticTrace: trace);
         }
         catch (Exception ex)
         {
+            trace.PostconditionFailureReason = ex.Message;
+            trace.FinalTargetMatchesRequested = false;
             await compensator.CompensateAsync("switch-target", ex.Message, cancellationToken).ConfigureAwait(false);
             return new TargetSwitchResult(
                 TargetSwitchOutcome.RolledBack,
                 $"Failed to switch to API provider. Original configuration was restored: {ex.Message}",
                 new ActiveTarget.Api(targetProfile),
-                ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow));
+                ErrorInfo.Create(ErrorCategory.Unknown, ex.Message, _clock.UtcNow),
+                DiagnosticTrace: trace);
         }
     }
 

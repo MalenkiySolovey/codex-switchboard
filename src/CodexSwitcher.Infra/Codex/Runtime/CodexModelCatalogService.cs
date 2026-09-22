@@ -5,6 +5,8 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using CodexSwitcher.Core.Common.Storage;
 using CodexSwitcher.Core.Providers.Contracts;
 using CodexSwitcher.Core.Providers.Models;
@@ -183,13 +185,23 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                     ["context_window"] = targetContext,
                     ["max_context_window"] = maxContext,
                     ["support_verbosity"] = supportVerbosity,
+                    ["default_verbosity"] = "low",
+                    ["supports_reasoning_summaries"] = true,
+                    ["default_reasoning_summary"] = "none",
+                    ["apply_patch_tool_type"] = "freeform",
+                    ["web_search_tool_type"] = "text_and_image",
                     ["truncation_policy"] = new Dictionary<string, object> { ["mode"] = "tokens", ["limit"] = 10000 },
+                    ["supports_parallel_tool_calls"] = true,
+                    ["supports_image_detail_original"] = true,
+                    ["supports_search_tool"] = true,
+                    ["input_modalities"] = new[] { "text", "image" },
+                    ["effective_context_window_percent"] = 95,
                     ["experimental_supported_tools"] = Array.Empty<string>(),
                     ["base_instructions"] = "You are a helpful AI assistant."
                 };
 
                 // Requirement 5: Merged effective catalog (bundled runtime models + custom model)
-                var bundled = GetBundledModels(runtimeInfo?.ExecutablePath);
+                var bundled = GetBundledModels(runtimeInfo?.ExecutablePath, runtimeInfo?.Version);
                 var merged = new List<Dictionary<string, object?>> { modernEntry };
                 foreach (var b in bundled)
                 {
@@ -209,7 +221,15 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
             _fs.WriteAllTextAtomic(catalogPath, catalogJson);
 
             // Fail-safe validation against production runtime BEFORE considering active
-            ValidateCatalog(runtimeInfo?.ExecutablePath, catalogPath);
+            try
+            {
+                ValidateCatalog(runtimeInfo?.ExecutablePath, catalogPath);
+            }
+            catch
+            {
+                try { _fs.Delete(catalogPath); } catch { }
+                throw;
+            }
 
             var contentHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(catalogJson)));
             _catalogCache[modelSlug] = (targetContext, catalogPath, contentHash);
@@ -217,7 +237,82 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
         }
     }
 
-    private List<Dictionary<string, object?>> GetBundledModels(string? runtimeExe)
+    public sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut);
+
+    public static ProcessRunResult RunProcessDeadlockSafe(
+        string fileName,
+        string arguments,
+        int timeoutMs = 10000,
+        IReadOnlyDictionary<string, string?>? environment = null,
+        CancellationToken cancellationToken = default)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        if (environment != null)
+        {
+            foreach (var kvp in environment)
+            {
+                if (kvp.Value is null)
+                {
+                    psi.EnvironmentVariables.Remove(kvp.Key);
+                }
+                else
+                {
+                    psi.EnvironmentVariables[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        using var process = new Process { StartInfo = psi };
+        if (!process.Start())
+        {
+            throw new InvalidOperationException($"Failed to start process: '{fileName}' with arguments '{arguments}'.");
+        }
+
+        using var timeoutCts = new CancellationTokenSource(timeoutMs);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+
+        // 1. Start stdout ReadToEndAsync and stderr ReadToEndAsync concurrently
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(linkedCts.Token);
+        var stderrTask = process.StandardError.ReadToEndAsync(linkedCts.Token);
+
+        try
+        {
+            // 2. Wait for process completion with the bounded timeout
+            if (!process.WaitForExit(timeoutMs) || cancellationToken.IsCancellationRequested)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                try { process.WaitForExit(1000); } catch { }
+                return new ProcessRunResult(-1, string.Empty, string.Empty, TimedOut: true);
+            }
+
+            // 3. Await both read tasks concurrently
+            Task.WhenAll(stdoutTask, stderrTask).GetAwaiter().GetResult();
+
+            return new ProcessRunResult(process.ExitCode, stdoutTask.Result, stderrTask.Result, TimedOut: false);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            try { process.WaitForExit(1000); } catch { }
+            return new ProcessRunResult(-1, string.Empty, string.Empty, TimedOut: true);
+        }
+        catch
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw;
+        }
+    }
+
+    internal List<Dictionary<string, object?>> GetBundledModels(string? runtimeExe, string? runtimeVersion = null)
     {
         if (_cachedBundledModels != null)
         {
@@ -226,59 +321,160 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
 
         if (!string.IsNullOrWhiteSpace(runtimeExe) && File.Exists(runtimeExe))
         {
-            try
+            // Primary authority: "debug models --bundled" from the production runtime
+            var result = RunProcessDeadlockSafe(runtimeExe, "debug models --bundled");
+            if (!result.TimedOut && result.ExitCode == 0 && TryParseModels(result.StandardOutput, out var bundledModels))
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = runtimeExe,
-                    Arguments = "debug models",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
+                _cachedBundledModels = bundledModels;
+                return bundledModels;
+            }
 
-                using var process = Process.Start(psi);
-                if (process != null && process.WaitForExit(5000) && process.ExitCode == 0)
-                {
-                    var stdout = process.StandardOutput.ReadToEnd();
-                    using var doc = JsonDocument.Parse(stdout);
-                    if (doc.RootElement.TryGetProperty("models", out var modelsElem) && modelsElem.ValueKind == JsonValueKind.Array)
-                    {
-                        var list = new List<Dictionary<string, object?>>();
-                        foreach (var elem in modelsElem.EnumerateArray())
-                        {
-                            var dict = JsonSerializer.Deserialize<Dictionary<string, object?>>(elem.GetRawText(), JsonOptions);
-                            if (dict != null) list.Add(dict);
-                        }
-                        if (list.Count > 0)
-                        {
-                            _cachedBundledModels = list;
-                            return list;
-                        }
-                    }
-                }
-            }
-            catch
+            // Fallback for runtimes where --bundled is not recognized
+            result = RunProcessDeadlockSafe(runtimeExe, "debug models");
+            if (!result.TimedOut && result.ExitCode == 0 && TryParseModels(result.StandardOutput, out bundledModels))
             {
-                // Fall back to built-in defaults if execution fails
+                _cachedBundledModels = bundledModels;
+                return bundledModels;
             }
+        }
+
+        // Extraction was not possible (no executable or runtime execution failed).
+        // Fallback catalog logic is strictly gated to qualified versions (up to 0.155.x / baseline).
+        if (!IsQualifiedFallbackRuntime(runtimeVersion))
+        {
+            throw new InvalidOperationException(
+                $"Unable to extract bundled model catalog from Codex runtime '{runtimeExe ?? "unknown"}' (version: '{runtimeVersion ?? "unknown"}'). " +
+                "Bundled catalog extraction failed and this runtime version is not qualified for bundled catalog fallback. " +
+                "Fallback is only qualified for runtime versions <= 0.155.x or baseline environments.");
         }
 
         _cachedBundledModels = GetDefaultBundledModels();
         return _cachedBundledModels;
     }
 
+    private static bool TryParseModels(string rawOutput, out List<Dictionary<string, object?>> models)
+    {
+        models = new();
+        if (string.IsNullOrWhiteSpace(rawOutput))
+        {
+            return false;
+        }
+
+        var json = rawOutput.Trim();
+        if (!json.StartsWith('{'))
+        {
+            var start = json.IndexOf('{');
+            var end = json.LastIndexOf('}');
+            if (start >= 0 && end > start)
+            {
+                json = json.Substring(start, end - start + 1);
+            }
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("models", out var modelsElem) && modelsElem.ValueKind == JsonValueKind.Array)
+            {
+                var list = new List<Dictionary<string, object?>>();
+                foreach (var elem in modelsElem.EnumerateArray())
+                {
+                    var dict = JsonSerializer.Deserialize<Dictionary<string, object?>>(elem.GetRawText(), JsonOptions);
+                    if (dict != null)
+                    {
+                        list.Add(dict);
+                    }
+                }
+
+                if (list.Count > 0)
+                {
+                    models = list;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Parse failure
+        }
+
+        return false;
+    }
+
+    public static bool IsQualifiedFallbackRuntime(string? versionStr)
+    {
+        if (string.IsNullOrWhiteSpace(versionStr) ||
+            versionStr.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
+            versionStr.Equals("not_found", StringComparison.OrdinalIgnoreCase) ||
+            versionStr.Equals("baseline", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var clean = versionStr.TrimStart('v');
+        var dash = clean.IndexOf('-');
+        if (dash > 0)
+        {
+            clean = clean[..dash];
+        }
+
+        if (Version.TryParse(clean, out var ver))
+        {
+            return ver < new Version(0, 156, 0);
+        }
+
+        return false;
+    }
+
     private static List<Dictionary<string, object?>> GetDefaultBundledModels()
     {
         return new List<Dictionary<string, object?>>
         {
-            new() { ["slug"] = "gpt-6-astra", ["display_name"] = "gpt-6-astra", ["priority"] = 10 },
-            new() { ["slug"] = "gpt-5.6-sol", ["display_name"] = "gpt-5.6-sol", ["priority"] = 9 },
-            new() { ["slug"] = "gpt-5.6-terra", ["display_name"] = "gpt-5.6-terra", ["priority"] = 8 },
-            new() { ["slug"] = "gpt-5.6-luna", ["display_name"] = "gpt-5.6-luna", ["priority"] = 7 },
-            new() { ["slug"] = "gpt-5.5", ["display_name"] = "gpt-5.5", ["priority"] = 6 },
-            new() { ["slug"] = "gpt-5.4", ["display_name"] = "gpt-5.4", ["priority"] = 5 },
+            CreateDefaultBundledModel("gpt-6-astra", "gpt-6-astra", 10),
+            CreateDefaultBundledModel("gpt-5.6-sol", "gpt-5.6-sol", 9),
+            CreateDefaultBundledModel("gpt-5.6-terra", "gpt-5.6-terra", 8),
+            CreateDefaultBundledModel("gpt-5.6-luna", "gpt-5.6-luna", 7),
+            CreateDefaultBundledModel("gpt-5.5", "gpt-5.5", 6),
+            CreateDefaultBundledModel("gpt-5.4", "gpt-5.4", 5),
+        };
+    }
+
+    private static Dictionary<string, object?> CreateDefaultBundledModel(string slug, string displayName, int priority)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["slug"] = slug,
+            ["display_name"] = displayName,
+            ["description"] = "OpenAI Codex standard model",
+            ["default_reasoning_level"] = "none",
+            ["supported_reasoning_levels"] = new object[]
+            {
+                new Dictionary<string, string> { ["effort"] = "none", ["description"] = "No reasoning effort" },
+                new Dictionary<string, string> { ["effort"] = "low", ["description"] = "Fast responses with lighter reasoning" },
+                new Dictionary<string, string> { ["effort"] = "medium", ["description"] = "Balances speed and reasoning depth" },
+                new Dictionary<string, string> { ["effort"] = "high", ["description"] = "Greater reasoning depth for complex problems" },
+                new Dictionary<string, string> { ["effort"] = "xhigh", ["description"] = "Extra high reasoning depth" }
+            },
+            ["shell_type"] = "unified_exec",
+            ["visibility"] = "list",
+            ["supported_in_api"] = true,
+            ["priority"] = priority,
+            ["context_window"] = FallbackContextCeiling,
+            ["max_context_window"] = FallbackContextCeiling,
+            ["support_verbosity"] = false,
+            ["default_verbosity"] = "low",
+            ["supports_reasoning_summaries"] = true,
+            ["default_reasoning_summary"] = "none",
+            ["apply_patch_tool_type"] = "freeform",
+            ["web_search_tool_type"] = "text_and_image",
+            ["truncation_policy"] = new Dictionary<string, object> { ["mode"] = "tokens", ["limit"] = 10000 },
+            ["supports_parallel_tool_calls"] = true,
+            ["supports_image_detail_original"] = true,
+            ["supports_search_tool"] = true,
+            ["input_modalities"] = new[] { "text", "image" },
+            ["effective_context_window_percent"] = 95,
+            ["experimental_supported_tools"] = Array.Empty<string>(),
+            ["base_instructions"] = "You are a helpful AI assistant."
         };
     }
 
@@ -295,36 +491,39 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
             return;
         }
 
+        var tempValidationHome = Path.Combine(Path.GetTempPath(), "codex-catalog-val-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = runtimeExe,
-                Arguments = $"-c model_catalog_json=\"{catalogPath.Replace('\\', '/')}\" debug models",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+            Directory.CreateDirectory(tempValidationHome);
+            var env = new Dictionary<string, string?> { ["CODEX_HOME"] = tempValidationHome };
+            var arguments = $"-c model_catalog_json=\"{catalogPath.Replace('\\', '/')}\" debug models";
+            var result = RunProcessDeadlockSafe(runtimeExe, arguments, timeoutMs: 10000, environment: env);
 
-            using var process = Process.Start(psi);
-            if (process == null) return;
-
-            if (!process.WaitForExit(5000))
+            if (result.TimedOut)
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
                 throw new InvalidOperationException($"Codex runtime validation timed out for catalog: {catalogPath}");
             }
 
-            if (process.ExitCode != 0)
+            if (result.ExitCode != 0)
             {
-                var stderr = process.StandardError.ReadToEnd();
-                throw new InvalidOperationException($"Codex runtime rejected model catalog '{catalogPath}': {stderr.Trim()}");
+                var err = string.IsNullOrWhiteSpace(result.StandardError) ? result.StandardOutput : result.StandardError;
+                throw new InvalidOperationException($"Codex runtime rejected model catalog '{catalogPath}': {err.Trim()}");
             }
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
             throw new InvalidOperationException($"Failed to execute Codex runtime validation: {ex.Message}", ex);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempValidationHome))
+                {
+                    Directory.Delete(tempValidationHome, true);
+                }
+            }
+            catch { }
         }
     }
 

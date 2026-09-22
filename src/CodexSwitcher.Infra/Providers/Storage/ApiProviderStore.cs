@@ -55,7 +55,8 @@ public sealed class ApiProviderStore : IApiProviderStore
             {
                 foreach (var profile in profiles)
                 {
-                    if (profile.Status != ApiProviderProfileStatus.Archived && !_secretStore.HasApiKey(profile.Id))
+                    var secretOwnerId = profile.EndpointId ?? profile.Id;
+                    if (profile.Status != ApiProviderProfileStatus.Archived && !_secretStore.HasApiKey(secretOwnerId))
                     {
                         profile.Status = ApiProviderProfileStatus.CredentialMissing;
                     }

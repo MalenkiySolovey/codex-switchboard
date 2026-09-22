@@ -50,4 +50,5 @@ public sealed record TargetSwitchResult(
     ActiveTarget Target,
     ErrorInfo? Error = null,
     IReadOnlyList<CodexProcessInfo>? ClosedProcesses = null,
-    IReadOnlyList<CodexProcessInfo>? ReopenFailures = null);
+    IReadOnlyList<CodexProcessInfo>? ReopenFailures = null,
+    SwitchDiagnosticTrace? DiagnosticTrace = null);

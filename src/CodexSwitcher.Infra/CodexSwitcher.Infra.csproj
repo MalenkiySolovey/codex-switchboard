@@ -13,4 +13,8 @@
     <ProjectReference Include="..\CodexSwitcher.Core\CodexSwitcher.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="CodexSwitcher.Core.Tests" />
+  </ItemGroup>
+
 </Project>

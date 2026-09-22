@@ -146,7 +146,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         foreach (var prof in apiProfiles)
         {
             var desc = _catalogService.GetDescriptor(prof.CatalogProviderId);
-            bool hasSecret = _secretStore.HasApiKey(prof.Id);
+            bool hasSecret = _secretStore.HasApiKey(prof.EndpointId ?? prof.Id);
             bool isTargetActive = isRoutingActiveToApi && activeTarget is ActiveTarget.Api a && a.Profile.Id == prof.Id;
 
             if (existingMap.TryGetValue(prof.Id, out var existing))
@@ -251,9 +251,11 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         if (result is null) return;
 
         var id = Guid.NewGuid();
+        var endpointId = Guid.NewGuid();
         var profile = new ApiProviderProfile
         {
             Id = id,
+            EndpointId = endpointId,
             Nickname = result.Nickname,
             CatalogProviderId = result.CatalogProviderId,
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
@@ -274,7 +276,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
         if (!string.IsNullOrWhiteSpace(result.ApiKey))
         {
-            _secretStore.SaveApiKey(profile.Id, result.ApiKey);
+            _secretStore.SaveApiKey(profile.EndpointId ?? profile.Id, result.ApiKey);
         }
 
         _apiProviderStore.Save(profile);
@@ -310,17 +312,25 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     {
         await RunBusyAsync(Loc.BusySwitching(profile.Nickname), async () =>
         {
-            var res = await _targetSwitchService.SwitchToApiProviderAsync(
-                profile.Id,
-                SwitchExecutionOptions.From(_settings));
+            try
+            {
+                var res = await _targetSwitchService.SwitchToApiProviderAsync(
+                    profile.Id,
+                    SwitchExecutionOptions.From(_settings));
 
-            if (res.Outcome is TargetSwitchOutcome.Success or TargetSwitchOutcome.SuccessWithReopenWarning)
-            {
-                ShowInfo(Loc.SwitchedTitle, Loc.SwitchedMsg(profile.Nickname), InfoBarSeverity.Success);
+                if (res.Outcome is TargetSwitchOutcome.Success or TargetSwitchOutcome.SuccessWithReopenWarning)
+                {
+                    ShowInfo(Loc.SwitchedTitle, Loc.SwitchedMsg(profile.Nickname), InfoBarSeverity.Success);
+                }
+                else
+                {
+                    var msg = !string.IsNullOrWhiteSpace(res.Message) ? res.Message : Loc.SwitchFailedMsg;
+                    ShowInfo(Loc.SwitchFailedTitle, msg, InfoBarSeverity.Error);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                ShowInfo(Loc.SwitchFailedTitle, Loc.SwitchFailedMsg, InfoBarSeverity.Error);
+                ShowInfo(Loc.SwitchFailedTitle, ex.Message, InfoBarSeverity.Error);
             }
         });
     }
@@ -421,7 +431,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         var newKey = await _ui.PromptRotateApiKeyAsync(item.DisplayName);
         if (string.IsNullOrWhiteSpace(newKey)) return;
 
-        _secretStore.SaveApiKey(item.Profile.Id, newKey);
+        var secretOwnerId = item.Profile.EndpointId ?? item.Profile.Id;
+        _secretStore.SaveApiKey(secretOwnerId, newKey);
         item.Profile.Status = ApiProviderProfileStatus.Active;
         item.Profile.KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey);
         _apiProviderStore.Save(item.Profile);
@@ -443,7 +454,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
         if (!ok) return;
 
-        _secretStore.DeleteApiKey(item.Profile.Id);
+        var secretOwnerId = item.Profile.EndpointId ?? item.Profile.Id;
+        _secretStore.DeleteApiKey(secretOwnerId);
         item.Profile.Status = ApiProviderProfileStatus.CredentialMissing;
         item.Profile.KeyPreview = string.Empty;
         _apiProviderStore.Save(item.Profile);
@@ -470,8 +482,14 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
         if (!ok) return;
 
-        _secretStore.DeleteApiKey(item.Profile.Id);
+        var secretOwnerId = item.Profile.EndpointId ?? item.Profile.Id;
         _apiProviderStore.Delete(item.Profile.Id);
+
+        var remaining = _apiProviderStore.GetAll();
+        if (!remaining.Any(p => (p.EndpointId ?? p.Id) == secretOwnerId))
+        {
+            _secretStore.DeleteApiKey(secretOwnerId);
+        }
 
         if (item.IsTargetActive)
         {
@@ -695,11 +713,13 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         if (string.IsNullOrWhiteSpace(newKey)) return;
 
         var newId = Guid.NewGuid();
+        var newEndpointId = Guid.NewGuid();
         var original = item.Profile;
 
         var clone = new ApiProviderProfile
         {
             Id = newId,
+            EndpointId = newEndpointId,
             Nickname = $"{original.Nickname} (New Key)",
             CatalogProviderId = original.CatalogProviderId,
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
@@ -712,7 +732,6 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             CreatedAt = _clock.UtcNow,
             ModelOverrides = original.ModelOverrides,
             TransportOverrides = original.TransportOverrides,
-            EndpointId = original.EndpointId ?? original.Id,
             ProviderPresetId = original.ProviderPresetId,
             RoutePoolLabel = original.RoutePoolLabel,
             DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
@@ -720,7 +739,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             LastProbeReport = original.LastProbeReport,
         };
 
-        _secretStore.SaveApiKey(newId, newKey);
+        _secretStore.SaveApiKey(newEndpointId, newKey);
         _apiProviderStore.Save(clone);
 
         TargetStateChanged?.Invoke(this, EventArgs.Empty);
@@ -734,11 +753,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
         var newId = Guid.NewGuid();
         var original = item.Profile;
-
-        if (item.HasSecret)
-        {
-            _secretStore.CloneApiKey(original.Id, newId);
-        }
+        var endpointId = original.EndpointId ?? original.Id;
 
         var candidate = new ApiProviderProfile
         {
@@ -755,7 +770,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             CreatedAt = _clock.UtcNow,
             ModelOverrides = original.ModelOverrides,
             TransportOverrides = original.TransportOverrides,
-            EndpointId = original.EndpointId ?? original.Id,
+            EndpointId = endpointId,
             ProviderPresetId = original.ProviderPresetId,
             RoutePoolLabel = original.RoutePoolLabel,
             DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
@@ -766,7 +781,6 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         var result = await _ui.PromptEditApiProviderAsync(candidate, item.Descriptor);
         if (result is null)
         {
-            _secretStore.DeleteApiKey(newId);
             return;
         }
 
@@ -800,7 +814,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         {
             try
             {
-                var key = _secretStore.GetApiKey(item.Profile.Id);
+                var secretOwnerId = item.Profile.EndpointId ?? item.Profile.Id;
+                var key = _secretStore.GetApiKey(secretOwnerId);
                 if (string.IsNullOrWhiteSpace(key))
                 {
                     ShowInfo("Retest Error", "Could not retrieve API key for probe.", InfoBarSeverity.Warning);

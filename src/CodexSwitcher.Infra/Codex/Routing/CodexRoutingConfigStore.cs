@@ -84,7 +84,7 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
             if (mMod.Success) model = mMod.Groups["val"].Value;
 
             var mCat = ModelCatalogJsonRegex().Match(lines[i]);
-            if (mCat.Success) modelCatalogJson = mCat.Groups["val"].Value;
+            if (mCat.Success) modelCatalogJson = TomlUnescape(mCat.Groups["val"].Value);
         }
 
         var switchboardProviders = ParseSwitchboardProviders(lines);
@@ -685,6 +685,35 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                         sb.Append(c);
                     }
                     break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    public static string TomlUnescape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        var sb = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '\\' && i + 1 < value.Length)
+            {
+                i++;
+                switch (value[i])
+                {
+                    case '\\': sb.Append('\\'); break;
+                    case '"': sb.Append('"'); break;
+                    case 'n': sb.Append('\n'); break;
+                    case 'r': sb.Append('\r'); break;
+                    case 't': sb.Append('\t'); break;
+                    case 'b': sb.Append('\b'); break;
+                    case 'f': sb.Append('\f'); break;
+                    default: sb.Append('\\').Append(value[i]); break;
+                }
+            }
+            else
+            {
+                sb.Append(value[i]);
             }
         }
         return sb.ToString();

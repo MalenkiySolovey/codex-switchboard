@@ -4,7 +4,7 @@
 # ==============================================================================
 [CmdletBinding()]
 param(
-    [string]$Version = "0.2.0",
+    [string]$Version = "0.2.1-preview.9",
     [switch]$SkipTests = $false,
     [switch]$PublicRelease = $false
 )

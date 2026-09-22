@@ -704,7 +704,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         {
             var url = baseUrlBox.Text?.Trim();
             var enteredKey = passwordBox.Password?.Trim();
-            var key = !string.IsNullOrWhiteSpace(enteredKey) ? enteredKey : (_secretStore != null ? _secretStore.GetApiKey(profile.Id) : null);
+            var key = !string.IsNullOrWhiteSpace(enteredKey) ? enteredKey : (_secretStore != null ? _secretStore.GetApiKey(profile.EndpointId ?? profile.Id) : null);
             var currentModel = GetSelectedModelString();
             if (string.IsNullOrWhiteSpace(currentModel)) currentModel = "gpt-5.6-sol";
 
@@ -877,7 +877,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var newKey = passwordBox.Password?.Trim();
             if (!string.IsNullOrWhiteSpace(newKey) && _secretStore != null)
             {
-                _secretStore.SaveApiKey(profile.Id, newKey);
+                var secretOwnerId = profile.EndpointId ?? profile.Id;
+                _secretStore.SaveApiKey(secretOwnerId, newKey);
                 profile.KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey);
                 profile.Status = ApiProviderProfileStatus.Active;
             }
