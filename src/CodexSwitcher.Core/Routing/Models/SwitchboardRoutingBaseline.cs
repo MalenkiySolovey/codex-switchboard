@@ -3,10 +3,10 @@ using System.Collections.Generic;
 namespace CodexSwitcher.Core.Routing.Models;
 
 /// <summary>
-/// State tracking for Switchboard-owned root keys in config.toml.
+/// State tracking for Switchboard-owned root keys and feature table keys in config.toml.
 /// Allows Switchboard to restore user-defined baselines and cleanly remove
-/// provider-specific overrides (e.g. context window, model catalog) when returning
-/// to OpenAI or switching between API targets.
+/// provider-specific overrides (e.g. context window, model catalog, web_search, tool_search)
+/// when returning to OpenAI or switching between API targets.
 /// </summary>
 public sealed class SwitchboardRoutingBaseline
 {
@@ -21,4 +21,13 @@ public sealed class SwitchboardRoutingBaseline
     /// If a key maps to null, it means the key did not exist prior to Switchboard.
     /// </summary>
     public Dictionary<string, string?> BaselineValues { get; set; } = [];
+
+    /// <summary>Feature table keys currently injected and managed by Switchboard under [features] in config.toml.</summary>
+    public List<string> ManagedFeatureKeys { get; set; } = [];
+
+    /// <summary>
+    /// User's baseline raw feature values prior to Switchboard management.
+    /// If a key maps to null, it means the key did not exist prior to Switchboard.
+    /// </summary>
+    public Dictionary<string, string?> BaselineFeatureValues { get; set; } = [];
 }

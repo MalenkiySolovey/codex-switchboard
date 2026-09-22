@@ -181,4 +181,56 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
 
         return new ThreadForkResult(forkedThreadId, sourceThreadId, targetModelProvider, targetModel, newName);
     }
+
+    public async Task<ThreadCompatibilityAssessment> AssessThreadCompatibilityAsync(
+        string threadId,
+        EffectiveToolPolicy targetPolicy,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        ArgumentNullException.ThrowIfNull(targetPolicy);
+
+        try
+        {
+            var client = await _clientFactory().ConfigureAwait(false);
+            var response = await client.RequestAsync("thread/read", new { threadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+
+            var itemTypes = new List<string>();
+            ExtractItemTypes(response, itemTypes);
+
+            return ThreadCompatibilityAssessment.EvaluateHistoryItems(threadId, itemTypes, targetPolicy);
+        }
+        catch
+        {
+            // If app-server cannot read thread or method is unavailable, default to compatible
+            return ThreadCompatibilityAssessment.Compatible(threadId);
+        }
+    }
+
+    private static void ExtractItemTypes(JsonElement element, List<string> itemTypes)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in element.EnumerateObject())
+            {
+                if ((string.Equals(prop.Name, "type", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(prop.Name, "name", StringComparison.OrdinalIgnoreCase)) &&
+                    prop.Value.ValueKind == JsonValueKind.String)
+                {
+                    itemTypes.Add(prop.Value.GetString()!);
+                }
+                else
+                {
+                    ExtractItemTypes(prop.Value, itemTypes);
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                ExtractItemTypes(item, itemTypes);
+            }
+        }
+    }
 }

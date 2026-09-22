@@ -160,6 +160,11 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
 
         try
         {
+            var transport = targetProfile.TransportOverrides;
+            var toolPolicy = apiPlan.ToolPolicy ?? EffectiveToolPolicy.Resolve(
+                transport?.ResponsesPolicy ?? ResponsesCompatibilityPolicy.Auto,
+                DeriveRouteCapabilities(targetProfile));
+
             // Catalog generation INSIDE transaction try block
             string? modelCatalogJson = null;
             try
@@ -167,7 +172,8 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(
                     model,
                     targetProfile.ModelOverrides?.ContextWindowTokens,
-                    targetProfile.ModelOverrides);
+                    targetProfile.ModelOverrides,
+                    toolPolicy);
             }
             catch (Exception catEx)
             {
@@ -212,7 +218,9 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 }
             }
 
-            var transport = targetProfile.TransportOverrides;
+            // Standalone search requires explicit route qualification AND provider opt-in
+            bool? effectiveStandaloneSearch = (toolPolicy.AllowStandaloneWebSearch && transport?.SupportsStandaloneWebSearch == true) ? true : null;
+
             var providerBlock = new CodexProviderBlock(
                 targetProfile.StableCodexProviderId,
                 targetProfile.DisplayName,
@@ -226,11 +234,12 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 transport?.StreamIdleTimeoutMs,
                 transport?.WebSocketConnectTimeoutMs,
                 transport?.SupportsWebSockets,
-                transport?.SupportsStandaloneWebSearch,
+                effectiveStandaloneSearch,
                 transport?.QueryParams,
                 transport?.HttpHeaders,
                 transport?.EnvHttpHeaders,
-                transport?.ResponsesPolicy ?? ResponsesCompatibilityPolicy.Auto);
+                transport?.ResponsesPolicy ?? ResponsesCompatibilityPolicy.Auto,
+                toolPolicy);
 
             _routingConfig.ApplySwitchboardRouting(_paths.ConfigTomlPath, providerBlock, model, targetProfile.ModelOverrides, modelCatalogJson);
             trace.ConfigChanged = true;
@@ -277,6 +286,17 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 {
                     throw new InvalidOperationException($"Postcondition failed: model catalog '{modelCatalogJson}' was not properly configured in config.toml (actual: '{postRouting.ModelCatalogJson}').");
                 }
+            }
+
+            // Postcondition 4: Tool policy restrictions reflected in config.toml
+            var configContent = _fs.FileExists(_paths.ConfigTomlPath) ? _fs.ReadAllText(_paths.ConfigTomlPath) : string.Empty;
+            if (!toolPolicy.AllowHostedWebSearch && !configContent.Contains("web_search = \"disabled\"", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Postcondition failed: web_search = \"disabled\" was not persisted in config.toml.");
+            }
+            if (!toolPolicy.AllowToolSearch && !configContent.Contains("tool_search = false", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Postcondition failed: [features] tool_search = false was not persisted in config.toml.");
             }
 
             // 5. Update profile metadata
@@ -505,5 +525,36 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         {
             return null;
         }
+    }
+
+    private static RouteCapabilities DeriveRouteCapabilities(ApiProviderProfile targetProfile)
+    {
+        if (targetProfile.LastProbeReport is { } report)
+        {
+            return new RouteCapabilities(
+                routeId: targetProfile.SelectedRouteId ?? "active",
+                baseUrl: targetProfile.BaseUrl,
+                responses: report.ResponsesEndpoint,
+                streaming: report.StreamingSupport,
+                webSockets: CapabilityEvidence.Unknown("WebSocket route not probed"),
+                hostedWebSearch: report.HostedSearchSupport,
+                standardFunctionTools: report.BuiltInFunctionTools,
+                visionPassthrough: report.Vision,
+                customFreeformTools: report.CustomApplyPatch,
+                applyPatchFreeform: report.CustomApplyPatch,
+                toolSearch: report.ToolSearch,
+                standaloneWebSearch: report.StandaloneSearch,
+                namespaceTools: report.McpNamespaceTools,
+                promptCaching: CapabilityEvidence.Unknown("Prompt caching unverified"),
+                mcp: CapabilityEvidence.Unknown("MCP unverified"),
+                appsPlugins: report.Plugins);
+        }
+
+        if (targetProfile.BaseUrl.Contains("modelflare", StringComparison.OrdinalIgnoreCase))
+        {
+            return RouteCapabilities.ForModelflareGrok46(targetProfile.BaseUrl);
+        }
+
+        return RouteCapabilities.ForGenericResponses(targetProfile.BaseUrl);
     }
 }

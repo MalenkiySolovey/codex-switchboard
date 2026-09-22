@@ -193,6 +193,11 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 keysToApply["model_catalog_json"] = (modelCatalogJson, false);
             }
 
+            if (providerBlock.ToolPolicy is not null && !providerBlock.ToolPolicy.AllowHostedWebSearch)
+            {
+                keysToApply["web_search"] = ("disabled", false);
+            }
+
             var knownSwitchboardManagedRootKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "model_context_window",
@@ -202,7 +207,8 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 "model_reasoning_summary",
                 "model_verbosity",
                 "tool_output_token_limit",
-                "model_catalog_json"
+                "model_catalog_json",
+                "web_search"
             };
 
             // Clean up previously managed keys that this target doesn't specify
@@ -241,8 +247,57 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 }
             }
 
+            // Transactionally manage [features] table keys (tool_search, multi_agent)
+            var knownSwitchboardManagedFeatureKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "tool_search",
+                "multi_agent"
+            };
+            var featureKeysToApply = new Dictionary<string, string>();
+            if (providerBlock.ToolPolicy is not null)
+            {
+                if (!providerBlock.ToolPolicy.AllowToolSearch)
+                {
+                    featureKeysToApply["tool_search"] = "false";
+                }
+                if (!providerBlock.ToolPolicy.AllowMultiAgent)
+                {
+                    featureKeysToApply["multi_agent"] = "false";
+                }
+            }
+
+            // Clean up previously managed feature keys that this target doesn't specify
+            foreach (var oldKey in baseline.ManagedFeatureKeys)
+            {
+                if (knownSwitchboardManagedFeatureKeys.Contains(oldKey) && !featureKeysToApply.ContainsKey(oldKey))
+                {
+                    if (baseline.BaselineFeatureValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                    {
+                        SetFeatureKeyRaw(lines, oldKey, userBaseline);
+                    }
+                    else
+                    {
+                        RemoveFeatureKey(lines, oldKey);
+                    }
+                }
+            }
+
+            // Apply new feature keys
+            var newTargetManagedFeatureKeys = new List<string>();
+            foreach (var (k, v) in featureKeysToApply)
+            {
+                newTargetManagedFeatureKeys.Add(k);
+                if (!baseline.ManagedFeatureKeys.Contains(k, StringComparer.OrdinalIgnoreCase))
+                {
+                    var currentVal = GetFeatureKeyRaw(lines, k);
+                    baseline.BaselineFeatureValues[k] = currentVal;
+                }
+                SetFeatureKeyRaw(lines, k, v);
+            }
+
             baseline.ActiveProviderId = providerBlock.ProviderId;
             baseline.ManagedRootKeys = newTargetManagedKeys;
+            baseline.ManagedFeatureKeys = newTargetManagedFeatureKeys;
             SaveBaseline(baseline);
 
             // 3. Format provider block
@@ -365,7 +420,8 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 "model_reasoning_summary",
                 "model_verbosity",
                 "tool_output_token_limit",
-                "model_catalog_json"
+                "model_catalog_json",
+                "web_search"
             };
 
             foreach (var oldKey in baseline.ManagedRootKeys)
@@ -383,8 +439,31 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 }
             }
 
+            var knownSwitchboardManagedFeatureKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "tool_search",
+                "multi_agent"
+            };
+
+            foreach (var oldKey in baseline.ManagedFeatureKeys)
+            {
+                if (knownSwitchboardManagedFeatureKeys.Contains(oldKey))
+                {
+                    if (baseline.BaselineFeatureValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                    {
+                        SetFeatureKeyRaw(lines, oldKey, userBaseline);
+                    }
+                    else
+                    {
+                        RemoveFeatureKey(lines, oldKey);
+                    }
+                }
+            }
+
             baseline.ActiveProviderId = null;
             baseline.ManagedRootKeys.Clear();
+            baseline.ManagedFeatureKeys.Clear();
+            baseline.BaselineFeatureValues.Clear();
             SaveBaseline(baseline);
 
             var updated = string.Join(newline, lines);
@@ -538,6 +617,118 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
         }
 
         return null;
+    }
+
+    private static (int StartIdx, int EndIdx) FindTableRange(List<string> lines, string tableName)
+    {
+        var headerRegex = new Regex($@"^\s*\[{Regex.Escape(tableName)}\]\s*$", RegexOptions.IgnoreCase);
+        var startIdx = -1;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (headerRegex.IsMatch(lines[i]))
+            {
+                startIdx = i;
+                break;
+            }
+        }
+
+        if (startIdx < 0) return (-1, -1);
+
+        var endIdx = lines.Count;
+        for (var j = startIdx + 1; j < lines.Count; j++)
+        {
+            if (TableHeaderRegex().IsMatch(lines[j]))
+            {
+                endIdx = j;
+                break;
+            }
+        }
+
+        return (startIdx, endIdx);
+    }
+
+    private static string? GetFeatureKeyRaw(List<string> lines, string key)
+    {
+        var (startIdx, endIdx) = FindTableRange(lines, "features");
+        if (startIdx < 0) return null;
+
+        var pattern = new Regex($@"^\s*{Regex.Escape(key)}\s*=\s*(?<val>.*)$", RegexOptions.IgnoreCase);
+        for (var i = startIdx + 1; i < endIdx; i++)
+        {
+            var match = pattern.Match(lines[i]);
+            if (match.Success)
+            {
+                return match.Groups["val"].Value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static void SetFeatureKeyRaw(List<string> lines, string key, string rawValue)
+    {
+        var (startIdx, endIdx) = FindTableRange(lines, "features");
+        var pattern = new Regex($@"^\s*{Regex.Escape(key)}\s*=.*$", RegexOptions.IgnoreCase);
+
+        if (startIdx >= 0)
+        {
+            for (var i = startIdx + 1; i < endIdx; i++)
+            {
+                if (pattern.IsMatch(lines[i]))
+                {
+                    lines[i] = $"{key} = {rawValue}";
+                    return;
+                }
+            }
+            lines.Insert(startIdx + 1, $"{key} = {rawValue}");
+        }
+        else
+        {
+            var insertIdx = FirstTableIndex(lines);
+            if (insertIdx < lines.Count && insertIdx > 0 && !string.IsNullOrWhiteSpace(lines[insertIdx - 1]))
+            {
+                lines.Insert(insertIdx++, string.Empty);
+            }
+            lines.Insert(insertIdx++, "[features]");
+            lines.Insert(insertIdx, $"{key} = {rawValue}");
+        }
+    }
+
+    private static void RemoveFeatureKey(List<string> lines, string key)
+    {
+        var (startIdx, endIdx) = FindTableRange(lines, "features");
+        if (startIdx < 0) return;
+
+        var pattern = new Regex($@"^\s*{Regex.Escape(key)}\s*=.*$", RegexOptions.IgnoreCase);
+        for (var i = startIdx + 1; i < endIdx; i++)
+        {
+            if (pattern.IsMatch(lines[i]))
+            {
+                lines.RemoveAt(i);
+                endIdx--;
+                break;
+            }
+        }
+
+        // If [features] table is now completely empty of non-empty lines, remove [features]
+        var hasEntries = false;
+        for (var i = startIdx + 1; i < endIdx; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(lines[i]))
+            {
+                hasEntries = true;
+                break;
+            }
+        }
+
+        if (!hasEntries)
+        {
+            lines.RemoveAt(startIdx);
+            if (startIdx < lines.Count && string.IsNullOrWhiteSpace(lines[startIdx]))
+            {
+                lines.RemoveAt(startIdx);
+            }
+        }
     }
 
     private static (int StartIdx, int EndIdx) FindProviderTableRange(List<string> lines, string providerId)

@@ -66,9 +66,16 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
     }
 
     public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens) =>
-        EnsureModelCatalog(modelSlug, contextWindowTokens, null);
+        EnsureModelCatalog(modelSlug, contextWindowTokens, null, null);
 
-    public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens, CodexModelOverrides? modelOverrides)
+    public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens, CodexModelOverrides? modelOverrides) =>
+        EnsureModelCatalog(modelSlug, contextWindowTokens, modelOverrides, null);
+
+    public string? EnsureModelCatalog(
+        string modelSlug,
+        long? contextWindowTokens = null,
+        CodexModelOverrides? modelOverrides = null,
+        EffectiveToolPolicy? toolPolicy = null)
     {
         if (string.IsNullOrWhiteSpace(modelSlug))
         {
@@ -77,7 +84,8 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
 
         var effectiveContext = modelOverrides?.ContextWindowTokens ?? contextWindowTokens;
         var needsCatalog = (effectiveContext.HasValue && effectiveContext.Value > FallbackContextCeiling) ||
-                           (modelOverrides != null && (modelOverrides.ReasoningEffort != CodexReasoningEffort.Default || modelOverrides.Verbosity != CodexVerbosity.Default));
+                           (modelOverrides != null && (modelOverrides.ReasoningEffort != CodexReasoningEffort.Default || modelOverrides.Verbosity != CodexVerbosity.Default)) ||
+                           (toolPolicy != null && (!toolPolicy.AllowCustomFreeformApplyPatch || !toolPolicy.AllowToolSearch));
 
         if (!needsCatalog)
         {
@@ -108,7 +116,9 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                 _cachedRuntimeKey = runtimeKey;
             }
 
-            if (_catalogCache.TryGetValue(modelSlug, out var cached) &&
+            var cacheKey = $"{modelSlug}|{targetContext}|patch:{toolPolicy?.AllowCustomFreeformApplyPatch}|search:{toolPolicy?.AllowToolSearch}";
+
+            if (_catalogCache.TryGetValue(cacheKey, out var cached) &&
                 cached.Context == targetContext &&
                 _fs.FileExists(cached.Path))
             {
@@ -188,17 +198,21 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                     ["default_verbosity"] = "low",
                     ["supports_reasoning_summaries"] = true,
                     ["default_reasoning_summary"] = "none",
-                    ["apply_patch_tool_type"] = "freeform",
                     ["web_search_tool_type"] = "text_and_image",
                     ["truncation_policy"] = new Dictionary<string, object> { ["mode"] = "tokens", ["limit"] = 10000 },
                     ["supports_parallel_tool_calls"] = true,
                     ["supports_image_detail_original"] = true,
-                    ["supports_search_tool"] = true,
+                    ["supports_search_tool"] = toolPolicy == null || toolPolicy.AllowToolSearch,
                     ["input_modalities"] = new[] { "text", "image" },
                     ["effective_context_window_percent"] = 95,
                     ["experimental_supported_tools"] = Array.Empty<string>(),
                     ["base_instructions"] = "You are a helpful AI assistant."
                 };
+
+                if (toolPolicy == null || toolPolicy.AllowCustomFreeformApplyPatch)
+                {
+                    modernEntry["apply_patch_tool_type"] = "freeform";
+                }
 
                 // Requirement 5: Merged effective catalog (bundled runtime models + custom model)
                 var bundled = GetBundledModels(runtimeInfo?.ExecutablePath, runtimeInfo?.Version);

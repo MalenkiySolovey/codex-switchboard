@@ -27,6 +27,7 @@ public delegate Task<(int ExitCode, string Stdout, string Stderr)> ProcessRunner
 public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityProbeService
 {
     private static readonly char[] s_lineDelimiters = ['\r', '\n'];
+    private static readonly JsonSerializerOptions s_indentedJsonOpts = new() { WriteIndented = true };
     private readonly HttpClient _httpClient;
     private readonly ICodexRuntimeResolver? _runtimeResolver;
     private readonly IFileSystem _fs;
@@ -98,6 +99,11 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             }
         }
 
+        // 6a. Schema probes for proprietary tool types
+        var customApplyPatchEvidence = await ProbeCustomApplyPatchAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
+        var toolSearchEvidence = await ProbeToolSearchAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
+        var standaloneSearchEvidence = CapabilityEvidence.Unknown("Standalone search not verified");
+
         // 7. Probe hosted search (strictly opt-in to avoid unexpected billing)
         var hostedSearchEvidence = options.IncludeHostedSearch
             ? await ProbeHostedSearchAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false)
@@ -146,7 +152,10 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             DateTimeOffset.UtcNow,
             runtimeIdentity,
             discoveredModelIds,
-            summary);
+            summary,
+            CustomApplyPatchSupport: customApplyPatchEvidence,
+            ToolSearchSupport: toolSearchEvidence,
+            StandaloneSearchSupport: standaloneSearchEvidence);
     }
 
     private static (CodexCompatibilityLevel Level, ProviderProbeOutcome Outcome, string Summary) SynthesizeCompatibility(
@@ -584,6 +593,91 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         }
     }
 
+    private async Task<CapabilityEvidence> ProbeCustomApplyPatchAsync(string baseUrl, string apiKey, string model, CancellationToken ct)
+    {
+        try
+        {
+            var payload = new
+            {
+                model,
+                input = "ping",
+                tools = new object[]
+                {
+                    new
+                    {
+                        type = "custom",
+                        name = "apply_patch",
+                        description = "Apply a diff patch",
+                        format = new { type = "freeform" }
+                    }
+                },
+                max_tokens = 5
+            };
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/responses")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            }
+
+            using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                return CapabilityEvidence.ProbePassed("POST /responses (custom apply_patch)", detail: "Custom apply_patch tool accepted");
+            }
+
+            return CapabilityEvidence.ProbeFailed("POST /responses (custom apply_patch)", detail: $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        }
+        catch (Exception ex)
+        {
+            return CapabilityEvidence.ProbeFailed("POST /responses (custom apply_patch)", detail: ex.Message);
+        }
+    }
+
+    private async Task<CapabilityEvidence> ProbeToolSearchAsync(string baseUrl, string apiKey, string model, CancellationToken ct)
+    {
+        try
+        {
+            var payload = new
+            {
+                model,
+                input = "ping",
+                tools = new object[]
+                {
+                    new
+                    {
+                        type = "tool_search"
+                    }
+                },
+                max_tokens = 5
+            };
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/responses")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            }
+
+            using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                return CapabilityEvidence.ProbePassed("POST /responses (tool_search)", detail: "Tool search accepted");
+            }
+
+            return CapabilityEvidence.ProbeFailed("POST /responses (tool_search)", detail: $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        }
+        catch (Exception ex)
+        {
+            return CapabilityEvidence.ProbeFailed("POST /responses (tool_search)", detail: ex.Message);
+        }
+    }
+
     private async Task<(
         CapabilityEvidence BasicTurn,
         CapabilityEvidence ExecTool,
@@ -613,11 +707,39 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         try
         {
             _fs.CreateDirectory(tempDir);
+
+            // Write conservative model catalog without apply_patch_tool_type and with supports_search_tool = false
+            var catalogPath = Path.Combine(tempDir, "catalog.json");
+            var catalogContent = JsonSerializer.Serialize(new
+            {
+                models = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["slug"] = modelSlug,
+                        ["display_name"] = modelSlug,
+                        ["shell_type"] = "unified_exec",
+                        ["visibility"] = "list",
+                        ["supported_in_api"] = true,
+                        ["priority"] = 1,
+                        ["supports_search_tool"] = false,
+                        ["supports_parallel_tool_calls"] = true
+                    }
+                }
+            }, s_indentedJsonOpts);
+            _fs.WriteAllTextAtomic(catalogPath, catalogContent);
+
             var toml = new StringBuilder();
             toml.Append("model = \"").Append(modelSlug).AppendLine("\"");
             toml.AppendLine("model_provider = \"probe_provider\"");
+            toml.Append("model_catalog_json = \"").Append(catalogPath.Replace('\\', '/')).AppendLine("\"");
             toml.AppendLine("approval_policy = \"never\"");
             toml.AppendLine("sandbox_mode = \"workspace-write\"");
+            toml.AppendLine("web_search = \"disabled\"");
+            toml.AppendLine();
+            toml.AppendLine("[features]");
+            toml.AppendLine("tool_search = false");
+            toml.AppendLine("multi_agent = false");
             toml.AppendLine();
             toml.AppendLine("[sandbox_workspace_write]");
             toml.AppendLine("network_access = false");

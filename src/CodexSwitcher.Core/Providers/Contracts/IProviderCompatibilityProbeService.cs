@@ -45,7 +45,10 @@ public sealed record ProviderProbeReport(
     DateTimeOffset ProbedAt,
     string? CodexRuntimeIdentity,
     List<string>? DiscoveredModelIds = null,
-    string? DiagnosticSummary = null)
+    string? DiagnosticSummary = null,
+    CapabilityEvidence? CustomApplyPatchSupport = null,
+    CapabilityEvidence? ToolSearchSupport = null,
+    CapabilityEvidence? StandaloneSearchSupport = null)
 {
     // Backwards-compatibility alias mapping ProbeOutcome to ResponsesFailureClassification
     public ResponsesFailureClassification ResponsesStatus => ProbeOutcome switch
@@ -71,6 +74,9 @@ public sealed record ProviderProbeReport(
     public CapabilityEvidence ProviderActuallyUsed => BasicCodexTurn;
     public CapabilityEvidence TokenUsageVerified => BasicCodexTurn;
     public CapabilityEvidence BuiltInToolsExposed => ExecTool;
+    public CapabilityEvidence CustomApplyPatch => CustomApplyPatchSupport ?? CapabilityEvidence.Unknown("Custom apply_patch not probed");
+    public CapabilityEvidence ToolSearch => ToolSearchSupport ?? CapabilityEvidence.Unknown("Tool search not probed");
+    public CapabilityEvidence StandaloneSearch => StandaloneSearchSupport ?? CapabilityEvidence.Unknown("Standalone search not qualified");
 
     public bool AllStandardChecksPassed =>
         ModelsEndpoint.IsSupported &&
@@ -109,6 +115,9 @@ public sealed record ProviderProbeReport(
                 ["vision"] = FormatEvidence(Vision),
                 ["streaming"] = FormatEvidence(StreamingSupport),
                 ["hostedSearch"] = FormatEvidence(HostedSearchSupport),
+                ["customApplyPatch"] = FormatEvidence(CustomApplyPatch),
+                ["toolSearch"] = FormatEvidence(ToolSearch),
+                ["standaloneSearch"] = FormatEvidence(StandaloneSearch),
                 ["mcpNamespaceTools"] = FormatEvidence(McpNamespaceTools),
                 ["appsNamespaceTools"] = FormatEvidence(AppsNamespaceTools),
                 ["plugins"] = FormatEvidence(Plugins),

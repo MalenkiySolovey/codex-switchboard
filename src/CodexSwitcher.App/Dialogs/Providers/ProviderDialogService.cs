@@ -336,7 +336,11 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                         case CodexCompatibilityLevel.CodexCompatible:
                             compatibilityInfoBar.Severity = InfoBarSeverity.Success;
                             compatibilityInfoBar.Title = "Codex Compatible";
+                            var searchNote = report.HostedSearchSupport.State == CapabilityEvidenceState.ProbeFailed
+                                ? " (Provider-hosted web_search unsupported; standard function calling active)"
+                                : "";
                             compatibilityInfoBar.Message = "Endpoint verified compatible with OpenAI Codex (/responses passed)." +
+                                searchNote +
                                 (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
                             break;
                         case CodexCompatibilityLevel.PartiallyCompatible:
@@ -764,7 +768,11 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                         case CodexCompatibilityLevel.CodexCompatible:
                             compatibilityInfoBar.Severity = InfoBarSeverity.Success;
                             compatibilityInfoBar.Title = "Codex Compatible";
+                            var searchNote = report.HostedSearchSupport.State == CapabilityEvidenceState.ProbeFailed
+                                ? " (Provider-hosted web_search unsupported; standard function calling active)"
+                                : "";
                             compatibilityInfoBar.Message = "Endpoint verified compatible with OpenAI Codex (/responses passed)." +
+                                searchNote +
                                 (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
                             break;
                         case CodexCompatibilityLevel.PartiallyCompatible:

@@ -59,7 +59,8 @@ public sealed record CodexProviderBlock(
     IReadOnlyDictionary<string, string>? QueryParams = null,
     IReadOnlyDictionary<string, string>? HttpHeaders = null,
     IReadOnlyDictionary<string, string>? EnvHttpHeaders = null,
-    ResponsesCompatibilityPolicy ResponsesPolicy = ResponsesCompatibilityPolicy.Auto);
+    ResponsesCompatibilityPolicy ResponsesPolicy = ResponsesCompatibilityPolicy.Auto,
+    EffectiveToolPolicy? ToolPolicy = null);
 
 public class ConcurrentModificationException : InvalidOperationException
 {

@@ -37,7 +37,8 @@ public abstract record CodexSwitchPlan
 public sealed record ApiProviderSwitchPlan(
     ApiProviderProfile TargetProfile,
     string BrokerPath,
-    SwitchExecutionOptions Options
+    SwitchExecutionOptions Options,
+    EffectiveToolPolicy? ToolPolicy = null
 ) : CodexSwitchPlan;
 
 /// <summary>

@@ -88,20 +88,63 @@ public sealed record ModelCapabilities(
 /// Verified route/provider passthrough capabilities.
 /// Crucial: Route capabilities MUST NOT be inferred simply from model capabilities.
 /// </summary>
-public sealed record RouteCapabilities(
-    string RouteId,
-    string BaseUrl,
-    CapabilityEvidence Responses,
-    CapabilityEvidence Streaming,
-    CapabilityEvidence WebSockets,
-    CapabilityEvidence HostedWebSearch,
-    CapabilityEvidence ToolCallingPassthrough,
-    CapabilityEvidence VisionPassthrough,
-    CapabilityEvidence NamespaceTools,
-    CapabilityEvidence PromptCaching,
-    CapabilityEvidence Mcp,
-    CapabilityEvidence AppsPlugins)
+public sealed record RouteCapabilities
 {
+    public string RouteId { get; init; }
+    public string BaseUrl { get; init; }
+    public CapabilityEvidence Responses { get; init; }
+    public CapabilityEvidence Streaming { get; init; }
+    public CapabilityEvidence WebSockets { get; init; }
+    public CapabilityEvidence HostedWebSearch { get; init; }
+    public CapabilityEvidence StandardFunctionTools { get; init; }
+    public CapabilityEvidence VisionPassthrough { get; init; }
+    public CapabilityEvidence CustomFreeformTools { get; init; }
+    public CapabilityEvidence ApplyPatchFreeform { get; init; }
+    public CapabilityEvidence ToolSearch { get; init; }
+    public CapabilityEvidence StandaloneWebSearch { get; init; }
+    public CapabilityEvidence NamespaceTools { get; init; }
+    public CapabilityEvidence PromptCaching { get; init; }
+    public CapabilityEvidence Mcp { get; init; }
+    public CapabilityEvidence AppsPlugins { get; init; }
+
+    public CapabilityEvidence ToolCallingPassthrough => StandardFunctionTools;
+
+    public RouteCapabilities(
+        string routeId,
+        string baseUrl,
+        CapabilityEvidence responses,
+        CapabilityEvidence streaming,
+        CapabilityEvidence webSockets,
+        CapabilityEvidence hostedWebSearch,
+        CapabilityEvidence standardFunctionTools,
+        CapabilityEvidence visionPassthrough,
+        CapabilityEvidence customFreeformTools,
+        CapabilityEvidence applyPatchFreeform,
+        CapabilityEvidence toolSearch,
+        CapabilityEvidence standaloneWebSearch,
+        CapabilityEvidence namespaceTools,
+        CapabilityEvidence promptCaching,
+        CapabilityEvidence mcp,
+        CapabilityEvidence appsPlugins)
+    {
+        RouteId = routeId;
+        BaseUrl = baseUrl;
+        Responses = responses;
+        Streaming = streaming;
+        WebSockets = webSockets;
+        HostedWebSearch = hostedWebSearch;
+        StandardFunctionTools = standardFunctionTools;
+        VisionPassthrough = visionPassthrough;
+        CustomFreeformTools = customFreeformTools;
+        ApplyPatchFreeform = applyPatchFreeform;
+        ToolSearch = toolSearch;
+        StandaloneWebSearch = standaloneWebSearch;
+        NamespaceTools = namespaceTools;
+        PromptCaching = promptCaching;
+        Mcp = mcp;
+        AppsPlugins = appsPlugins;
+    }
+
     public RouteCapabilities(
         string routeId,
         string baseUrl,
@@ -120,6 +163,10 @@ public sealed record RouteCapabilities(
             hostedWebSearch,
             toolCallingPassthrough,
             visionPassthrough,
+            CapabilityEvidence.Unknown("Custom freeform tools unverified"),
+            CapabilityEvidence.Unknown("Native apply_patch unverified"),
+            CapabilityEvidence.Unknown("Tool search unverified"),
+            CapabilityEvidence.Unknown("Standalone web search unverified"),
             CapabilityEvidence.Unknown("Namespace tools unverified"),
             CapabilityEvidence.Unknown("Prompt caching unverified"),
             CapabilityEvidence.Unknown("MCP unverified"),
@@ -127,38 +174,79 @@ public sealed record RouteCapabilities(
     {
     }
 
+    public RouteCapabilities(
+        string routeId,
+        string baseUrl,
+        CapabilityEvidence responses,
+        CapabilityEvidence streaming,
+        CapabilityEvidence webSockets,
+        CapabilityEvidence hostedWebSearch,
+        CapabilityEvidence toolCallingPassthrough,
+        CapabilityEvidence visionPassthrough,
+        CapabilityEvidence namespaceTools,
+        CapabilityEvidence promptCaching,
+        CapabilityEvidence mcp,
+        CapabilityEvidence appsPlugins)
+        : this(
+            routeId,
+            baseUrl,
+            responses,
+            streaming,
+            webSockets,
+            hostedWebSearch,
+            toolCallingPassthrough,
+            visionPassthrough,
+            CapabilityEvidence.Unknown("Custom freeform tools unverified"),
+            CapabilityEvidence.Unknown("Native apply_patch unverified"),
+            CapabilityEvidence.Unknown("Tool search unverified"),
+            CapabilityEvidence.Unknown("Standalone web search unverified"),
+            namespaceTools,
+            promptCaching,
+            mcp,
+            appsPlugins)
+    {
+    }
+
     /// <summary>
     /// Live qualification evidence for Modelflare routing Grok 4.6:
-    /// Responses, reasoning, vision, and tool calling pass, but provider-hosted
-    /// web_search passthrough fails (HTTP 400 Bad Request).
+    /// Responses, reasoning, vision, and standard function tools pass, but
+    /// custom apply_patch, tool_search, and provider-hosted web_search fail (HTTP 400 Bad Request).
     /// </summary>
     public static RouteCapabilities ForModelflareGrok46(string baseUrl, string? runtimeIdentity = null) =>
         new(
-            "modelflare-grok-4.6",
-            baseUrl,
-            Responses: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Responses endpoint accepted"),
-            Streaming: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "SSE streaming accepted"),
-            WebSockets: CapabilityEvidence.Unknown("WebSocket route not probed"),
-            HostedWebSearch: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on provider-hosted xAI web_search passthrough"),
-            ToolCallingPassthrough: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Tool calling passthrough functional"),
-            VisionPassthrough: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Vision payload passthrough functional"),
-            NamespaceTools: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "Third-party proxy rejects proprietary OpenAI namespace tools"),
-            PromptCaching: CapabilityEvidence.Unknown("Prompt caching not declared"),
-            Mcp: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Standard MCP functions supported"),
-            AppsPlugins: CapabilityEvidence.Unknown("Plugins unprobed"));
+            routeId: "modelflare-grok-4.6",
+            baseUrl: baseUrl,
+            responses: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Responses endpoint accepted"),
+            streaming: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "SSE streaming accepted"),
+            webSockets: CapabilityEvidence.Unknown("WebSocket route not probed"),
+            hostedWebSearch: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on provider-hosted xAI web_search passthrough"),
+            standardFunctionTools: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Standard function tools accepted"),
+            visionPassthrough: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Vision payload passthrough functional"),
+            customFreeformTools: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on custom freeform tools"),
+            applyPatchFreeform: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on native freeform apply_patch"),
+            toolSearch: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on tool_search"),
+            standaloneWebSearch: CapabilityEvidence.Unknown("Standalone search not qualified for Modelflare"),
+            namespaceTools: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "Third-party proxy rejects proprietary OpenAI namespace tools"),
+            promptCaching: CapabilityEvidence.Unknown("Prompt caching not declared"),
+            mcp: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Standard MCP functions supported"),
+            appsPlugins: CapabilityEvidence.Unknown("Plugins unprobed"));
 
     public static RouteCapabilities ForGenericResponses(string baseUrl, string? runtimeIdentity = null) =>
         new(
-            "generic-responses",
-            baseUrl,
-            Responses: CapabilityEvidence.Unknown("Responses endpoint unverified"),
-            Streaming: CapabilityEvidence.Unknown("Streaming unverified"),
-            WebSockets: CapabilityEvidence.Unknown("WebSockets unverified"),
-            HostedWebSearch: CapabilityEvidence.Unknown("Hosted web search unverified"),
-            ToolCallingPassthrough: CapabilityEvidence.Unknown("Tool calling unverified"),
-            VisionPassthrough: CapabilityEvidence.Unknown("Vision unverified"),
-            NamespaceTools: CapabilityEvidence.Unknown("Namespace tools unverified"),
-            PromptCaching: CapabilityEvidence.Unknown("Prompt caching unverified"),
-            Mcp: CapabilityEvidence.Unknown("MCP unverified"),
-            AppsPlugins: CapabilityEvidence.Unknown("Apps/plugins unverified"));
+            routeId: "generic-responses",
+            baseUrl: baseUrl,
+            responses: CapabilityEvidence.Unknown("Responses endpoint unverified"),
+            streaming: CapabilityEvidence.Unknown("Streaming unverified"),
+            webSockets: CapabilityEvidence.Unknown("WebSockets unverified"),
+            hostedWebSearch: CapabilityEvidence.Unknown("Hosted web search unverified"),
+            standardFunctionTools: CapabilityEvidence.Unknown("Standard function tools unverified"),
+            visionPassthrough: CapabilityEvidence.Unknown("Vision unverified"),
+            customFreeformTools: CapabilityEvidence.Unknown("Custom freeform tools unverified"),
+            applyPatchFreeform: CapabilityEvidence.Unknown("Native apply_patch unverified"),
+            toolSearch: CapabilityEvidence.Unknown("Tool search unverified"),
+            standaloneWebSearch: CapabilityEvidence.Unknown("Standalone web search unverified"),
+            namespaceTools: CapabilityEvidence.Unknown("Namespace tools unverified"),
+            promptCaching: CapabilityEvidence.Unknown("Prompt caching unverified"),
+            mcp: CapabilityEvidence.Unknown("MCP unverified"),
+            appsPlugins: CapabilityEvidence.Unknown("Apps/plugins unverified"));
 }
