@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using CodexSwitcher.Core.Accounts.Formatting;
 using CodexSwitcher.Core.Accounts.Models;
 using CodexSwitcher.Core.Accounts.Services;
@@ -288,15 +289,29 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 }
             }
 
-            // Postcondition 4: Tool policy restrictions reflected in config.toml
+            // Postcondition 4: Tool policy restrictions reflected in config and catalog
             var configContent = _fs.FileExists(_paths.ConfigTomlPath) ? _fs.ReadAllText(_paths.ConfigTomlPath) : string.Empty;
             if (!toolPolicy.AllowHostedWebSearch && !configContent.Contains("web_search = \"disabled\"", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Postcondition failed: web_search = \"disabled\" was not persisted in config.toml.");
             }
-            if (!toolPolicy.AllowToolSearch && !configContent.Contains("tool_search = false", StringComparison.OrdinalIgnoreCase))
+            if (!toolPolicy.AllowToolSearch && !string.IsNullOrWhiteSpace(modelCatalogJson) && _fs.FileExists(modelCatalogJson))
             {
-                throw new InvalidOperationException("Postcondition failed: [features] tool_search = false was not persisted in config.toml.");
+                using var catalogDoc = JsonDocument.Parse(_fs.ReadAllText(modelCatalogJson));
+                if (catalogDoc.RootElement.TryGetProperty("models", out var modelsArray))
+                {
+                    foreach (var m in modelsArray.EnumerateArray())
+                    {
+                        if (m.TryGetProperty("slug", out var slugProp) &&
+                            string.Equals(slugProp.GetString(), model, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (m.TryGetProperty("supports_search_tool", out var sst) && sst.GetBoolean())
+                            {
+                                throw new InvalidOperationException($"Postcondition failed: supports_search_tool = true in model catalog for model '{model}' when tool_search was disallowed.");
+                            }
+                        }
+                    }
+                }
             }
 
             // 5. Update profile metadata

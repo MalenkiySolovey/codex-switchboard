@@ -162,9 +162,9 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
         Assert.False(grokModel.TryGetProperty("apply_patch_tool_type", out _));
     }
 
-    // Requirement 3: ToolSearch=Failed -> no tool_search in catalog and config
+    // Requirement 3: ToolSearch=Failed -> supports_search_tool=false in catalog, legacy no-op flag not written
     [Fact]
-    public void Req03_ToolSearchFailed_DisablesToolSearchInCatalogAndConfig()
+    public void Req03_ToolSearchFailed_DisablesToolSearchInCatalog_AndDoesNotWriteNoOpFeatureFlag()
     {
         using var env = new TestEnvironment();
         var toolPolicy = new EffectiveToolPolicy(
@@ -197,7 +197,7 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
         env.RoutingStore.ApplySwitchboardRouting(env.Paths.Codex.ConfigTomlPath, block, "grok-4.6");
 
         var configToml = env.Fs.ReadAllText(env.Paths.Codex.ConfigTomlPath);
-        Assert.Contains("tool_search = false", configToml);
+        Assert.DoesNotContain("tool_search = false", configToml);
     }
 
     // Requirement 4: HostedWebSearch=Failed -> web_search = "disabled"
@@ -253,6 +253,18 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
 
         var policy = EffectiveToolPolicy.Resolve(ResponsesCompatibilityPolicy.StandardResponses, routeCaps);
         Assert.False(policy.AllowStandaloneWebSearch);
+    }
+
+    // Requirement 5b: Modelflare StandaloneWebSearch=ProbeFailed -> standalone search disabled
+    [Fact]
+    public void Req05b_ModelflareStandaloneWebSearchFailed_DisablesStandaloneSearch()
+    {
+        var routeCaps = RouteCapabilities.ForModelflareGrok46("https://api.modelflare.test/v1");
+        var policy = EffectiveToolPolicy.Resolve(ResponsesCompatibilityPolicy.StandardResponses, routeCaps);
+
+        Assert.False(policy.AllowStandaloneWebSearch);
+        Assert.Equal(CapabilityEvidenceState.ProbeFailed, routeCaps.StandaloneWebSearch.State);
+        Assert.Equal(CapabilityEvidenceState.Unknown, routeCaps.NamespaceTools.State);
     }
 
     // Requirement 6: StandaloneWebSearch=Passed -> supports_standalone_web_search = true
@@ -374,11 +386,11 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
 
         var result = await env.Facade.SwitchToApiProviderAsync(modelProfileId, DefaultOpts);
 
-        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.True(result.Outcome == TargetSwitchOutcome.Success, result.Message + " | " + result.DiagnosticTrace?.PostconditionFailureReason);
 
         var configToml = env.Fs.ReadAllText(env.Paths.Codex.ConfigTomlPath);
         Assert.Contains("web_search = \"disabled\"", configToml);
-        Assert.Contains("tool_search = false", configToml);
+        Assert.DoesNotContain("tool_search = false", configToml);
         Assert.Contains("multi_agent = false", configToml);
 
         var catalogPath = result.DiagnosticTrace?.EffectiveModelCatalogJson;
@@ -526,14 +538,15 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
             Vision: CapabilityEvidence.ProbePassed("vision"),
             StreamingSupport: CapabilityEvidence.ProbePassed("stream"),
             HostedSearchSupport: CapabilityEvidence.ProbeFailed("search", detail: "HTTP 400 Bad Request"),
-            McpNamespaceTools: CapabilityEvidence.ProbeFailed("mcp"),
-            AppsNamespaceTools: CapabilityEvidence.ProbeFailed("apps"),
+            McpNamespaceTools: CapabilityEvidence.Unknown("mcp"),
+            AppsNamespaceTools: CapabilityEvidence.Unknown("apps"),
             Plugins: CapabilityEvidence.Unknown("plugins"),
             MultiAgent: CapabilityEvidence.Unknown("multi"),
             ProbedAt: DateTimeOffset.UtcNow,
             CodexRuntimeIdentity: "codex-cli 0.155.0",
             CustomApplyPatchSupport: CapabilityEvidence.ProbeFailed("patch", detail: "HTTP 400 Bad Request"),
-            ToolSearchSupport: CapabilityEvidence.ProbeFailed("search_tool", detail: "HTTP 400 Bad Request"));
+            ToolSearchSupport: CapabilityEvidence.ProbeFailed("search_tool", detail: "HTTP 400 Bad Request"),
+            StandaloneSearchSupport: CapabilityEvidence.ProbeFailed("standalone", detail: "HTTP 404 Not Found"));
 
         var directReport = new ProviderProbeReport(
             BaseUrl: "https://api.x.ai/v1",
@@ -556,12 +569,16 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
             ProbedAt: DateTimeOffset.UtcNow,
             CodexRuntimeIdentity: "codex-cli 0.155.0",
             CustomApplyPatchSupport: CapabilityEvidence.ProbePassed("patch"),
-            ToolSearchSupport: CapabilityEvidence.ProbePassed("search_tool"));
+            ToolSearchSupport: CapabilityEvidence.ProbePassed("search_tool"),
+            StandaloneSearchSupport: CapabilityEvidence.ProbePassed("standalone"));
 
         Assert.Equal(CapabilityEvidenceState.ProbeFailed, modelflareReport.CustomApplyPatch.State);
         Assert.Equal(CapabilityEvidenceState.ProbePassed, directReport.CustomApplyPatch.State);
         Assert.Equal(CapabilityEvidenceState.ProbeFailed, modelflareReport.HostedSearchSupport.State);
         Assert.Equal(CapabilityEvidenceState.ProbePassed, directReport.HostedSearchSupport.State);
+        Assert.Equal(CapabilityEvidenceState.ProbeFailed, modelflareReport.StandaloneSearch.State);
+        Assert.Equal(CapabilityEvidenceState.ProbePassed, directReport.StandaloneSearch.State);
+        Assert.Equal(CapabilityEvidenceState.Unknown, modelflareReport.NamespaceToolsSupport.State);
     }
 
     // Requirement 14: Runtime fingerprint change invalidates stale evidence
@@ -576,29 +593,63 @@ public sealed class ThirdPartyResponsesToolCompatibilityTests
     }
 
     // Requirement 15: Real outbound production runtime tool list contains strictly type=function tools
+    // Invariant: Function inventory is runtime/session dependent (e.g. 10 function tools in captured real session);
+    // the invariant is that ALL emitted tool types are strictly "function" and never proprietary extensions.
     [Fact]
     public void Req15_OutboundRuntimeToolList_ContainsStrictlyTypeFunctionTools()
     {
-        // When tool policy disables custom apply_patch, tool_search, and hosted web_search,
-        // any payload constructed for Responses contains strictly standard function tools.
-        var standardTools = new[]
+        // Real production runtime request captured from codex-cli 0.155.0-alpha.9.2:
+        // Originally contained 10 standard function tools + 3 proprietary tools (apply_patch, tool_search, web_search).
+        var capturedOutboundTools = new object[]
         {
-            new { type = "function", function = new { name = "exec_command", description = "Run command" } },
-            new { type = "function", function = new { name = "read_file", description = "Read file" } },
-            new { type = "function", function = new { name = "write_file", description = "Write file" } },
-            new { type = "function", function = new { name = "file_search", description = "Search files" } },
-            new { type = "function", function = new { name = "dir_list", description = "List directory" } },
-            new { type = "function", function = new { name = "fetch_web_page", description = "Fetch url" } },
-            new { type = "function", function = new { name = "view_image", description = "View image" } }
+            // The 10 real production Codex standard function tools captured during live qualification
+            new { type = "function", function = new { name = "exec_command", description = "Execute a shell command" } },
+            new { type = "function", function = new { name = "write_stdin", description = "Write to process stdin" } },
+            new { type = "function", function = new { name = "list_mcp_resources", description = "List MCP resources" } },
+            new { type = "function", function = new { name = "list_mcp_resource_templates", description = "List templates" } },
+            new { type = "function", function = new { name = "read_mcp_resource", description = "Read MCP resource" } },
+            new { type = "function", function = new { name = "request_user_input", description = "Ask user" } },
+            new { type = "function", function = new { name = "view_image", description = "Inspect image" } },
+            new { type = "function", function = new { name = "get_goal", description = "Get current task goal" } },
+            new { type = "function", function = new { name = "create_goal", description = "Create goal" } },
+            new { type = "function", function = new { name = "update_goal", description = "Update goal" } },
+            // Proprietary tools injected by unrestricted OpenAI Native profile
+            new { type = "custom", name = "apply_patch", format = new { type = "freeform" } },
+            new { type = "tool_search" },
+            new { type = "web_search" }
         };
 
-        var serialized = JsonSerializer.Serialize(standardTools);
-        using var doc = JsonDocument.Parse(serialized);
+        var policy = EffectiveToolPolicy.Resolve(
+            ResponsesCompatibilityPolicy.StandardResponses,
+            RouteCapabilities.ForModelflareGrok46("https://modelflare.dev/v1"));
 
-        foreach (var tool in doc.RootElement.EnumerateArray())
+        // Filter the captured tools according to effective tool policy
+        var effectiveTools = capturedOutboundTools.Where(t =>
+        {
+            var json = JsonSerializer.Serialize(t);
+            using var doc = JsonDocument.Parse(json);
+            var type = doc.RootElement.GetProperty("type").GetString();
+            return type switch
+            {
+                "function" => policy.AllowStandardFunctionTools,
+                "custom" => policy.AllowCustomFreeformApplyPatch,
+                "tool_search" => policy.AllowToolSearch,
+                "web_search" => policy.AllowHostedWebSearch,
+                "namespace" => policy.AllowNamespaceTools,
+                _ => false
+            };
+        }).ToList();
+
+        Assert.Equal(10, effectiveTools.Count);
+
+        var serialized = JsonSerializer.Serialize(effectiveTools);
+        using var verifiedDoc = JsonDocument.Parse(serialized);
+
+        foreach (var tool in verifiedDoc.RootElement.EnumerateArray())
         {
             Assert.Equal("function", tool.GetProperty("type").GetString());
-            Assert.True(tool.TryGetProperty("function", out _));
+            Assert.True(tool.TryGetProperty("function", out var funcProp));
+            Assert.True(funcProp.TryGetProperty("name", out _));
             Assert.False(tool.TryGetProperty("custom", out _));
         }
 

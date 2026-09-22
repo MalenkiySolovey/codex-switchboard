@@ -17,6 +17,7 @@ public sealed record ProviderProbeOptions(
     bool RunCodexSmokeTest = true,
     bool RunToolSmokeTest = true,
     bool IncludeAdvancedNamespaceProbes = false,
+    bool IncludeStandaloneSearch = false,
     TimeSpan Timeout = default);
 
 /// <summary>

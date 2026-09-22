@@ -210,7 +210,8 @@ public sealed record RouteCapabilities
     /// <summary>
     /// Live qualification evidence for Modelflare routing Grok 4.6:
     /// Responses, reasoning, vision, and standard function tools pass, but
-    /// custom apply_patch, tool_search, and provider-hosted web_search fail (HTTP 400 Bad Request).
+    /// custom apply_patch, tool_search, provider-hosted web_search, and standalone search (/v1/alpha/search) fail.
+    /// Namespace tools are unprobed (unknown).
     /// </summary>
     public static RouteCapabilities ForModelflareGrok46(string baseUrl, string? runtimeIdentity = null) =>
         new(
@@ -225,8 +226,8 @@ public sealed record RouteCapabilities
             customFreeformTools: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on custom freeform tools"),
             applyPatchFreeform: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on native freeform apply_patch"),
             toolSearch: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 400 Bad Request on tool_search"),
-            standaloneWebSearch: CapabilityEvidence.Unknown("Standalone search not qualified for Modelflare"),
-            namespaceTools: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "Third-party proxy rejects proprietary OpenAI namespace tools"),
+            standaloneWebSearch: CapabilityEvidence.ProbeFailed("Modelflare live qualification", runtimeIdentity, "HTTP 404 Not Found on /v1/alpha/search standalone search endpoint"),
+            namespaceTools: CapabilityEvidence.Unknown("Namespace tools unprobed"),
             promptCaching: CapabilityEvidence.Unknown("Prompt caching not declared"),
             mcp: CapabilityEvidence.ProbePassed("Modelflare live qualification", runtimeIdentity, "Standard MCP functions supported"),
             appsPlugins: CapabilityEvidence.Unknown("Plugins unprobed"));

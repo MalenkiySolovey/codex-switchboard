@@ -247,7 +247,10 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 }
             }
 
-            // Transactionally manage [features] table keys (tool_search, multi_agent)
+            // Transactionally manage [features] table keys (multi_agent)
+            // Note: tool_search = false in [features] is a legacy no-op flag in modern Codex;
+            // effective tool_search suppression is driven by supports_search_tool = false in model_catalog_json.
+            // tool_search remains in knownSwitchboardManagedFeatureKeys so any legacy baseline keys are cleaned up.
             var knownSwitchboardManagedFeatureKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "tool_search",
@@ -256,10 +259,6 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
             var featureKeysToApply = new Dictionary<string, string>();
             if (providerBlock.ToolPolicy is not null)
             {
-                if (!providerBlock.ToolPolicy.AllowToolSearch)
-                {
-                    featureKeysToApply["tool_search"] = "false";
-                }
                 if (!providerBlock.ToolPolicy.AllowMultiAgent)
                 {
                     featureKeysToApply["multi_agent"] = "false";

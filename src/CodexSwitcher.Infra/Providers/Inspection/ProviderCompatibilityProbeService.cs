@@ -102,7 +102,9 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         // 6a. Schema probes for proprietary tool types
         var customApplyPatchEvidence = await ProbeCustomApplyPatchAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
         var toolSearchEvidence = await ProbeToolSearchAsync(cleanBaseUrl, apiKey, modelSlug, cts.Token).ConfigureAwait(false);
-        var standaloneSearchEvidence = CapabilityEvidence.Unknown("Standalone search not verified");
+        var standaloneSearchEvidence = options.IncludeStandaloneSearch
+            ? await ProbeStandaloneSearchAsync(cleanBaseUrl, apiKey, cts.Token).ConfigureAwait(false)
+            : CapabilityEvidence.Unknown("Standalone search not verified (opt-in)");
 
         // 7. Probe hosted search (strictly opt-in to avoid unexpected billing)
         var hostedSearchEvidence = options.IncludeHostedSearch
@@ -678,6 +680,38 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         }
     }
 
+    private async Task<CapabilityEvidence> ProbeStandaloneSearchAsync(string baseUrl, string apiKey, CancellationToken ct)
+    {
+        try
+        {
+            var searchUrl = baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+                ? $"{baseUrl}/alpha/search"
+                : $"{baseUrl}/v1/alpha/search";
+
+            var payload = new { query = "ping" };
+            using var req = new HttpRequestMessage(HttpMethod.Post, searchUrl)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+            };
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            }
+
+            using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                return CapabilityEvidence.ProbePassed("POST /alpha/search (standalone search)", detail: "Standalone search endpoint operational");
+            }
+
+            return CapabilityEvidence.ProbeFailed("POST /alpha/search (standalone search)", detail: $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+        }
+        catch (Exception ex)
+        {
+            return CapabilityEvidence.ProbeFailed("POST /alpha/search (standalone search)", detail: ex.Message);
+        }
+    }
+
     private async Task<(
         CapabilityEvidence BasicTurn,
         CapabilityEvidence ExecTool,
@@ -738,7 +772,6 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
             toml.AppendLine("web_search = \"disabled\"");
             toml.AppendLine();
             toml.AppendLine("[features]");
-            toml.AppendLine("tool_search = false");
             toml.AppendLine("multi_agent = false");
             toml.AppendLine();
             toml.AppendLine("[sandbox_workspace_write]");
