@@ -4,8 +4,12 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using CodexSwitcher.Core.Routing.Models;
+using CodexSwitcher.Core.Providers.Models;
+using CodexSwitcher.Core.Settings.Models;
 using CodexSwitcher.Infra.Codex.Runtime;
 using CodexSwitcher.Infra.Codex.Threads;
+using CodexSwitcher.Infra.Common.Paths;
+using CodexSwitcher.Core.Tests.TestSupport;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -18,6 +22,90 @@ public sealed class LiveProductionRuntimeQualificationTests
     public LiveProductionRuntimeQualificationTests(ITestOutputHelper output)
     {
         _output = output;
+    }
+
+    [Fact]
+    public async Task QualifyProfileCatalogThroughCurrentProductionRuntimeModelList()
+    {
+        var resolver = new CodexRuntimeResolver();
+        var runtime = resolver.ResolveCurrentRuntime();
+        _output.WriteLine($"Resolved Runtime Path: {runtime.ExecutablePath}");
+        _output.WriteLine($"Resolved Runtime Version: {runtime.Version}");
+
+        if (string.IsNullOrWhiteSpace(runtime.ExecutablePath) || !File.Exists(runtime.ExecutablePath))
+        {
+            _output.WriteLine("Production runtime executable not found on host. Skipping live qualification test.");
+            return;
+        }
+
+        using var temp = new TempDir();
+        var codexHome = Path.Combine(temp.Root, ".codex");
+        var paths = new AppPaths(Path.Combine(temp.Root, "switchboard"), codexHome);
+        paths.EnsureDirectories();
+        Directory.CreateDirectory(codexHome);
+
+        var profileId = Guid.NewGuid();
+        var profile = new ApiProviderProfile
+        {
+            Id = profileId,
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(profileId),
+            Nickname = "Runtime catalog qualification",
+            BaseUrl = "https://api.example.invalid/v1",
+            SelectedModel = "qualification-model-selected",
+            ModelInventory = new ApiProviderModelInventory
+            {
+                SelectedModel = "qualification-model-selected",
+                Models =
+                [
+                    new ApiProviderModelItem { Slug = "qualification-model-alternate", Enabled = true },
+                    new ApiProviderModelItem { Slug = "qualification-model-selected", Enabled = true },
+                    new ApiProviderModelItem { Slug = "qualification-model-disabled", Enabled = false },
+                ],
+            },
+        };
+
+        var catalogService = new CodexModelCatalogService(
+            new PhysicalFileSystem(),
+            paths,
+            runtimeResolver: resolver);
+        var catalogPath = catalogService.EnsureProfileModelCatalog(profile);
+        Assert.False(string.IsNullOrWhiteSpace(catalogPath));
+        Assert.True(File.Exists(catalogPath));
+        _output.WriteLine($"Catalog content: {File.ReadAllText(catalogPath)}");
+
+        var escapedCatalogPath = catalogPath!.Replace("\\", "\\\\", StringComparison.Ordinal);
+        var providerId = profile.StableCodexProviderId;
+        File.WriteAllText(
+            paths.Codex.ConfigTomlPath,
+            $"model_provider = \"{providerId}\"\nmodel = \"{profile.SelectedModel}\"\nmodel_catalog_json = \"{escapedCatalogPath}\"\n\n" +
+            $"[model_providers.{providerId}]\nname = \"Runtime catalog qualification\"\nbase_url = \"{profile.BaseUrl}\"\nwire_api = \"responses\"\n");
+
+        var verifier = new CodexRuntimeModelCatalogVerifier(
+            resolver,
+            new AppSettings { CodexExecutablePathOverride = runtime.ExecutablePath },
+            paths,
+            new SwitchboardCodexProcessRegistry(),
+            new CodexRoutingConfigStore(new PhysicalFileSystem(), paths));
+        var expectedEnabled = profile.ModelInventory.GetEnabledModels().Select(model => model.Slug).ToArray();
+        await using (var client = new CodexAppServerClient(runtime.ExecutablePath, codexHome))
+        {
+            await client.StartAsync();
+            var modelList = await client.RequestAsync("model/list", new { includeHidden = true });
+            _output.WriteLine($"Raw model/list: {modelList.GetRawText()}");
+        }
+
+        var verification = await verifier.VerifyAsync(
+            providerId,
+            profile.SelectedModel!,
+            expectedEnabled);
+
+        _output.WriteLine($"Catalog: {catalogPath}");
+        _output.WriteLine($"Expected enabled models: {string.Join(", ", expectedEnabled)}");
+        _output.WriteLine($"Observed model/list entries: {string.Join(", ", verification.ObservedModels)}");
+        Assert.True(verification.Succeeded, verification.FailureReason);
+        Assert.Contains("qualification-model-selected", verification.ObservedModels);
+        Assert.Contains("qualification-model-alternate", verification.ObservedModels);
+        Assert.DoesNotContain("qualification-model-disabled", verification.ObservedModels);
     }
 
     [Fact]
