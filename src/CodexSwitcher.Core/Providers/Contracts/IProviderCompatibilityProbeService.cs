@@ -158,4 +158,9 @@ public interface IProviderCompatibilityProbeService
         string modelSlug,
         ProviderProbeOptions? options = null,
         CancellationToken cancellationToken = default);
+
+    Task<(CapabilityEvidence Evidence, List<string> ModelIds)> DiscoverModelsOnlyAsync(
+        string baseUrl,
+        string apiKey,
+        CancellationToken cancellationToken = default);
 }

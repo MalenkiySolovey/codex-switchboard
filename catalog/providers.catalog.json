@@ -1,8 +1,8 @@
 {
   "$schema": "./providers.catalog.schema.json",
   "schemaVersion": 1,
-  "catalogVersion": 3,
-  "updatedAt": "2026-09-21T20:45:00Z",
+  "catalogVersion": 4,
+  "updatedAt": "2026-09-23T15:00:00Z",
   "minAppVersion": "0.1.0",
   "providers": [
     {
@@ -227,11 +227,15 @@
       "aliases": [
         "modelflare",
         "modelflare.com",
-        "api.modelflare.com"
+        "api.modelflare.com",
+        "modelflare.dev",
+        "api.modelflare.dev"
       ],
       "match": {
         "exactHosts": [
-          "api.modelflare.com"
+          "api.modelflare.com",
+          "modelflare.dev",
+          "api.modelflare.dev"
         ]
       },
       "codex": {
@@ -249,7 +253,9 @@
         }
       ],
       "trustedHosts": [
-        "api.modelflare.com"
+        "api.modelflare.com",
+        "modelflare.dev",
+        "api.modelflare.dev"
       ],
       "capabilities": {
         "models": {

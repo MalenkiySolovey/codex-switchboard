@@ -354,7 +354,7 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
         return (version, isSupported);
     }
 
-    private static string ProbeVersion(string exePath)
+    public static string ProbeVersion(string exePath)
     {
         try
         {

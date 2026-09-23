@@ -1,13 +1,24 @@
-using System;
-using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using CodexSwitcher.Core.Routing.Models;
 
 namespace CodexSwitcher.Core.Providers.Models;
 
 public enum ModelDiscoverySource
 {
     CatalogKnown = 0,
-    Endpoint = 1,
+    Discovered = 1,
     Manual = 2,
+    Mixed = 3,
+}
+
+public enum ModelAvailability
+{
+    Unknown = 0,
+    Reported = 1,
+    NotReported = 2,
 }
 
 public enum ModelDiscoveryStatus
@@ -27,9 +38,12 @@ public sealed class ApiProviderModelItem
     public string? DisplayName { get; set; }
     public bool Enabled { get; set; } = true;
     public ModelDiscoverySource DiscoverySource { get; set; } = ModelDiscoverySource.CatalogKnown;
+    public ModelAvailability Availability { get; set; } = ModelAvailability.Unknown;
+    public DateTimeOffset? LastSeenAt { get; set; }
     public long? ContextWindow { get; set; }
     public string? ContextEvidence { get; set; }
     public ModelCapabilities? Capabilities { get; set; }
+    public CodexModelOverrides? UserOverrides { get; set; }
 }
 
 /// <summary>
@@ -50,5 +64,96 @@ public sealed class ApiProviderModelInventory
     public IEnumerable<ApiProviderModelItem> GetEnabledModels()
     {
         return Models.FindAll(m => m.Enabled);
+    }
+
+    /// <summary>
+    /// Ensures that the profile's active or selected model exists as an enabled item in the inventory.
+    /// Performs backward-compatible migration for existing profiles that lack an explicit inventory.
+    /// </summary>
+    public void EnsureSelectedModelMigrated(
+        string? selectedModel,
+        string? nickname = null,
+        long? contextWindow = null,
+        CodexModelOverrides? overrides = null)
+    {
+        if (string.IsNullOrWhiteSpace(selectedModel)) return;
+
+        SelectedModel ??= selectedModel;
+
+        var existing = Models.FirstOrDefault(m => string.Equals(m.Slug, selectedModel, StringComparison.OrdinalIgnoreCase));
+        if (existing == null)
+        {
+            Models.Insert(0, new ApiProviderModelItem
+            {
+                Slug = selectedModel,
+                DisplayName = nickname ?? selectedModel,
+                Enabled = true,
+                DiscoverySource = ModelDiscoverySource.Manual,
+                Availability = ModelAvailability.Reported,
+                ContextWindow = contextWindow,
+                UserOverrides = overrides != null ? new CodexModelOverrides
+                {
+                    ContextWindowTokens = overrides.ContextWindowTokens,
+                    ReasoningEffort = overrides.ReasoningEffort,
+                    Verbosity = overrides.Verbosity,
+                } : null,
+                LastSeenAt = DateTimeOffset.UtcNow
+            });
+        }
+        else
+        {
+            existing.Enabled = true;
+            if (existing.ContextWindow == null && contextWindow.HasValue)
+            {
+                existing.ContextWindow = contextWindow;
+            }
+            if (existing.UserOverrides == null && overrides != null)
+            {
+                existing.UserOverrides = new CodexModelOverrides
+                {
+                    ContextWindowTokens = overrides.ContextWindowTokens,
+                    ReasoningEffort = overrides.ReasoningEffort,
+                    Verbosity = overrides.Verbosity,
+                };
+            }
+        }
+    }
+
+    /// <summary>
+    /// Computes a deterministic 16-character SHA-256 fingerprint representing the current set of enabled models
+    /// and their effective overrides. Used as an immutable path segment in profile model catalogs.
+    /// </summary>
+    public string ComputeInventoryHash()
+    {
+        var sorted = Models
+            .Where(m => m.Enabled)
+            .OrderBy(m => m.Slug, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (sorted.Count == 0 && !string.IsNullOrWhiteSpace(SelectedModel))
+        {
+            var bytes = Encoding.UTF8.GetBytes(SelectedModel.Trim().ToLowerInvariant());
+            return Convert.ToHexString(SHA256.HashData(bytes))[..16].ToLowerInvariant();
+        }
+
+        var sb = new StringBuilder();
+        foreach (var m in sorted)
+        {
+            sb.Append(m.Slug).Append('|')
+              .Append(m.DisplayName ?? string.Empty).Append('|')
+              .Append(m.ContextWindow?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append('|')
+              .Append(m.UserOverrides?.ContextWindowTokens?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append('|')
+              .Append(m.UserOverrides?.ReasoningEffort.ToString() ?? string.Empty).Append('|')
+              .Append(m.UserOverrides?.Verbosity.ToString() ?? string.Empty).Append(';');
+        }
+
+        var raw = sb.ToString();
+        if (string.IsNullOrEmpty(raw))
+        {
+            return "empty";
+        }
+
+        var hashBytes = Encoding.UTF8.GetBytes(raw);
+        return Convert.ToHexString(SHA256.HashData(hashBytes))[..16].ToLowerInvariant();
     }
 }

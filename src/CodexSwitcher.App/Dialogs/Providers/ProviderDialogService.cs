@@ -149,35 +149,73 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             Margin = new Thickness(0, 2, 0, 2),
         };
 
-        var discoverProgress = new ProgressRing
+        var actionsPanel = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+            },
+            ColumnSpacing = 8,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+
+        var refreshProgress = new ProgressRing
         {
             IsActive = false,
             Visibility = Visibility.Collapsed,
-            Width = 16,
-            Height = 16,
-            Margin = new Thickness(0, 0, 8, 0),
+            Width = 14,
+            Height = 14,
+            Margin = new Thickness(0, 0, 6, 0),
         };
-
-        var discoverButtonText = new TextBlock
+        var refreshButtonText = new TextBlock
         {
-            Text = "Discover Models & Test Codex Compatibility",
-            FontSize = 12,
+            Text = _loc.RefreshModels,
+            FontSize = 11,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         };
-
-        var discoverButtonContent = new StackPanel
+        var refreshButton = new Button
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { discoverProgress, discoverButtonText }
-        };
-
-        var discoverButton = new Button
-        {
-            Content = discoverButtonContent,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { refreshProgress, refreshButtonText }
+            },
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 2, 0, 2),
         };
+        ToolTipService.SetToolTip(refreshButton, _loc.ReadOnlyDiscoveryNote);
+        Grid.SetColumn(refreshButton, 0);
+
+        var probeProgress = new ProgressRing
+        {
+            IsActive = false,
+            Visibility = Visibility.Collapsed,
+            Width = 14,
+            Height = 14,
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        var probeButtonText = new TextBlock
+        {
+            Text = _loc.CheckCodexCompatibility,
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+        var probeButton = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { probeProgress, probeButtonText }
+            },
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        ToolTipService.SetToolTip(probeButton, _loc.InferenceProbeNote);
+        Grid.SetColumn(probeButton, 1);
+
+        actionsPanel.Children.Add(refreshButton);
+        actionsPanel.Children.Add(probeButton);
 
         var modelCombo = new ComboBox
         {
@@ -273,7 +311,80 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         ProviderProbeReport? probedReport = null;
         List<string>? discoveredModelsList = null;
 
-        discoverButton.Click += async (_, _) =>
+        refreshButton.Click += async (_, _) =>
+        {
+            var url = baseUrlBox.Text?.Trim();
+            var key = passwordBox.Password?.Trim();
+
+            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Base URL Required";
+                compatibilityInfoBar.Message = "Please specify a valid absolute Base URL before refreshing models.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            refreshButton.IsEnabled = false;
+            refreshProgress.Visibility = Visibility.Visible;
+            refreshProgress.IsActive = true;
+            refreshButtonText.Text = _loc.RefreshingModels;
+            compatibilityInfoBar.IsOpen = false;
+
+            try
+            {
+                if (_probeService != null)
+                {
+                    var (evidence, modelIds) = await _probeService.DiscoverModelsOnlyAsync(url, key ?? string.Empty);
+                    if (modelIds.Count > 0)
+                    {
+                        discoveredModelsList = modelIds;
+                        var prevModel = GetSelectedModelString();
+                        modelCombo.Items.Clear();
+                        foreach (var m in modelIds)
+                        {
+                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
+                        }
+                        if (!string.IsNullOrWhiteSpace(prevModel))
+                        {
+                            modelCombo.Text = prevModel;
+                        }
+                        else
+                        {
+                            modelCombo.SelectedIndex = 0;
+                        }
+
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+                        compatibilityInfoBar.Title = "Models Refreshed";
+                        compatibilityInfoBar.Message = $"{modelIds.Count} models discovered from provider endpoint (read-only, no quota consumed).";
+                        compatibilityInfoBar.IsOpen = true;
+                    }
+                    else
+                    {
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                        compatibilityInfoBar.Title = "No Models Discovered";
+                        compatibilityInfoBar.Message = evidence.Detail ?? "Provider returned empty model catalog.";
+                        compatibilityInfoBar.IsOpen = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Refresh Failed";
+                compatibilityInfoBar.Message = ex.Message;
+                compatibilityInfoBar.IsOpen = true;
+            }
+            finally
+            {
+                refreshButton.IsEnabled = true;
+                refreshProgress.Visibility = Visibility.Collapsed;
+                refreshProgress.IsActive = false;
+                refreshButtonText.Text = _loc.RefreshModels;
+            }
+        };
+
+        probeButton.Click += async (_, _) =>
         {
             var url = baseUrlBox.Text?.Trim();
             var key = passwordBox.Password?.Trim();
@@ -298,10 +409,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            discoverButton.IsEnabled = false;
-            discoverProgress.Visibility = Visibility.Visible;
-            discoverProgress.IsActive = true;
-            discoverButtonText.Text = "Probing Codex compatibility...";
+            probeButton.IsEnabled = false;
+            probeProgress.Visibility = Visibility.Visible;
+            probeProgress.IsActive = true;
+            probeButtonText.Text = _loc.CheckingCompatibility;
             compatibilityInfoBar.IsOpen = false;
 
             try
@@ -373,10 +484,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             }
             finally
             {
-                discoverButton.IsEnabled = true;
-                discoverProgress.Visibility = Visibility.Collapsed;
-                discoverProgress.IsActive = false;
-                discoverButtonText.Text = "Discover Models & Test Codex Compatibility";
+                probeButton.IsEnabled = true;
+                probeProgress.Visibility = Visibility.Collapsed;
+                probeProgress.IsActive = false;
+                probeButtonText.Text = _loc.CheckCodexCompatibility;
             }
         };
 
@@ -386,7 +497,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(passwordBox);
-        panel.Children.Add(discoverButton);
+        panel.Children.Add(actionsPanel);
         panel.Children.Add(compatibilityInfoBar);
         panel.Children.Add(modelCombo);
 
@@ -638,35 +749,73 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             compatibilityInfoBar.Message = profile.LastProbeReport?.DiagnosticSummary ?? "Previously qualified";
         }
 
-        var discoverProgress = new ProgressRing
+        var actionsPanel = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+            },
+            ColumnSpacing = 8,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+
+        var refreshProgress = new ProgressRing
         {
             IsActive = false,
             Visibility = Visibility.Collapsed,
-            Width = 16,
-            Height = 16,
-            Margin = new Thickness(0, 0, 8, 0),
+            Width = 14,
+            Height = 14,
+            Margin = new Thickness(0, 0, 6, 0),
         };
-
-        var discoverButtonText = new TextBlock
+        var refreshButtonText = new TextBlock
         {
-            Text = "Test Compatibility & Discover Models",
-            FontSize = 12,
+            Text = _loc.RefreshModels,
+            FontSize = 11,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         };
-
-        var discoverButtonContent = new StackPanel
+        var refreshButton = new Button
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { discoverProgress, discoverButtonText }
-        };
-
-        var discoverButton = new Button
-        {
-            Content = discoverButtonContent,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { refreshProgress, refreshButtonText }
+            },
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 2, 0, 2),
         };
+        ToolTipService.SetToolTip(refreshButton, _loc.ReadOnlyDiscoveryNote);
+        Grid.SetColumn(refreshButton, 0);
+
+        var probeProgress = new ProgressRing
+        {
+            IsActive = false,
+            Visibility = Visibility.Collapsed,
+            Width = 14,
+            Height = 14,
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        var probeButtonText = new TextBlock
+        {
+            Text = _loc.CheckCodexCompatibility,
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+        var probeButton = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { probeProgress, probeButtonText }
+            },
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        ToolTipService.SetToolTip(probeButton, _loc.InferenceProbeNote);
+        Grid.SetColumn(probeButton, 1);
+
+        actionsPanel.Children.Add(refreshButton);
+        actionsPanel.Children.Add(probeButton);
 
         var modelCombo = new ComboBox
         {
@@ -704,7 +853,81 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         ProviderProbeReport? probedReport = profile.LastProbeReport;
         List<string>? discoveredModelsList = profile.DiscoveredModels;
 
-        discoverButton.Click += async (_, _) =>
+        refreshButton.Click += async (_, _) =>
+        {
+            var url = baseUrlBox.Text?.Trim();
+            var enteredKey = passwordBox.Password?.Trim();
+            var key = !string.IsNullOrWhiteSpace(enteredKey) ? enteredKey : (_secretStore != null ? _secretStore.GetApiKey(profile.EndpointId ?? profile.Id) : null);
+
+            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Base URL Required";
+                compatibilityInfoBar.Message = "Please specify a valid absolute Base URL before refreshing models.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            refreshButton.IsEnabled = false;
+            refreshProgress.Visibility = Visibility.Visible;
+            refreshProgress.IsActive = true;
+            refreshButtonText.Text = _loc.RefreshingModels;
+            compatibilityInfoBar.IsOpen = false;
+
+            try
+            {
+                if (_probeService != null)
+                {
+                    var (evidence, modelIds) = await _probeService.DiscoverModelsOnlyAsync(url, key ?? string.Empty);
+                    if (modelIds.Count > 0)
+                    {
+                        discoveredModelsList = modelIds;
+                        var prevModel = GetSelectedModelString();
+                        modelCombo.Items.Clear();
+                        foreach (var m in modelIds)
+                        {
+                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
+                        }
+                        if (!string.IsNullOrWhiteSpace(prevModel))
+                        {
+                            modelCombo.Text = prevModel;
+                        }
+                        else
+                        {
+                            modelCombo.SelectedIndex = 0;
+                        }
+
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+                        compatibilityInfoBar.Title = "Models Refreshed";
+                        compatibilityInfoBar.Message = $"{modelIds.Count} models discovered from provider endpoint (read-only, no quota consumed).";
+                        compatibilityInfoBar.IsOpen = true;
+                    }
+                    else
+                    {
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                        compatibilityInfoBar.Title = "No Models Discovered";
+                        compatibilityInfoBar.Message = evidence.Detail ?? "Provider returned empty model catalog.";
+                        compatibilityInfoBar.IsOpen = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Refresh Failed";
+                compatibilityInfoBar.Message = ex.Message;
+                compatibilityInfoBar.IsOpen = true;
+            }
+            finally
+            {
+                refreshButton.IsEnabled = true;
+                refreshProgress.Visibility = Visibility.Collapsed;
+                refreshProgress.IsActive = false;
+                refreshButtonText.Text = _loc.RefreshModels;
+            }
+        };
+
+        probeButton.Click += async (_, _) =>
         {
             var url = baseUrlBox.Text?.Trim();
             var enteredKey = passwordBox.Password?.Trim();
@@ -730,10 +953,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
-            discoverButton.IsEnabled = false;
-            discoverProgress.Visibility = Visibility.Visible;
-            discoverProgress.IsActive = true;
-            discoverButtonText.Text = "Probing Codex compatibility...";
+            probeButton.IsEnabled = false;
+            probeProgress.Visibility = Visibility.Visible;
+            probeProgress.IsActive = true;
+            probeButtonText.Text = _loc.CheckingCompatibility;
             compatibilityInfoBar.IsOpen = false;
 
             try
@@ -805,10 +1028,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             }
             finally
             {
-                discoverButton.IsEnabled = true;
-                discoverProgress.Visibility = Visibility.Collapsed;
-                discoverProgress.IsActive = false;
-                discoverButtonText.Text = "Test Compatibility & Discover Models";
+                probeButton.IsEnabled = true;
+                probeProgress.Visibility = Visibility.Collapsed;
+                probeProgress.IsActive = false;
+                probeButtonText.Text = _loc.CheckCodexCompatibility;
             }
         };
 
@@ -817,7 +1040,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(passwordBox);
-        panel.Children.Add(discoverButton);
+        panel.Children.Add(actionsPanel);
         panel.Children.Add(compatibilityInfoBar);
         panel.Children.Add(modelCombo);
 

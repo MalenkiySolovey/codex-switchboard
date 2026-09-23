@@ -384,6 +384,7 @@ public sealed class Strings
     // Phase 5.7: Reset credits & Subscription tracking
     public string ResetCreditsHeader => S("Créditos de reinício de cota", "Rate limit reset credits");
     public string ResetCreditsNone => S("Nenhum detalhe adicional informado pelo runtime", "No additional details reported by runtime");
+    public string ResetCreditsExpirationUnavailable => S("Detalhes de expiração indisponíveis", "Expiration details unavailable");
     public string ResetCreditsUnreported(int count) => S(
         $"+ {count} crédito(s) adicional(is) não detalhado(s) pelo servidor",
         $"+ {count} additional credit(s) not detailed by server");
@@ -515,6 +516,12 @@ public sealed class Strings
     public string UnknownValue => S("Desconhecido", "Unknown");
     public string DiscoverModels => S("Descobrir modelos", "Discover models");
     public string DiscoveringModels => S("Descobrindo modelos…", "Discovering models…");
+    public string RefreshModels => S("Atualizar modelos", "Refresh models");
+    public string RefreshingModels => S("Atualizando modelos…", "Refreshing models…");
+    public string CheckCodexCompatibility => S("Verificar compatibilidade com Codex", "Check Codex compatibility");
+    public string CheckingCompatibility => S("Verificando compatibilidade…", "Checking compatibility…");
+    public string ReadOnlyDiscoveryNote => S("Consulta somente leitura via GET /models. Não consome cota.", "Read-only query via GET /models. Does not consume quota.");
+    public string InferenceProbeNote => S("Executa teste de inferência para verificar compatibilidade. Pode consumir cota de API.", "Runs inference test to verify compatibility. May consume API quota.");
     public string ProviderDialogTitle => S("Adicionar Provedor de API", "Add API Provider");
     public string EditProviderDialogTitle => S("Editar Provedor de API", "Edit API Provider");
     public string RotateKeyDialogTitle => S("Substituir Chave de API", "Replace API Key");

@@ -249,6 +249,15 @@ public sealed class ProviderCompatibilityProbeService : IProviderCompatibilityPr
         }
     }
 
+    public Task<(CapabilityEvidence Evidence, List<string> ModelIds)> DiscoverModelsOnlyAsync(
+        string baseUrl,
+        string apiKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
+        var cleanBaseUrl = baseUrl.TrimEnd('/');
+        return ProbeModelsAsync(cleanBaseUrl, apiKey, cancellationToken);
+    }
 
     private async Task<(CapabilityEvidence Evidence, List<string> ModelIds)> ProbeModelsAsync(string baseUrl, string apiKey, CancellationToken ct)
     {

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Xunit;
@@ -76,5 +78,47 @@ public sealed class CatalogSecurityAndSignatureTests
 
         var verified = CatalogSignatureVerifier.VerifySignatureWithPublicKey(catalogBytes, sigBytes, foreignPubBase64);
         Assert.False(verified, "Official signature must not verify with an arbitrary foreign key.");
+    }
+
+    [Fact]
+    public void OfficialCatalog_ModelflareEntry_IncludesDevHosts_AndValidatesSignature()
+    {
+        var catalogPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "catalog", "providers.catalog.json");
+        var sigPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "catalog", "providers.catalog.sig");
+
+        Assert.True(File.Exists(catalogPath));
+        Assert.True(File.Exists(sigPath));
+
+        var catalogBytes = File.ReadAllBytes(catalogPath);
+        var sigBase64 = File.ReadAllText(sigPath).Trim();
+
+        Assert.True(CatalogSignatureVerifier.VerifyOfficialSignature(catalogBytes, sigBase64));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(catalogBytes);
+        var root = doc.RootElement;
+        Assert.True(root.TryGetProperty("providers", out var providersProp));
+
+        System.Text.Json.JsonElement? modelflare = null;
+        foreach (var p in providersProp.EnumerateArray())
+        {
+            if (p.TryGetProperty("id", out var id) && id.GetString() == "modelflare")
+            {
+                modelflare = p;
+                break;
+            }
+        }
+
+        Assert.NotNull(modelflare);
+        var mf = modelflare.Value;
+
+        var exactHosts = mf.GetProperty("match").GetProperty("exactHosts").EnumerateArray().Select(x => x.GetString()).ToList();
+        var trustedHosts = mf.GetProperty("trustedHosts").EnumerateArray().Select(x => x.GetString()).ToList();
+        var aliases = mf.GetProperty("aliases").EnumerateArray().Select(x => x.GetString()).ToList();
+
+        Assert.Contains("modelflare.dev", exactHosts);
+        Assert.Contains("api.modelflare.dev", exactHosts);
+        Assert.Contains("modelflare.dev", trustedHosts);
+        Assert.Contains("api.modelflare.dev", trustedHosts);
+        Assert.Contains("modelflare.dev", aliases);
     }
 }

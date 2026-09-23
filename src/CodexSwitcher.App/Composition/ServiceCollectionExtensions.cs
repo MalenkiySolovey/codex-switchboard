@@ -296,12 +296,14 @@ public static class ServiceCollectionExtensions
             paths.Codex));
 
         services.AddSingleton<CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver, CodexSwitcher.Core.Providers.Services.CodexModelMetadataResolver>();
+        services.AddSingleton<CodexSwitcher.Core.Providers.Contracts.IEffectiveModelDescriptorResolver, CodexSwitcher.Core.Providers.Services.EffectiveModelDescriptorResolver>();
 
         services.AddSingleton<ICodexModelCatalogService>(sp => new CodexModelCatalogService(
             sp.GetRequiredService<IFileSystem>(),
             paths,
             runtimeResolver: sp.GetRequiredService<ICodexRuntimeResolver>(),
-            metadataResolver: sp.GetRequiredService<CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver>()));
+            metadataResolver: sp.GetRequiredService<CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver>(),
+            descriptorResolver: sp.GetRequiredService<CodexSwitcher.Core.Providers.Contracts.IEffectiveModelDescriptorResolver>()));
 
         services.AddSingleton<ISwitchTransactionExecutor>(sp => new SwitchTransactionExecutor(
             sp.GetRequiredService<SwitchService>(),

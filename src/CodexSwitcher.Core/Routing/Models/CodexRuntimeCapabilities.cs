@@ -41,7 +41,9 @@ public sealed record CodexRuntimeCapabilities(
     CapabilityStatus AccountRead = CapabilityStatus.Supported,
     CapabilityStatus RateLimitsRead = CapabilityStatus.Supported,
     CapabilityStatus AccountUsageRead = CapabilityStatus.Unknown,
-    CapabilityStatus RateLimitNotifications = CapabilityStatus.Unknown)
+    CapabilityStatus RateLimitNotifications = CapabilityStatus.Unknown,
+    CapabilityStatus DetailedResetCredits = CapabilityStatus.Unknown,
+    CapabilityStatus RateLimitsModernParams = CapabilityStatus.Unknown)
 {
     /// <summary>
     /// Returns true if the runtime supports the mandatory RPCs required for rate-limit quota monitoring.
@@ -68,7 +70,9 @@ public sealed record CodexRuntimeCapabilities(
         AccountRead: CapabilityStatus.Supported,
         RateLimitsRead: CapabilityStatus.Supported,
         AccountUsageRead: CapabilityStatus.Unsupported,
-        RateLimitNotifications: CapabilityStatus.Unsupported);
+        RateLimitNotifications: CapabilityStatus.Unsupported,
+        DetailedResetCredits: CapabilityStatus.Unsupported,
+        RateLimitsModernParams: CapabilityStatus.Unsupported);
 
     /// <summary>
     /// Capabilities for modern runtimes known to support account/usage/read (e.g. >= 0.147.0 / 0.153.4).
@@ -77,5 +81,7 @@ public sealed record CodexRuntimeCapabilities(
         AccountRead: CapabilityStatus.Supported,
         RateLimitsRead: CapabilityStatus.Supported,
         AccountUsageRead: CapabilityStatus.Supported,
-        RateLimitNotifications: CapabilityStatus.Supported);
+        RateLimitNotifications: CapabilityStatus.Supported,
+        DetailedResetCredits: CapabilityStatus.Supported,
+        RateLimitsModernParams: CapabilityStatus.Supported);
 }

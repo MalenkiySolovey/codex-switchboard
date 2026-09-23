@@ -32,6 +32,7 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
     private readonly AppPaths _paths;
     private readonly ICodexRuntimeResolver? _runtimeResolver;
     private readonly ICodexModelMetadataResolver _metadataResolver;
+    private readonly IEffectiveModelDescriptorResolver _descriptorResolver;
     private readonly Action<string, string>? _customValidator;
     private readonly object _sync = new();
 
@@ -47,7 +48,17 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
     };
 
     public CodexModelCatalogService(IFileSystem fs, AppPaths paths)
-        : this(fs, paths, null, null, null)
+        : this(fs, paths, null, null, null, null)
+    {
+    }
+
+    public CodexModelCatalogService(
+        IFileSystem fs,
+        AppPaths paths,
+        ICodexRuntimeResolver? runtimeResolver,
+        ICodexModelMetadataResolver? metadataResolver,
+        Action<string, string>? customValidator)
+        : this(fs, paths, runtimeResolver, metadataResolver, customValidator, null)
     {
     }
 
@@ -56,13 +67,15 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
         AppPaths paths,
         ICodexRuntimeResolver? runtimeResolver = null,
         ICodexModelMetadataResolver? metadataResolver = null,
-        Action<string, string>? customValidator = null)
+        Action<string, string>? customValidator = null,
+        IEffectiveModelDescriptorResolver? descriptorResolver = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _runtimeResolver = runtimeResolver;
         _metadataResolver = metadataResolver ?? new CodexModelMetadataResolver();
         _customValidator = customValidator;
+        _descriptorResolver = descriptorResolver ?? new EffectiveModelDescriptorResolver(_metadataResolver);
     }
 
     public string? EnsureModelCatalog(string modelSlug, long? contextWindowTokens) =>
@@ -211,67 +224,63 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                 _cachedRuntimeKey = runtimeKey;
             }
 
-            var profileDir = Path.Combine(_paths.CatalogsDir, profile.Id.ToString("D"), runtimeFingerprint);
+            profile.ModelInventory ??= new ApiProviderModelInventory();
+            profile.ModelInventory.EnsureSelectedModelMigrated(slug, profile.Nickname, effectiveContext, effectiveOverrides);
+
+            var inventoryHash = profile.ModelInventory.ComputeInventoryHash();
+            var profileDir = Path.Combine(_paths.CatalogsDir, profile.Id.ToString("D"), runtimeFingerprint, inventoryHash);
             if (!_fs.DirectoryExists(profileDir))
             {
                 _fs.CreateDirectory(profileDir);
             }
 
             var catalogPath = Path.Combine(profileDir, "models.json");
-            var isLegacy = IsLegacyRuntime(runtimeInfo?.Version);
+            var cacheKey = $"profile:{profile.Id}:{runtimeFingerprint}:{inventoryHash}";
 
-            var modelsToInclude = new List<(string Slug, string? DisplayName, long TargetContext, long MaxContext)>();
-
-            if (profile.ModelInventory != null && profile.ModelInventory.Models.Count > 0)
+            if (_catalogCache.TryGetValue(cacheKey, out var cached) && _fs.FileExists(cached.Path))
             {
-                var enabledModels = new List<ApiProviderModelItem>(profile.ModelInventory.GetEnabledModels());
-                if (enabledModels.Count == 0)
-                {
-                    enabledModels.Add(new ApiProviderModelItem { Slug = slug, Enabled = true });
-                }
-
-                foreach (var item in enabledModels)
-                {
-                    var reqContext = item.ContextWindow ?? effectiveContext ?? FallbackContextCeiling;
-                    var fact = _metadataResolver.ResolveLimitFact(item.Slug);
-                    var maxCtx = fact.IsKnown && fact.DocumentedMaxContext.HasValue
-                        ? fact.DocumentedMaxContext.Value
-                        : Math.Max(reqContext, FallbackContextCeiling);
-                    var targetCtx = Math.Min(reqContext, maxCtx);
-
-                    modelsToInclude.Add((item.Slug, item.DisplayName, targetCtx, maxCtx));
-                }
+                return cached.Path;
             }
-            else
-            {
-                var reqContext = effectiveContext ?? FallbackContextCeiling;
-                var fact = _metadataResolver.ResolveLimitFact(slug);
-                var maxCtx = fact.IsKnown && fact.DocumentedMaxContext.HasValue
-                    ? fact.DocumentedMaxContext.Value
-                    : Math.Max(reqContext, FallbackContextCeiling);
-                var targetCtx = Math.Min(reqContext, maxCtx);
 
-                modelsToInclude.Add((slug, profile.Nickname, targetCtx, maxCtx));
+            var isLegacy = IsLegacyRuntime(runtimeInfo?.Version);
+            var enabledModels = new List<ApiProviderModelItem>(profile.ModelInventory.GetEnabledModels());
+            if (enabledModels.Count == 0)
+            {
+                enabledModels.Add(new ApiProviderModelItem
+                {
+                    Slug = slug,
+                    DisplayName = profile.Nickname ?? slug,
+                    Enabled = true,
+                    ContextWindow = effectiveContext,
+                    UserOverrides = effectiveOverrides
+                });
+            }
+
+            var effectiveToolPolicy = toolPolicy ?? EffectiveToolPolicy.Resolve(profile);
+            var entries = new List<Dictionary<string, object?>>();
+
+            foreach (var m in enabledModels)
+            {
+                var isSelected = string.Equals(m.Slug, slug, StringComparison.OrdinalIgnoreCase);
+                var descriptor = _descriptorResolver.ResolveDescriptor(
+                    m,
+                    profile,
+                    catalogDescriptor: null,
+                    toolPolicy: effectiveToolPolicy,
+                    isLegacyRuntime: isLegacy,
+                    isSelectedModel: isSelected);
+
+                entries.Add(_descriptorResolver.BuildCatalogEntry(descriptor, isLegacyRuntime: isLegacy));
             }
 
             string catalogJson;
             if (isLegacy)
             {
-                var legacyEntries = new List<Dictionary<string, object?>>();
-                foreach (var m in modelsToInclude)
-                {
-                    legacyEntries.Add(CreateLegacyModelEntry(m.Slug, m.DisplayName, m.TargetContext, m.MaxContext));
-                }
-                catalogJson = JsonSerializer.Serialize(legacyEntries, JsonOptions);
+                catalogJson = JsonSerializer.Serialize(entries, JsonOptions);
             }
             else
             {
-                var modernEntries = new List<Dictionary<string, object?>>();
-                foreach (var m in modelsToInclude)
-                {
-                    modernEntries.Add(CreateModernModelEntry(m.Slug, m.DisplayName, m.TargetContext, m.MaxContext, effectiveOverrides, toolPolicy));
-                }
-                var payload = new Dictionary<string, object> { ["models"] = modernEntries };
+                var payload = new Dictionary<string, object> { ["models"] = entries };
                 catalogJson = JsonSerializer.Serialize(payload, JsonOptions);
             }
 
@@ -288,37 +297,34 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
             }
 
             var contentHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(catalogJson)));
-            _catalogCache[$"profile:{profile.Id}:{slug}"] = (effectiveContext ?? FallbackContextCeiling, catalogPath, contentHash);
+            _catalogCache[cacheKey] = (effectiveContext ?? FallbackContextCeiling, catalogPath, contentHash);
             return catalogPath;
         }
     }
 
-    private static Dictionary<string, object?> CreateLegacyModelEntry(
+    private Dictionary<string, object?> CreateLegacyModelEntry(
         string slug,
         string? displayName,
         long targetContext,
         long maxContext)
     {
-        return new Dictionary<string, object?>
-        {
-            ["slug"] = slug,
-            ["display_name"] = displayName ?? slug,
-            ["description"] = "Switchboard-managed model configuration",
-            ["context_window"] = targetContext,
-            ["max_context_window"] = maxContext,
-            ["supported_reasoning_levels"] = new[] { "none", "low", "medium", "high", "xhigh" },
-            ["default_reasoning_level"] = "none",
-            ["shell_type"] = "generic",
-            ["visibility"] = "visible",
-            ["supported_in_api"] = true,
-            ["priority"] = 1,
-            ["supports_streaming"] = true,
-            ["supports_tools"] = true,
-            ["supports_images"] = true
-        };
+        var desc = new EffectiveModelDescriptor(
+            Slug: slug,
+            DisplayName: displayName ?? slug,
+            ContextWindow: targetContext,
+            MaxContextWindow: maxContext,
+            ReasoningEffort: CodexReasoningEffort.Default,
+            Verbosity: CodexVerbosity.Default,
+            AllowFreeformApplyPatch: true,
+            AllowToolSearch: true,
+            AllowHostedWebSearch: true,
+            SupportsImages: true,
+            SupportsStreaming: true,
+            Priority: 1);
+        return _descriptorResolver.BuildCatalogEntry(desc, isLegacyRuntime: true);
     }
 
-    private static Dictionary<string, object?> CreateModernModelEntry(
+    private Dictionary<string, object?> CreateModernModelEntry(
         string slug,
         string? displayName,
         long targetContext,
@@ -326,59 +332,20 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
         CodexModelOverrides? modelOverrides,
         EffectiveToolPolicy? toolPolicy)
     {
-        var defaultReasoning = modelOverrides?.ReasoningEffort switch
-        {
-            CodexReasoningEffort.None => "none",
-            CodexReasoningEffort.Minimal => "low",
-            CodexReasoningEffort.Low => "low",
-            CodexReasoningEffort.Medium => "medium",
-            CodexReasoningEffort.High => "high",
-            CodexReasoningEffort.XHigh => "xhigh",
-            _ => "none"
-        };
-        var supportVerbosity = modelOverrides?.Verbosity is not null and not CodexVerbosity.Default;
-
-        var modernEntry = new Dictionary<string, object?>
-        {
-            ["slug"] = slug,
-            ["display_name"] = displayName ?? slug,
-            ["description"] = "Switchboard-managed model configuration",
-            ["default_reasoning_level"] = defaultReasoning,
-            ["supported_reasoning_levels"] = new object[]
-            {
-                new Dictionary<string, string> { ["effort"] = "none", ["description"] = "No reasoning effort" },
-                new Dictionary<string, string> { ["effort"] = "low", ["description"] = "Fast responses with lighter reasoning" },
-                new Dictionary<string, string> { ["effort"] = "medium", ["description"] = "Balances speed and reasoning depth" },
-                new Dictionary<string, string> { ["effort"] = "high", ["description"] = "Greater reasoning depth for complex problems" },
-                new Dictionary<string, string> { ["effort"] = "xhigh", ["description"] = "Extra high reasoning depth" }
-            },
-            ["shell_type"] = "unified_exec",
-            ["visibility"] = "list",
-            ["supported_in_api"] = true,
-            ["priority"] = 1,
-            ["context_window"] = targetContext,
-            ["max_context_window"] = maxContext,
-            ["support_verbosity"] = supportVerbosity,
-            ["default_verbosity"] = "low",
-            ["supports_reasoning_summaries"] = true,
-            ["default_reasoning_summary"] = "none",
-            ["web_search_tool_type"] = "text_and_image",
-            ["truncation_policy"] = new Dictionary<string, object> { ["mode"] = "tokens", ["limit"] = 10000 },
-            ["supports_parallel_tool_calls"] = true,
-            ["supports_image_detail_original"] = true,
-            ["supports_search_tool"] = toolPolicy == null || toolPolicy.AllowToolSearch,
-            ["input_modalities"] = new[] { "text", "image" },
-            ["effective_context_window_percent"] = 95,
-            ["experimental_supported_tools"] = Array.Empty<string>(),
-            ["base_instructions"] = "You are a helpful AI assistant."
-        };
-
-        if (toolPolicy == null || toolPolicy.AllowCustomFreeformApplyPatch)
-        {
-            modernEntry["apply_patch_tool_type"] = "freeform";
-        }
-
-        return modernEntry;
+        var desc = new EffectiveModelDescriptor(
+            Slug: slug,
+            DisplayName: displayName ?? slug,
+            ContextWindow: targetContext,
+            MaxContextWindow: maxContext,
+            ReasoningEffort: modelOverrides?.ReasoningEffort ?? CodexReasoningEffort.Default,
+            Verbosity: modelOverrides?.Verbosity ?? CodexVerbosity.Default,
+            AllowFreeformApplyPatch: toolPolicy == null || toolPolicy.AllowCustomFreeformApplyPatch,
+            AllowToolSearch: toolPolicy == null || toolPolicy.AllowToolSearch,
+            AllowHostedWebSearch: toolPolicy == null || toolPolicy.AllowHostedWebSearch,
+            SupportsImages: true,
+            SupportsStreaming: true,
+            Priority: 1);
+        return _descriptorResolver.BuildCatalogEntry(desc, isLegacyRuntime: false);
     }
 
     public sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError, bool TimedOut);
