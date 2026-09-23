@@ -74,7 +74,11 @@ public sealed class ProviderInspectionService : IProviderInspectionService
             };
         }
 
-        string? apiKey = _secretStore.GetApiKey(providerProfileId);
+        // Endpoint-bound credentials are intentionally shared by model
+        // profiles. Reading by profile ID caused card discovery to emit a
+        // false 401 while the edit dialog used the correct endpoint ID.
+        var secretOwnerId = profile.EndpointId ?? profile.Id;
+        string? apiKey = _secretStore.GetApiKey(secretOwnerId);
         var descriptor = !string.IsNullOrWhiteSpace(profile.CatalogProviderId)
             ? _catalogService.GetDescriptor(profile.CatalogProviderId)
             : null;
@@ -115,6 +119,72 @@ public sealed class ProviderInspectionService : IProviderInspectionService
         }
 
         return snapshot;
+    }
+
+    /// <inheritdoc />
+    public async Task<ApiProviderSnapshot> DiscoverModelsAsync(Guid providerProfileId, CancellationToken cancellationToken = default)
+    {
+        var profile = _apiProviderStore.GetById(providerProfileId);
+        if (profile is null)
+        {
+            return new ApiProviderSnapshot
+            {
+                ConnectionStatus = HealthStatus.Error,
+                Error = "Provider profile not found.",
+                LastCheckedAt = DateTimeOffset.UtcNow,
+            };
+        }
+
+        var secretOwnerId = profile.EndpointId ?? profile.Id;
+        var apiKey = _secretStore.GetApiKey(secretOwnerId);
+        var descriptor = !string.IsNullOrWhiteSpace(profile.CatalogProviderId)
+            ? _catalogService.GetDescriptor(profile.CatalogProviderId)
+            : null;
+        var routeKey = !string.IsNullOrWhiteSpace(profile.SelectedRouteId)
+            ? profile.SelectedRouteId
+            : profile.BaseUrl;
+
+        try
+        {
+            ApiProviderSnapshot snapshot;
+            if (descriptor is not null)
+            {
+                snapshot = await _inspector.DiscoverModelsAsync(
+                    descriptor,
+                    profile.BaseUrl,
+                    apiKey,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // The generic inspector is itself restricted to GET /models
+                // and never guesses balance, usage, or inference endpoints.
+                snapshot = await _inspector.InspectGenericUnknownAsync(
+                    profile.BaseUrl,
+                    apiKey,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (snapshot.Models.Count > 0 && _modelCache is not null)
+            {
+                _modelCache.SetModels(profile.Id, routeKey, 1, snapshot.Models);
+            }
+
+            return snapshot;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ApiProviderSnapshot
+            {
+                ConnectionStatus = HealthStatus.Error,
+                Error = SanitizeMessage(ex.Message),
+                LastCheckedAt = DateTimeOffset.UtcNow,
+            };
+        }
     }
 
     private static string SanitizeMessage(string message)

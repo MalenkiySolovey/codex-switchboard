@@ -214,7 +214,8 @@ public sealed class CodexTargetSwitchDecompositionTests
             CatalogProviderId = "test-prov",
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
             Nickname = "Test Prov",
-            BaseUrl = "https://api.test/v1"
+            BaseUrl = "https://api.test/v1",
+            SelectedModel = "test-model"
         };
         env.ApiStore.Save(profile);
         env.SecretStore.SaveApiKey(id, "secret-key");
@@ -257,8 +258,8 @@ public sealed class CodexTargetSwitchDecompositionTests
 
         var idA = Guid.NewGuid();
         var idB = Guid.NewGuid();
-        var profA = new ApiProviderProfile { Id = idA, StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(idA), Nickname = "A", BaseUrl = "https://a.test/v1" };
-        var profB = new ApiProviderProfile { Id = idB, StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(idB), Nickname = "B", BaseUrl = "https://b.test/v1" };
+        var profA = new ApiProviderProfile { Id = idA, StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(idA), Nickname = "A", BaseUrl = "https://a.test/v1", SelectedModel = "model-a" };
+        var profB = new ApiProviderProfile { Id = idB, StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(idB), Nickname = "B", BaseUrl = "https://b.test/v1", SelectedModel = "model-b" };
 
         env.ApiStore.Save(profA);
         env.ApiStore.Save(profB);

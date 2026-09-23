@@ -503,9 +503,29 @@ public sealed class ApiProviderSwitchingRegressionTests
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(modelId),
             Nickname = "DeepSeek No Catalog",
             BaseUrl = "https://api.deepseek.com/v1",
-            SelectedModel = "deepseek-chat"
-            // No custom context window -> no catalog
+            SelectedModel = "deepseek-chat",
+            ModelInventory = new ApiProviderModelInventory
+            {
+                SelectedModel = "deepseek-chat",
+                Models =
+                [
+                    new ApiProviderModelItem
+                    {
+                        Slug = "deepseek-chat",
+                        DisplayName = "DeepSeek Chat",
+                        Enabled = true,
+                        DiscoverySource = ModelDiscoverySource.Discovered,
+                        Availability = ModelAvailability.Reported,
+                    }
+                ]
+            }
         };
+        var existingCatalog = env.CatalogService.EnsureProfileModelCatalog(profile, "deepseek-chat");
+        Assert.False(string.IsNullOrWhiteSpace(existingCatalog));
+        var escapedCatalog = existingCatalog!.Replace("\\", "\\\\", StringComparison.Ordinal);
+        env.Fs.WriteAllTextAtomic(
+            env.Paths.Codex.ConfigTomlPath,
+            $"model_provider = \"{profile.StableCodexProviderId}\"\nmodel = \"deepseek-chat\"\nmodel_catalog_json = \"{escapedCatalog}\"\n");
         env.ApiStore.Save(profile);
         env.SecretStore.SaveApiKey(endpointId, "ds-key");
 
@@ -516,6 +536,7 @@ public sealed class ApiProviderSwitchingRegressionTests
         Assert.False(result.DiagnosticTrace.CatalogChanged);
         Assert.False(result.DiagnosticTrace.RuntimeRestartRequired);
         Assert.False(env.Proc.CloseCalled);
+        Assert.Equal(existingCatalog, env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath).ModelCatalogJson);
     }
 
     [Fact]

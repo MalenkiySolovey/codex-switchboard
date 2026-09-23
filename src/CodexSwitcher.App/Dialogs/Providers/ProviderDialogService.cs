@@ -69,18 +69,27 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
     private readonly CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver _metadataResolver;
     private readonly IProviderCompatibilityProbeService? _probeService;
     private readonly IApiKeySecretStore? _secretStore;
+    private readonly IApiModelInventoryRefreshService? _modelRefreshService;
+    private readonly IApiProviderStore? _providerStore;
+    private readonly AppSettings? _settings;
 
     public ProviderDialogService(
         IDialogHost host,
         AppPaths paths,
         CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver? metadataResolver = null,
         IProviderCompatibilityProbeService? probeService = null,
-        IApiKeySecretStore? secretStore = null) : base(host)
+        IApiKeySecretStore? secretStore = null,
+        IApiModelInventoryRefreshService? modelRefreshService = null,
+        IApiProviderStore? providerStore = null,
+        AppSettings? settings = null) : base(host)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _metadataResolver = metadataResolver ?? new CodexSwitcher.Core.Providers.Services.CodexModelMetadataResolver();
         _probeService = probeService;
         _secretStore = secretStore;
+        _modelRefreshService = modelRefreshService;
+        _providerStore = providerStore;
+        _settings = settings;
     }
 
     public async Task<AddApiProviderResult?> PromptAddApiProviderAsync(IReadOnlyList<ProviderDescriptor> descriptors)
@@ -311,77 +320,15 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         ProviderProbeReport? probedReport = null;
         List<string>? discoveredModelsList = null;
 
-        refreshButton.Click += async (_, _) =>
+        refreshButton.Click += (_, _) =>
         {
-            var url = baseUrlBox.Text?.Trim();
-            var key = passwordBox.Password?.Trim();
-
-            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
-            {
-                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
-                compatibilityInfoBar.Title = "Base URL Required";
-                compatibilityInfoBar.Message = "Please specify a valid absolute Base URL before refreshing models.";
-                compatibilityInfoBar.IsOpen = true;
-                return;
-            }
-
-            refreshButton.IsEnabled = false;
-            refreshProgress.Visibility = Visibility.Visible;
-            refreshProgress.IsActive = true;
-            refreshButtonText.Text = _loc.RefreshingModels;
-            compatibilityInfoBar.IsOpen = false;
-
-            try
-            {
-                if (_probeService != null)
-                {
-                    var (evidence, modelIds) = await _probeService.DiscoverModelsOnlyAsync(url, key ?? string.Empty);
-                    if (modelIds.Count > 0)
-                    {
-                        discoveredModelsList = modelIds;
-                        var prevModel = GetSelectedModelString();
-                        modelCombo.Items.Clear();
-                        foreach (var m in modelIds)
-                        {
-                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
-                        }
-                        if (!string.IsNullOrWhiteSpace(prevModel))
-                        {
-                            modelCombo.Text = prevModel;
-                        }
-                        else
-                        {
-                            modelCombo.SelectedIndex = 0;
-                        }
-
-                        compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
-                        compatibilityInfoBar.Title = "Models Refreshed";
-                        compatibilityInfoBar.Message = $"{modelIds.Count} models reported by this API via GET /models. No inference request / does not consume model inference tokens.";
-                        compatibilityInfoBar.IsOpen = true;
-                    }
-                    else
-                    {
-                        compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
-                        compatibilityInfoBar.Title = "No Models Discovered";
-                        compatibilityInfoBar.Message = evidence.Detail ?? "Provider returned empty model catalog.";
-                        compatibilityInfoBar.IsOpen = true;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
-                compatibilityInfoBar.Title = "Refresh Failed";
-                compatibilityInfoBar.Message = ex.Message;
-                compatibilityInfoBar.IsOpen = true;
-            }
-            finally
-            {
-                refreshButton.IsEnabled = true;
-                refreshProgress.Visibility = Visibility.Collapsed;
-                refreshProgress.IsActive = false;
-                refreshButtonText.Text = _loc.RefreshModels;
-            }
+            // A draft has no persisted profile ID or secure-key owner yet.
+            // Its first real refresh therefore must occur after Save, through
+            // the same persisted use case used by the card and Edit dialog.
+            compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+            compatibilityInfoBar.Title = "Save before refreshing models";
+            compatibilityInfoBar.Message = "Save this API profile first, then use Refresh models. Refresh always uses the persisted profile and secure credential through one shared GET /models operation.";
+            compatibilityInfoBar.IsOpen = true;
         };
 
         probeButton.Click += async (_, _) =>
@@ -428,9 +375,9 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                         discoveredModelsList = report.DiscoveredModelIds;
                         var prevModel = GetSelectedModelString();
                         modelCombo.Items.Clear();
-                        foreach (var m in report.DiscoveredModelIds)
+                        foreach (var model in report.DiscoveredModelIds)
                         {
-                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
+                            modelCombo.Items.Add(new ComboBoxItem { Content = model });
                         }
                         if (!string.IsNullOrWhiteSpace(prevModel))
                         {
@@ -826,13 +773,45 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             IsEditable = true,
         };
 
-        if (profile.DiscoveredModels != null && profile.DiscoveredModels.Count > 0)
+        var workingInventory = CloneInventory(profile.ModelInventory);
+        if (workingInventory.Models.Count == 0 && profile.DiscoveredModels is { Count: > 0 })
         {
-            foreach (var m in profile.DiscoveredModels)
+            workingInventory.MergeDiscoveredModels(profile.DiscoveredModels);
+        }
+        workingInventory.SelectedModel ??= profile.SelectedModel;
+        if (!string.IsNullOrWhiteSpace(profile.SelectedModel) &&
+            !workingInventory.Models.Any(entry => string.Equals(entry.Slug, profile.SelectedModel, StringComparison.Ordinal)))
+        {
+            workingInventory.EnsureSelectedModelMigrated(profile.SelectedModel);
+        }
+
+        void PopulateModelPicker()
+        {
+            var previousModel = GetSelectedModelString();
+            modelCombo.Items.Clear();
+            var enabled = workingInventory.GetEnabledModels()
+                .Select(model => model.Slug)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+                ?? [];
+
+            foreach (var model in enabled)
             {
-                modelCombo.Items.Add(new ComboBoxItem { Content = m });
+                modelCombo.Items.Add(new ComboBoxItem { Content = model });
+            }
+
+            if (!string.IsNullOrWhiteSpace(previousModel))
+            {
+                modelCombo.Text = previousModel;
+            }
+            else if (modelCombo.Items.Count > 0)
+            {
+                modelCombo.SelectedIndex = 0;
             }
         }
+
+        PopulateModelPicker();
 
         var errorBar = new InfoBar
         {
@@ -846,24 +825,236 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var txt = modelCombo.Text?.Trim();
             if (!string.IsNullOrWhiteSpace(txt)) return txt;
             if (modelCombo.SelectedItem is ComboBoxItem cbi && cbi.Content is string s) return s.Trim();
-            return profile.SelectedModel ?? string.Empty;
+            return workingInventory.SelectedModel ?? profile.SelectedModel ?? string.Empty;
         }
 
         CodexCompatibilityLevel probedCompatibilityLevel = profile.CompatibilityLevel;
         ProviderProbeReport? probedReport = profile.LastProbeReport;
         List<string>? discoveredModelsList = profile.DiscoveredModels;
 
+        // The selected-model ComboBox intentionally contains enabled entries
+        // only. This separate, bounded ListView is the full per-profile
+        // inventory surface: it handles search, provenance, availability,
+        // enablement, default selection, and manual models without treating a
+        // large 73-model API response as a giant unfiltered ComboBox.
+        var inventoryFilterBox = new TextBox
+        {
+            PlaceholderText = "Search models",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var manualModelBox = new TextBox
+        {
+            PlaceholderText = "Exact model slug to add manually",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var addManualButton = new Button
+        {
+            Content = "Add manual model",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var inventoryCountText = new TextBlock
+        {
+            FontSize = 12,
+            Opacity = 0.72,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var inventoryList = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.None,
+            IsItemClickEnabled = false,
+            MaxHeight = 250,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+
+        void RenderInventory()
+        {
+            var filter = inventoryFilterBox.Text?.Trim() ?? string.Empty;
+            var visible = workingInventory.Models
+                .Where(entry => string.IsNullOrWhiteSpace(filter) ||
+                    entry.Slug.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    (entry.DisplayName?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false))
+                .OrderByDescending(entry => string.Equals(entry.Slug, workingInventory.SelectedModel, StringComparison.Ordinal))
+                .ThenBy(entry => entry.Slug, StringComparer.Ordinal)
+                .ToList();
+
+            var reported = workingInventory.Models.Count(entry => entry.Availability == ModelAvailability.Reported);
+            var enabled = workingInventory.Models.Count(entry => entry.Enabled);
+            inventoryCountText.Text = $"{reported} reported · {enabled} enabled · {workingInventory.Models.Count} inventory entries";
+            inventoryList.Items.Clear();
+
+            foreach (var modelEntry in visible)
+            {
+                var entry = modelEntry;
+                var row = new Grid
+                {
+                    ColumnDefinitions =
+                    {
+                        new ColumnDefinition { Width = GridLength.Auto },
+                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                        new ColumnDefinition { Width = GridLength.Auto },
+                    },
+                    ColumnSpacing = 8,
+                    Padding = new Thickness(4, 5, 4, 5),
+                };
+
+                var enabledCheck = new CheckBox
+                {
+                    Content = "Enabled",
+                    IsChecked = entry.Enabled,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                enabledCheck.Checked += (_, _) =>
+                {
+                    entry.Enabled = true;
+                    PopulateModelPicker();
+                    RenderInventory();
+                };
+                enabledCheck.Unchecked += (_, _) =>
+                {
+                    entry.Enabled = false;
+                    PopulateModelPicker();
+                    RenderInventory();
+                };
+                Grid.SetColumn(enabledCheck, 0);
+                row.Children.Add(enabledCheck);
+
+                var details = new StackPanel { Spacing = 1 };
+                details.Children.Add(new TextBlock
+                {
+                    Text = entry.DisplayName ?? entry.Slug,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+                details.Children.Add(new TextBlock
+                {
+                    Text = $"{entry.Slug} · {entry.DiscoverySource} · {entry.Availability}",
+                    FontSize = 11,
+                    Opacity = 0.68,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                });
+                Grid.SetColumn(details, 1);
+                row.Children.Add(details);
+
+                var isSelected = string.Equals(entry.Slug, workingInventory.SelectedModel, StringComparison.Ordinal);
+                var setDefault = new Button
+                {
+                    Content = isSelected ? "Default" : "Use as default",
+                    IsEnabled = entry.Enabled && !isSelected,
+                    Padding = new Thickness(8, 3, 8, 3),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                setDefault.Click += (_, _) =>
+                {
+                    workingInventory.SelectedModel = entry.Slug;
+                    modelCombo.Text = entry.Slug;
+                    PopulateModelPicker();
+                    RenderInventory();
+                };
+                Grid.SetColumn(setDefault, 2);
+                row.Children.Add(setDefault);
+
+                inventoryList.Items.Add(new ListViewItem
+                {
+                    Content = row,
+                    Padding = new Thickness(0),
+                });
+            }
+        }
+
+        inventoryFilterBox.TextChanged += (_, _) => RenderInventory();
+        addManualButton.Click += (_, _) =>
+        {
+            var manualSlug = manualModelBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(manualSlug))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                compatibilityInfoBar.Title = "Model slug required";
+                compatibilityInfoBar.Message = "Enter the exact model slug to add it manually.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            var existing = workingInventory.Models.FirstOrDefault(entry =>
+                string.Equals(entry.Slug, manualSlug, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                workingInventory.Models.Add(new ApiProviderModelItem
+                {
+                    Slug = manualSlug,
+                    DisplayName = ModelDisplayName.FromSlug(manualSlug),
+                    Enabled = true,
+                    DiscoverySource = ModelDiscoverySource.Manual,
+                    Availability = ModelAvailability.Unknown,
+                });
+            }
+            else
+            {
+                existing.Enabled = true;
+                if (existing.DiscoverySource != ModelDiscoverySource.Manual)
+                {
+                    existing.DiscoverySource = ModelDiscoverySource.Mixed;
+                }
+            }
+
+            manualModelBox.Text = string.Empty;
+            PopulateModelPicker();
+            RenderInventory();
+        };
+
+        var manualModelPanel = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+            ColumnSpacing = 8,
+        };
+        Grid.SetColumn(manualModelBox, 0);
+        Grid.SetColumn(addManualButton, 1);
+        manualModelPanel.Children.Add(manualModelBox);
+        manualModelPanel.Children.Add(addManualButton);
+
+        var inventoryPanel = new StackPanel { Spacing = 8, Padding = new Thickness(2) };
+        inventoryPanel.Children.Add(new TextBlock
+        {
+            Text = "Manage discovered and manual models. Refresh preserves manual entries; unreported discovered entries remain visible as NotReported.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Opacity = 0.74,
+        });
+        inventoryPanel.Children.Add(inventoryFilterBox);
+        inventoryPanel.Children.Add(manualModelPanel);
+        inventoryPanel.Children.Add(inventoryCountText);
+        inventoryPanel.Children.Add(inventoryList);
+        var inventoryExpander = new Expander
+        {
+            Header = "Manage models",
+            Content = inventoryPanel,
+            IsExpanded = workingInventory.Models.Count > 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        RenderInventory();
+
         refreshButton.Click += async (_, _) =>
         {
-            var url = baseUrlBox.Text?.Trim();
             var enteredKey = passwordBox.Password?.Trim();
-            var key = !string.IsNullOrWhiteSpace(enteredKey) ? enteredKey : (_secretStore != null ? _secretStore.GetApiKey(profile.EndpointId ?? profile.Id) : null);
+            if (!string.IsNullOrWhiteSpace(enteredKey) ||
+                !string.Equals(baseUrlBox.Text?.Trim(), profile.BaseUrl, StringComparison.Ordinal))
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+                compatibilityInfoBar.Title = "Save configuration changes first";
+                compatibilityInfoBar.Message = "Refresh models deliberately uses the persisted profile and secure credential. Save the edited endpoint or key, then refresh from this dialog or the provider card.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
 
-            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+            if (_modelRefreshService is null || _providerStore is null)
             {
                 compatibilityInfoBar.Severity = InfoBarSeverity.Error;
-                compatibilityInfoBar.Title = "Base URL Required";
-                compatibilityInfoBar.Message = "Please specify a valid absolute Base URL before refreshing models.";
+                compatibilityInfoBar.Title = "Refresh unavailable";
+                compatibilityInfoBar.Message = "The shared model-refresh service is not available.";
                 compatibilityInfoBar.IsOpen = true;
                 return;
             }
@@ -876,39 +1067,42 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
             try
             {
-                if (_probeService != null)
+                long requestGeneration = 0;
+                var progress = new Progress<string>(message =>
                 {
-                    var (evidence, modelIds) = await _probeService.DiscoverModelsOnlyAsync(url, key ?? string.Empty);
-                    if (modelIds.Count > 0)
+                    var latest = _modelRefreshService.GetLatestResult(profile.Id);
+                    if (requestGeneration > 0 && latest?.RequestGeneration == requestGeneration &&
+                        latest.Outcome == ModelInventoryRefreshOutcome.Refreshing)
                     {
-                        discoveredModelsList = modelIds;
-                        var prevModel = GetSelectedModelString();
-                        modelCombo.Items.Clear();
-                        foreach (var m in modelIds)
-                        {
-                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
-                        }
-                        if (!string.IsNullOrWhiteSpace(prevModel))
-                        {
-                            modelCombo.Text = prevModel;
-                        }
-                        else
-                        {
-                            modelCombo.SelectedIndex = 0;
-                        }
+                        refreshButtonText.Text = message;
+                    }
+                });
+                var options = _settings is null
+                    ? new RefreshModelsOptions(Progress: progress)
+                    : new RefreshModelsOptions(SwitchExecutionOptions.From(_settings), progress);
+                var refreshTask = _modelRefreshService.RefreshAsync(profile.Id, options);
+                requestGeneration = _modelRefreshService.GetLatestResult(profile.Id)?.RequestGeneration ?? 0;
+                var result = await refreshTask;
+                if (result.Succeeded && _providerStore.GetById(profile.Id) is { } persisted)
+                {
+                    // The dialog keeps an isolated working copy. The card
+                    // receives this same result event; Save later commits any
+                    // further enablement/manual edits atomically.
+                    workingInventory = CloneInventory(persisted.ModelInventory);
+                    discoveredModelsList = persisted.DiscoveredModels;
+                    PopulateModelPicker();
 
-                        compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
-                        compatibilityInfoBar.Title = "Models Refreshed";
-                        compatibilityInfoBar.Message = $"{modelIds.Count} models reported by this API via GET /models. No inference request / does not consume model inference tokens.";
-                        compatibilityInfoBar.IsOpen = true;
-                    }
-                    else
-                    {
-                        compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
-                        compatibilityInfoBar.Title = "No Models Discovered";
-                        compatibilityInfoBar.Message = evidence.Detail ?? "Provider returned empty model catalog.";
-                        compatibilityInfoBar.IsOpen = true;
-                    }
+                    compatibilityInfoBar.Severity = InfoBarSeverity.Success;
+                    compatibilityInfoBar.Title = "Models Refreshed";
+                    compatibilityInfoBar.Message = $"{result.ModelsReportedCount} models reported by this API via GET /models. No inference request / does not consume model inference tokens.";
+                    compatibilityInfoBar.IsOpen = true;
+                }
+                else
+                {
+                    compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                    compatibilityInfoBar.Title = "Model refresh did not complete";
+                    compatibilityInfoBar.Message = result.ErrorMessageSanitized ?? "Provider returned no usable model inventory.";
+                    compatibilityInfoBar.IsOpen = true;
                 }
             }
             catch (Exception ex)
@@ -970,20 +1164,12 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     if (report.DiscoveredModelIds != null && report.DiscoveredModelIds.Count > 0)
                     {
                         discoveredModelsList = report.DiscoveredModelIds;
-                        var prevModel = GetSelectedModelString();
-                        modelCombo.Items.Clear();
-                        foreach (var m in report.DiscoveredModelIds)
-                        {
-                            modelCombo.Items.Add(new ComboBoxItem { Content = m });
-                        }
-                        if (!string.IsNullOrWhiteSpace(prevModel))
-                        {
-                            modelCombo.Text = prevModel;
-                        }
-                        else
-                        {
-                            modelCombo.SelectedIndex = 0;
-                        }
+                        // Compatibility is explicitly separate from Refresh,
+                        // but discovered hints still use the same working
+                        // inventory that the dialog persists on Save.
+                        workingInventory.MergeDiscoveredModels(report.DiscoveredModelIds);
+                        PopulateModelPicker();
+                        RenderInventory();
                     }
 
                     switch (report.CompatibilityLevel)
@@ -1043,6 +1229,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(actionsPanel);
         panel.Children.Add(compatibilityInfoBar);
         panel.Children.Add(modelCombo);
+        panel.Children.Add(inventoryExpander);
 
         var advanced = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc, _metadataResolver);
         advanced.AttachTo(panel);
@@ -1092,6 +1279,38 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             }
 
             var selModel = GetSelectedModelString();
+            if (string.IsNullOrWhiteSpace(selModel))
+            {
+                errorBar.Title = "Select an enabled model before saving this API profile.";
+                errorBar.IsOpen = true;
+                args.Cancel = true;
+                return;
+            }
+
+            var selectedInventoryItem = workingInventory.Models.FirstOrDefault(entry =>
+                string.Equals(entry.Slug, selModel, StringComparison.Ordinal));
+            if (selectedInventoryItem is null)
+            {
+                // A typed exact slug is a deliberate manual model entry.
+                selectedInventoryItem = new ApiProviderModelItem
+                {
+                    Slug = selModel,
+                    DisplayName = ModelDisplayName.FromSlug(selModel),
+                    Enabled = true,
+                    DiscoverySource = ModelDiscoverySource.Manual,
+                    Availability = ModelAvailability.Unknown,
+                };
+                workingInventory.Models.Add(selectedInventoryItem);
+            }
+            if (!selectedInventoryItem.Enabled)
+            {
+                errorBar.Title = "Select an enabled model before saving this API profile.";
+                errorBar.IsOpen = true;
+                args.Cancel = true;
+                return;
+            }
+            workingInventory.SelectedModel = selModel;
+
             var (m, t, err) = advanced.ValidateAndExtract(_loc, selModel);
             if (err != null)
             {
@@ -1130,6 +1349,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 RoutePoolLabel = string.IsNullOrWhiteSpace(routePoolLabelBox.Text) ? null : routePoolLabelBox.Text.Trim(),
                 ProviderPresetId = profile.ProviderPresetId,
                 DiscoveredModels = discoveredModelsList ?? profile.DiscoveredModels,
+                ModelInventory = CloneInventory(workingInventory),
                 CompatibilityLevel = probedCompatibilityLevel,
                 LastProbeReport = probedReport,
             };
@@ -1433,6 +1653,45 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         };
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private static ApiProviderModelInventory CloneInventory(ApiProviderModelInventory? source)
+    {
+        if (source is null)
+        {
+            return new ApiProviderModelInventory();
+        }
+
+        return new ApiProviderModelInventory
+        {
+            SelectedModel = source.SelectedModel,
+            DiscoveryStatus = source.DiscoveryStatus,
+            LastDiscoveryAt = source.LastDiscoveryAt,
+            Models = source.Models.Select(entry => new ApiProviderModelItem
+            {
+                Slug = entry.Slug,
+                DisplayName = entry.DisplayName,
+                Enabled = entry.Enabled,
+                DiscoverySource = entry.DiscoverySource,
+                Availability = entry.Availability,
+                LastSeenAt = entry.LastSeenAt,
+                ContextWindow = entry.ContextWindow,
+                ContextEvidence = entry.ContextEvidence,
+                Capabilities = entry.Capabilities,
+                UserOverrides = entry.UserOverrides is null
+                    ? null
+                    : new CodexModelOverrides
+                    {
+                        ContextWindowTokens = entry.UserOverrides.ContextWindowTokens,
+                        AutoCompactTokenLimit = entry.UserOverrides.AutoCompactTokenLimit,
+                        AutoCompactTokenLimitScope = entry.UserOverrides.AutoCompactTokenLimitScope,
+                        ReasoningEffort = entry.UserOverrides.ReasoningEffort,
+                        ReasoningSummary = entry.UserOverrides.ReasoningSummary,
+                        Verbosity = entry.UserOverrides.Verbosity,
+                        ToolOutputTokenLimit = entry.UserOverrides.ToolOutputTokenLimit,
+                    },
+            }).ToList(),
+        };
     }
 
     private sealed class ApiProviderAdvancedSettingsControlGroup

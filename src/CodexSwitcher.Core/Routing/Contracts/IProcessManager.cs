@@ -60,4 +60,11 @@ public interface IProcessManager
 
     /// <summary>Tenta iniciar o aplicativo desktop do Codex se instalado.</summary>
     bool TryLaunchDesktop();
+
+    /// <summary>
+    /// Opens one persisted Codex thread through the registered Windows
+    /// protocol handler. This never launches a protected WindowsApps binary
+    /// directly and reports only whether ShellExecute accepted the request.
+    /// </summary>
+    bool TryOpenThreadDeepLink(string threadId);
 }

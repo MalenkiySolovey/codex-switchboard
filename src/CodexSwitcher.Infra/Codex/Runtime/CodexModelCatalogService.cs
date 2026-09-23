@@ -193,20 +193,19 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
 
         var slug = !string.IsNullOrWhiteSpace(modelSlug)
             ? modelSlug
-            : (!string.IsNullOrWhiteSpace(profile.SelectedModel) ? profile.SelectedModel : "default-model");
+            : (!string.IsNullOrWhiteSpace(profile.SelectedModel)
+                ? profile.SelectedModel
+                : (!string.IsNullOrWhiteSpace(profile.ModelInventory?.SelectedModel)
+                    ? profile.ModelInventory.SelectedModel
+                    : profile.ModelInventory?.GetEnabledModels().FirstOrDefault()?.Slug));
 
-        var effectiveContext = modelOverrides?.ContextWindowTokens ?? contextWindowTokens ?? profile.ModelOverrides?.ContextWindowTokens;
-        var effectiveOverrides = modelOverrides ?? profile.ModelOverrides;
-
-        var needsCatalog = (effectiveContext.HasValue && effectiveContext.Value > FallbackContextCeiling) ||
-                           (effectiveOverrides != null && (effectiveOverrides.ReasoningEffort != CodexReasoningEffort.Default || effectiveOverrides.Verbosity != CodexVerbosity.Default)) ||
-                           (toolPolicy != null && (!toolPolicy.AllowCustomFreeformApplyPatch || !toolPolicy.AllowToolSearch)) ||
-                           (profile.ModelInventory != null && profile.ModelInventory.Models.Count > 0);
-
-        if (!needsCatalog)
+        if (string.IsNullOrWhiteSpace(slug))
         {
             return null;
         }
+
+        var effectiveContext = modelOverrides?.ContextWindowTokens ?? contextWindowTokens ?? profile.ModelOverrides?.ContextWindowTokens;
+        var effectiveOverrides = modelOverrides ?? profile.ModelOverrides;
 
         lock (_sync)
         {
@@ -225,20 +224,16 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
             }
 
             profile.ModelInventory ??= new ApiProviderModelInventory();
-            profile.ModelInventory.EnsureSelectedModelMigrated(slug, profile.Nickname, effectiveContext, effectiveOverrides);
+            // A profile's display name identifies the endpoint, not every
+            // model in its picker. The inventory uses API-reported display
+            // names when available or a cosmetic slug humanization instead.
+            profile.ModelInventory.EnsureSelectedModelMigrated(slug, null, effectiveContext, effectiveOverrides);
 
             var isLegacy = IsLegacyRuntime(runtimeInfo?.Version);
             var enabledModels = new List<ApiProviderModelItem>(profile.ModelInventory.GetEnabledModels());
             if (enabledModels.Count == 0)
             {
-                enabledModels.Add(new ApiProviderModelItem
-                {
-                    Slug = slug,
-                    DisplayName = profile.Nickname ?? slug,
-                    Enabled = true,
-                    ContextWindow = effectiveContext,
-                    UserOverrides = effectiveOverrides
-                });
+                return null;
             }
 
             // Deterministic ordering by Slug Ordinal
@@ -249,7 +244,7 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
 
             foreach (var m in enabledModels)
             {
-                var isSelected = string.Equals(m.Slug, slug, StringComparison.OrdinalIgnoreCase);
+                var isSelected = string.Equals(m.Slug, slug, StringComparison.Ordinal);
                 var descriptor = _descriptorResolver.ResolveDescriptor(
                     m,
                     profile,

@@ -375,4 +375,73 @@ public sealed class CodexModelCatalogServiceTests
         Assert.DoesNotContain("o1", slugs);
         Assert.DoesNotContain("o3-mini", slugs);
     }
+
+    [Fact]
+    public void EnsureProfileModelCatalog_GeneratesEachKnownApiProfileOwnCompleteEnabledInventory()
+    {
+        using var temp = new TempDir();
+        var paths = new AppPaths(temp.Root);
+        var service = new CodexModelCatalogService(_fs, paths);
+        var fixtures = new[]
+        {
+            (Nickname: "Modelflare", Selected: "grok-4.6", Count: 73),
+            (Nickname: "llm-all.pro", Selected: "deepseek-v4.1-flash", Count: 23),
+            (Nickname: "TokenHarbor", Selected: "deepseek-v4.1-flash:free", Count: 62),
+        };
+        var generated = new List<(ApiProviderProfile Profile, string Path, List<string> Slugs)>();
+
+        foreach (var fixture in fixtures)
+        {
+            var profile = new ApiProviderProfile
+            {
+                Id = Guid.NewGuid(),
+                Nickname = fixture.Nickname,
+                SelectedModel = fixture.Selected,
+                ModelInventory = new ApiProviderModelInventory
+                {
+                    SelectedModel = fixture.Selected,
+                    Models = Enumerable.Range(0, fixture.Count)
+                        .Select(index =>
+                        {
+                            var slug = index == 0 ? fixture.Selected : $"{fixture.Nickname.ToLowerInvariant()}-model-{index:D2}";
+                            return new ApiProviderModelItem
+                            {
+                                Slug = slug,
+                                DisplayName = ModelDisplayName.FromSlug(slug),
+                                Enabled = true,
+                                DiscoverySource = ModelDiscoverySource.Discovered,
+                                Availability = ModelAvailability.Reported,
+                            };
+                        })
+                        .ToList(),
+                },
+            };
+
+            var catalogPath = service.EnsureProfileModelCatalog(profile);
+            Assert.NotNull(catalogPath);
+            Assert.True(File.Exists(catalogPath));
+            Assert.Contains(profile.Id.ToString("D"), catalogPath, StringComparison.OrdinalIgnoreCase);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(catalogPath));
+            var entries = document.RootElement.GetProperty("models").EnumerateArray().ToList();
+            Assert.Equal(fixture.Count, entries.Count);
+            var slugs = entries.Select(entry => entry.GetProperty("slug").GetString()!).ToList();
+            Assert.Contains(fixture.Selected, slugs);
+            var selectedEntry = entries.Single(entry => entry.GetProperty("slug").GetString() == fixture.Selected);
+            Assert.NotEqual(fixture.Nickname, selectedEntry.GetProperty("display_name").GetString());
+
+            generated.Add((profile, catalogPath, slugs));
+        }
+
+        Assert.Equal(3, generated.Select(entry => entry.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        foreach (var current in generated)
+        {
+            foreach (var other in generated.Where(other => other.Profile.Id != current.Profile.Id))
+            {
+                Assert.Empty(other.Slugs
+                    .Except([other.Profile.SelectedModel!], StringComparer.Ordinal)
+                    .Intersect(current.Slugs, StringComparer.Ordinal));
+            }
+        }
+    }
 }

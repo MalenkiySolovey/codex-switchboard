@@ -122,6 +122,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICodexCapabilityCache, CodexCapabilityCache>();
         services.AddSingleton<ICodexRuntimeResolver>(sp => new CodexRuntimeResolver(
             sp.GetRequiredService<ICodexCapabilityCache>()));
+        services.AddSingleton<ICodexRuntimeModelCatalogVerifier>(sp => new CodexRuntimeModelCatalogVerifier(
+            sp.GetRequiredService<ICodexRuntimeResolver>(),
+            sp.GetRequiredService<AppSettings>(),
+            sp.GetRequiredService<AppPaths>(),
+            sp.GetRequiredService<ISwitchboardCodexProcessRegistry>(),
+            sp.GetRequiredService<ICodexRoutingConfigStore>()));
         services.AddSingleton<ICodexUsageProvider>(sp => new CodexUsageProvider(
             sp.GetRequiredService<IFileSystem>(),
             paths.TempRoot,
@@ -314,11 +320,23 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IAuditLog>(),
             paths.Codex,
-            modelCatalogService: sp.GetRequiredService<ICodexModelCatalogService>()));
+            modelCatalogService: sp.GetRequiredService<ICodexModelCatalogService>(),
+            runtimeModelCatalogVerifier: sp.GetRequiredService<ICodexRuntimeModelCatalogVerifier>()));
 
         services.AddSingleton<ICodexTargetSwitchService>(sp => new CodexTargetSwitchService(
             sp.GetRequiredService<ISwitchPlanBuilder>(),
             sp.GetRequiredService<ISwitchTransactionExecutor>()));
+
+        services.AddSingleton<IApiModelInventoryRefreshService>(sp => new ApiModelInventoryRefreshService(
+            sp.GetRequiredService<IApiProviderStore>(),
+            sp.GetRequiredService<IProviderInspectionService>(),
+            sp.GetRequiredService<IProviderModelCache>(),
+            sp.GetRequiredService<ICodexRoutingConfigStore>(),
+            sp.GetRequiredService<ICodexModelCatalogService>(),
+            sp.GetRequiredService<ICodexTargetSwitchService>(),
+            paths.Codex,
+            sp.GetRequiredService<IClock>(),
+            sp.GetService<IAuditLog>()));
 
         return services;
     }

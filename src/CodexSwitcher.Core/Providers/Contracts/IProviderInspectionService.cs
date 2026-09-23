@@ -41,6 +41,13 @@ namespace CodexSwitcher.Core.Providers.Contracts;
 public interface IProviderInspectionService
 {
     /// <summary>
+    /// Retrieves just the saved profile's provider-authorized GET /models
+    /// inventory using the secure endpoint/key owner. This is the discovery
+    /// boundary used by the shared refresh use case and never runs inference.
+    /// </summary>
+    Task<ApiProviderSnapshot> DiscoverModelsAsync(Guid providerProfileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Inspects a saved provider profile by its unique ID.
     /// Looks up the encrypted secret and catalog descriptor internally,
     /// returning only the sanitized snapshot to the caller.

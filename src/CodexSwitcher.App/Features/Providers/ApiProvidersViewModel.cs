@@ -70,7 +70,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     private static Strings Loc => Strings.Current;
 
     private readonly IApiProviderStore _apiProviderStore;
-    private readonly IProviderInspectionService _inspectionService;
+    private readonly IApiModelInventoryRefreshService _modelRefreshService;
     private readonly IApiKeySecretStore _secretStore;
     private readonly ICodexTargetSwitchService _targetSwitchService;
     private readonly ICodexThreadHandoffService _threadHandoffService;
@@ -84,8 +84,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     private readonly IAppBusyService _busyService;
     private readonly IProviderCompatibilityProbeService? _probeService;
     private readonly IProcessManager? _processManager;
+    private readonly IUiDispatcher _dispatcher;
     private readonly CancellationTokenSource _cts = new();
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task<ApiProviderSnapshot>> _inFlightInspections = new();
 
     public ObservableCollection<ApiProviderItemViewModel> Items { get; } = [];
 
@@ -102,7 +102,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
     public ApiProvidersViewModel(
         IApiProviderStore apiProviderStore,
-        IProviderInspectionService inspectionService,
+        IApiModelInventoryRefreshService modelRefreshService,
         IApiKeySecretStore secretStore,
         ICodexTargetSwitchService targetSwitchService,
         ICodexThreadHandoffService threadHandoffService,
@@ -116,10 +116,11 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         IAppBusyService busyService,
         IAppLifetime? appLifetime = null,
         IProviderCompatibilityProbeService? probeService = null,
-        IProcessManager? processManager = null)
+        IProcessManager? processManager = null,
+        IUiDispatcher? dispatcher = null)
     {
         _apiProviderStore = apiProviderStore ?? throw new ArgumentNullException(nameof(apiProviderStore));
-        _inspectionService = inspectionService ?? throw new ArgumentNullException(nameof(inspectionService));
+        _modelRefreshService = modelRefreshService ?? throw new ArgumentNullException(nameof(modelRefreshService));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _targetSwitchService = targetSwitchService ?? throw new ArgumentNullException(nameof(targetSwitchService));
         _threadHandoffService = threadHandoffService ?? throw new ArgumentNullException(nameof(threadHandoffService));
@@ -133,6 +134,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         _busyService = busyService ?? throw new ArgumentNullException(nameof(busyService));
         _probeService = probeService;
         _processManager = processManager;
+        _dispatcher = dispatcher ?? ImmediateUiDispatcher.Instance;
+        _modelRefreshService.RefreshStateChanged += OnRefreshStateChanged;
 
         appLifetime?.ApplicationStopping.Register(() => CancelOperations());
     }
@@ -160,6 +163,10 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 {
                     existing.SetDiscoveredModels(cachedModels);
                 }
+                if (_modelRefreshService.GetLatestResult(prof.Id) is { } latestRefresh)
+                {
+                    existing.ApplyRefreshResult(latestRefresh);
+                }
                 targetList.Add(existing);
             }
             else
@@ -169,6 +176,10 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 if (_modelCache.TryGetModels(prof.Id, routeKey, 1, out var cachedModels) && cachedModels.Count > 0)
                 {
                     vm.SetDiscoveredModels(cachedModels);
+                }
+                if (_modelRefreshService.GetLatestResult(prof.Id) is { } latestRefresh)
+                {
+                    vm.ApplyRefreshResult(latestRefresh);
                 }
                 targetList.Add(vm);
             }
@@ -223,7 +234,26 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     public void Dispose()
     {
         CancelOperations();
+        _modelRefreshService.RefreshStateChanged -= OnRefreshStateChanged;
         _cts.Dispose();
+    }
+
+    private void OnRefreshStateChanged(object? sender, ModelInventoryRefreshResult result)
+    {
+        _dispatcher.Enqueue(() =>
+        {
+            var item = Items.FirstOrDefault(candidate => candidate.Id == result.ProfileId);
+            if (item is null)
+            {
+                return;
+            }
+
+            if (_apiProviderStore.GetById(result.ProfileId) is { } persisted)
+            {
+                item.UpdateProfile(persisted, item.Descriptor, item.HasSecret, item.IsTargetActive);
+            }
+            item.ApplyRefreshResult(result);
+        });
     }
 
     private void ShowInfo(string title, string message, InfoBarSeverity severity)
@@ -276,6 +306,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             CompatibilityLevel = result.CompatibilityLevel,
             LastProbeReport = result.LastProbeReport,
         };
+
+        ApplyDiscoveredModelsToInventory(profile, result.DiscoveredModels, _clock.UtcNow);
 
         if (!string.IsNullOrWhiteSpace(result.ApiKey))
         {
@@ -408,7 +440,14 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         item.Profile.TransportOverrides = result.TransportOverrides;
         item.Profile.RoutePoolLabel = result.RoutePoolLabel;
         if (result.ProviderPresetId != null) item.Profile.ProviderPresetId = result.ProviderPresetId;
-        if (result.DiscoveredModels != null) item.Profile.DiscoveredModels = result.DiscoveredModels;
+        if (result.ModelInventory is not null)
+        {
+            item.Profile.ModelInventory = result.ModelInventory;
+        }
+        if (result.DiscoveredModels != null)
+        {
+            ApplyDiscoveredModelsToInventory(item.Profile, result.DiscoveredModels, _clock.UtcNow);
+        }
         if (result.CompatibilityLevel != CodexCompatibilityLevel.Unknown) item.Profile.CompatibilityLevel = result.CompatibilityLevel;
         if (result.LastProbeReport != null) item.Profile.LastProbeReport = result.LastProbeReport;
 
@@ -583,13 +622,16 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             return;
         }
 
-        var targetModel = !string.IsNullOrWhiteSpace(item.SelectedModel)
-            ? item.SelectedModel
-            : !string.IsNullOrWhiteSpace(item.Profile.SelectedModel)
-                ? item.Profile.SelectedModel
-                : _modelCache.GetLatestModels(item.Profile.Id) is { Count: > 0 } cachedModels ? cachedModels[0] : null
-                  ?? item.Descriptor?.Codex.DefaultModel
-                  ?? "gpt-5.6-sol";
+        // Do not derive a continuation target from card state or source-thread
+        // metadata. Reload the destination profile from the authoritative
+        // store so an old card can never leak its previous :free/non-free
+        // model into a newly selected provider.
+        var targetProfile = _apiProviderStore.GetById(item.Id);
+        if (targetProfile is null || !TryGetEnabledSelectedModel(targetProfile, out var targetModel))
+        {
+            ShowInfo(Loc.ErrorTitle, "Select an enabled model before continuing a chat on this API profile.", InfoBarSeverity.Warning);
+            return;
+        }
 
         var selected = await _ui.PromptContinueOnThreadAsync(threads, item.DisplayName, targetModel);
         if (selected is null) return;
@@ -615,7 +657,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             {
                 var switchOptions = SwitchExecutionOptions.From(_settings) with { ReopenDesktopAfterSwitch = false };
                 var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
-                    item.Profile.Id,
+                    targetProfile.Id,
                     switchOptions,
                     _cts.Token);
 
@@ -627,18 +669,30 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                     return;
                 }
 
+                var resolvedTarget = ResolveAuthoritativeTargetProfile(targetProfile.Id);
+                if (!TryGetVerifiedTargetModel(resolvedTarget, switchResult, out var exactTargetModel))
+                {
+                    ShowInfo(Loc.ErrorTitle, "The active Codex provider, selected model, catalog, or runtime model list no longer matches this destination profile. No fresh chat was created.", InfoBarSeverity.Warning);
+                    return;
+                }
+
                 var freshResult = await _threadHandoffService.StartFreshThreadAsync(
-                    item.Profile.StableCodexProviderId,
-                    targetModel,
+                    resolvedTarget.StableCodexProviderId,
+                    exactTargetModel,
                     selected.Cwd,
                     selected.Name != null ? $"{selected.Name} (Fresh)" : null,
-                    _cts.Token);
+                    targetProfileId: resolvedTarget.Id,
+                    targetCatalogPath: switchResult.DiagnosticTrace?.EffectiveModelCatalogJson,
+                    cancellationToken: _cts.Token);
 
-                _processManager?.TryLaunchDesktop();
+                var openedInDesktop = await LaunchAndOpenContinuationAsync(freshResult.ForkedThreadId);
 
                 ShowInfo(
                     "Fresh Chat Created",
-                    $"Started fresh conversation on {item.DisplayName}.\nProvider: {freshResult.TargetModelProvider}\nModel: {freshResult.TargetModel}\nThread: {freshResult.ForkedThreadId}",
+                    $"Started fresh conversation on {item.DisplayName}.\nProvider: {freshResult.TargetModelProvider}\nModel: {freshResult.TargetModel}\nThread: {freshResult.ForkedThreadId}" +
+                    (openedInDesktop
+                        ? "\nOpened the exact continuation in Codex Desktop."
+                        : "\nContinuation is persisted, but Codex Desktop could not be opened to this thread automatically."),
                     InfoBarSeverity.Success);
             });
 
@@ -651,7 +705,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             // Routing switch transaction MUST happen before the fork transaction per ARCH-R6
             var switchOptions = SwitchExecutionOptions.From(_settings) with { ReopenDesktopAfterSwitch = false };
             var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
-                item.Profile.Id,
+                targetProfile.Id,
                 switchOptions,
                 _cts.Token);
 
@@ -663,18 +717,30 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 return;
             }
 
+            var resolvedTarget = ResolveAuthoritativeTargetProfile(targetProfile.Id);
+            if (!TryGetVerifiedTargetModel(resolvedTarget, switchResult, out var exactTargetModel))
+            {
+                ShowInfo(Loc.ErrorTitle, "The active Codex provider, selected model, catalog, or runtime model list no longer matches this destination profile. No continuation was created.", InfoBarSeverity.Warning);
+                return;
+            }
+
             var forkResult = await _threadHandoffService.ForkThreadAsync(
                 selected.Id,
-                item.Profile.StableCodexProviderId,
-                targetModel,
-                null,
-                _cts.Token);
+                    resolvedTarget.StableCodexProviderId,
+                    exactTargetModel,
+                    null,
+                targetProfileId: resolvedTarget.Id,
+                targetCatalogPath: switchResult.DiagnosticTrace?.EffectiveModelCatalogJson,
+                cancellationToken: _cts.Token);
 
-            _processManager?.TryLaunchDesktop();
+            var openedInDesktop = await LaunchAndOpenContinuationAsync(forkResult.ForkedThreadId);
 
             ShowInfo(
                 Loc.ForkSuccessTitle,
-                $"Continuation created successfully.\nProvider: {forkResult.TargetModelProvider}\nModel: {forkResult.TargetModel}\nThread: {forkResult.ForkedThreadId}",
+                $"Continuation created successfully.\nProvider: {forkResult.TargetModelProvider}\nModel: {forkResult.TargetModel}\nThread: {forkResult.ForkedThreadId}" +
+                (openedInDesktop
+                    ? "\nOpened the exact continuation in Codex Desktop."
+                    : "\nContinuation is persisted, but Codex Desktop could not be opened to this thread automatically."),
                 InfoBarSeverity.Success);
         });
 
@@ -685,39 +751,34 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     public async Task DiscoverModelsAsync(ApiProviderItemViewModel? item)
     {
         if (item is null) return;
-        if (item.IsLoadingModels && _inFlightInspections.ContainsKey(item.Profile.Id)) return;
+        if (item.IsLoadingModels) return;
 
         item.IsLoadingModels = true;
         item.ModelsStatusMessage = Loc.DiscoveringModels;
 
         try
         {
-            var task = _inFlightInspections.GetOrAdd(item.Profile.Id, id => _inspectionService.InspectAsync(id, _cts.Token));
-            ApiProviderSnapshot snapshot;
-            try
+            long requestGeneration = 0;
+            var progress = new Progress<string>(message =>
             {
-                snapshot = await task;
-            }
-            finally
+                var latest = _modelRefreshService.GetLatestResult(item.Id);
+                if (requestGeneration > 0 && latest?.RequestGeneration == requestGeneration &&
+                    latest.Outcome == ModelInventoryRefreshOutcome.Refreshing)
+                {
+                    item.ModelsStatusMessage = message;
+                }
+            });
+            var refreshTask = _modelRefreshService.RefreshAsync(
+                item.Id,
+                new RefreshModelsOptions(SwitchExecutionOptions.From(_settings), progress),
+                _cts.Token);
+            requestGeneration = _modelRefreshService.GetLatestResult(item.Id)?.RequestGeneration ?? 0;
+            var result = await refreshTask;
+            item.ApplyRefreshResult(result);
+            if (_apiProviderStore.GetById(item.Id) is { } persisted)
             {
-                _inFlightInspections.TryRemove(item.Profile.Id, out _);
-            }
-
-            if (snapshot.Models.Count > 0)
-            {
-                item.SetDiscoveredModels(snapshot.Models);
-                item.Profile.DiscoveredModels = snapshot.Models.ToList();
-                item.Profile.ModelInventory ??= new ApiProviderModelInventory();
-                item.Profile.ModelInventory.MergeDiscoveredModels(snapshot.Models);
-                _apiProviderStore.Save(item.Profile);
-            }
-            else if (!string.IsNullOrWhiteSpace(snapshot.Error))
-            {
-                item.ModelsStatusMessage = snapshot.Error;
-            }
-            else
-            {
-                item.ModelsStatusMessage = "No models discovered.";
+                item.UpdateProfile(persisted, item.Descriptor, item.HasSecret, item.IsTargetActive);
+                item.ApplyRefreshResult(result);
             }
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested)
@@ -732,6 +793,151 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         {
             item.IsLoadingModels = false;
         }
+    }
+
+    private ApiProviderProfile ResolveAuthoritativeTargetProfile(Guid profileId) =>
+        _apiProviderStore.GetById(profileId)
+        ?? throw new InvalidOperationException("Destination API profile no longer exists.");
+
+    private async Task<bool> LaunchAndOpenContinuationAsync(string threadId)
+    {
+        if (_processManager is null || string.IsNullOrWhiteSpace(threadId))
+        {
+            return false;
+        }
+
+        if (!_processManager.TryLaunchDesktop())
+        {
+            return false;
+        }
+
+        // Wait for the registered MSIX app to appear in the process inventory
+        // before sending codex://threads/<id>; ShellExecute acceptance alone
+        // does not prove that Desktop has finished starting.
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            if (_cts.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (_processManager.FindRunningCodexProcesses().Any(process => process.Kind == CodexProcessKind.DesktopApp))
+                {
+                    return _processManager.TryOpenThreadDeepLink(threadId);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), _cts.Token);
+            }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetEnabledSelectedModel(ApiProviderProfile profile, out string model)
+    {
+        model = profile.SelectedModel ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return false;
+        }
+
+        var inventory = profile.ModelInventory;
+        if (inventory is null || inventory.Models.Count == 0)
+        {
+            // Legacy profile migration belongs to the target transaction, where
+            // it is persisted atomically with the configuration projection.
+            return true;
+        }
+
+        var selectedModel = model;
+        var candidate = inventory.Models.FirstOrDefault(candidate =>
+            string.Equals(candidate.Slug, selectedModel, StringComparison.Ordinal));
+        return candidate is not null && candidate.Enabled;
+    }
+
+    private static bool TryGetVerifiedTargetModel(
+        ApiProviderProfile profile,
+        TargetSwitchResult switchResult,
+        out string model)
+    {
+        if (!TryGetEnabledSelectedModel(profile, out model))
+        {
+            return false;
+        }
+
+        var trace = switchResult.DiagnosticTrace;
+        return trace is { ActiveModelListVerified: true } &&
+            string.Equals(trace.EffectiveModelProvider, profile.StableCodexProviderId, StringComparison.Ordinal) &&
+            string.Equals(trace.EffectiveModel, model, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(trace.EffectiveModelCatalogJson);
+    }
+
+    private static void ApplyDiscoveredModelsToInventory(
+        ApiProviderProfile profile,
+        List<string>? models,
+        DateTimeOffset observedAt)
+    {
+        if (models is null || models.Count == 0)
+        {
+            return;
+        }
+
+        profile.DiscoveredModels = models.Distinct(StringComparer.Ordinal).ToList();
+        profile.ModelInventory ??= new ApiProviderModelInventory();
+        profile.ModelInventory.MergeDiscoveredModels(profile.DiscoveredModels, observedAt);
+        profile.ModelInventory.SelectedModel ??= profile.SelectedModel;
+    }
+
+    private static ApiProviderModelInventory CloneModelInventory(ApiProviderModelInventory? source)
+    {
+        if (source is null)
+        {
+            return new ApiProviderModelInventory();
+        }
+
+        return new ApiProviderModelInventory
+        {
+            SelectedModel = source.SelectedModel,
+            DiscoveryStatus = source.DiscoveryStatus,
+            LastDiscoveryAt = source.LastDiscoveryAt,
+            Models = source.Models.Select(entry => new ApiProviderModelItem
+            {
+                Slug = entry.Slug,
+                DisplayName = entry.DisplayName,
+                Enabled = entry.Enabled,
+                DiscoverySource = entry.DiscoverySource,
+                Availability = entry.Availability,
+                LastSeenAt = entry.LastSeenAt,
+                ContextWindow = entry.ContextWindow,
+                ContextEvidence = entry.ContextEvidence,
+                Capabilities = entry.Capabilities,
+                UserOverrides = entry.UserOverrides is null
+                    ? null
+                    : new CodexModelOverrides
+                    {
+                        ContextWindowTokens = entry.UserOverrides.ContextWindowTokens,
+                        AutoCompactTokenLimit = entry.UserOverrides.AutoCompactTokenLimit,
+                        AutoCompactTokenLimitScope = entry.UserOverrides.AutoCompactTokenLimitScope,
+                        ReasoningEffort = entry.UserOverrides.ReasoningEffort,
+                        ReasoningSummary = entry.UserOverrides.ReasoningSummary,
+                        Verbosity = entry.UserOverrides.Verbosity,
+                        ToolOutputTokenLimit = entry.UserOverrides.ToolOutputTokenLimit,
+                    },
+            }).ToList(),
+        };
     }
 
     [RelayCommand]
@@ -761,6 +967,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             ProviderPresetId = original.ProviderPresetId,
             RoutePoolLabel = original.RoutePoolLabel,
             DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
+            ModelInventory = CloneModelInventory(original.ModelInventory),
             CompatibilityLevel = original.CompatibilityLevel,
             LastProbeReport = original.LastProbeReport,
         };
@@ -811,6 +1018,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             ProviderPresetId = original.ProviderPresetId,
             RoutePoolLabel = original.RoutePoolLabel,
             DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
+            ModelInventory = CloneModelInventory(original.ModelInventory),
             CompatibilityLevel = original.CompatibilityLevel,
             LastProbeReport = original.LastProbeReport,
         };
@@ -850,6 +1058,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             ProviderPresetId = original.ProviderPresetId,
             RoutePoolLabel = original.RoutePoolLabel,
             DiscoveredModels = original.DiscoveredModels != null ? new List<string>(original.DiscoveredModels) : null,
+            ModelInventory = CloneModelInventory(original.ModelInventory),
             CompatibilityLevel = original.CompatibilityLevel,
             LastProbeReport = original.LastProbeReport,
         };
@@ -867,6 +1076,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         candidate.ModelOverrides = result.ModelOverrides;
         candidate.TransportOverrides = result.TransportOverrides;
         candidate.RoutePoolLabel = result.RoutePoolLabel;
+        if (result.ModelInventory is not null) candidate.ModelInventory = result.ModelInventory;
         if (result.DiscoveredModels != null) candidate.DiscoveredModels = result.DiscoveredModels;
         if (result.CompatibilityLevel != CodexCompatibilityLevel.Unknown) candidate.CompatibilityLevel = result.CompatibilityLevel;
         if (result.LastProbeReport != null) candidate.LastProbeReport = result.LastProbeReport;

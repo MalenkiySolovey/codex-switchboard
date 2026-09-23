@@ -69,6 +69,7 @@ public sealed class ProviderInspectionServiceTests
         public string? LastInspectedApiKey { get; private set; }
         public ProviderDescriptor? LastDescriptor { get; private set; }
         public bool GenericCalled { get; private set; }
+        public bool DiscoverModelsCalled { get; private set; }
 
         public ApiProviderSnapshot ResultToReturn { get; set; } = new()
         {
@@ -86,6 +87,20 @@ public sealed class ProviderInspectionServiceTests
             CancellationToken ct = default)
         {
             if (ExceptionToThrow != null) throw ExceptionToThrow;
+            LastDescriptor = descriptor;
+            LastInspectedBaseUrl = activeBaseUrl;
+            LastInspectedApiKey = apiKey;
+            return Task.FromResult(ResultToReturn);
+        }
+
+        public Task<ApiProviderSnapshot> DiscoverModelsAsync(
+            ProviderDescriptor descriptor,
+            string activeBaseUrl,
+            string? apiKey,
+            CancellationToken ct = default)
+        {
+            if (ExceptionToThrow != null) throw ExceptionToThrow;
+            DiscoverModelsCalled = true;
             LastDescriptor = descriptor;
             LastInspectedBaseUrl = activeBaseUrl;
             LastInspectedApiKey = apiKey;
@@ -259,5 +274,44 @@ public sealed class ProviderInspectionServiceTests
         {
             Assert.DoesNotContain(SyntheticSecretKey, model);
         }
+    }
+
+    [Fact]
+    public async Task DiscoverModelsAsync_UsesEndpointOwnedCredentialAndDiscoveryOnlyInspector()
+    {
+        var apiStore = new FakeApiProviderStore();
+        var secretStore = new FakeSecretStore();
+        var catalogService = new FakeCatalogService();
+        var inspector = new FakeInspector();
+        var cache = new FakeModelCache();
+        var profileId = Guid.NewGuid();
+        var endpointId = Guid.NewGuid();
+        var profile = new ApiProviderProfile
+        {
+            Id = profileId,
+            EndpointId = endpointId,
+            CatalogProviderId = "endpoint-owned",
+            BaseUrl = "https://models.example.test/v1",
+            SelectedRouteId = "primary",
+        };
+        apiStore.Save(profile);
+        // Reproduces the QA state: the secret belongs to a shared endpoint,
+        // not to each individual model configuration/profile ID.
+        secretStore.SaveApiKey(endpointId, SyntheticSecretKey);
+        catalogService.Descriptors["endpoint-owned"] = new ProviderDescriptor
+        {
+            Id = "endpoint-owned",
+            DisplayName = "Endpoint-owned test descriptor",
+        };
+
+        var service = new ProviderInspectionService(apiStore, secretStore, catalogService, inspector, cache);
+        var snapshot = await service.DiscoverModelsAsync(profileId);
+
+        Assert.True(inspector.DiscoverModelsCalled);
+        Assert.Equal(SyntheticSecretKey, inspector.LastInspectedApiKey);
+        Assert.Equal("https://models.example.test/v1", inspector.LastInspectedBaseUrl);
+        Assert.Equal(2, snapshot.Models.Count);
+        Assert.True(cache.TryGetModels(profileId, "primary", 1, out var cached));
+        Assert.Equal(snapshot.Models, cached);
     }
 }

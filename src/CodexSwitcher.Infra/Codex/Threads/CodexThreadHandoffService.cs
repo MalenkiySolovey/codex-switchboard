@@ -79,7 +79,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         int limit = 50,
         CancellationToken cancellationToken = default)
     {
-        var client = await _clientFactory().ConfigureAwait(false);
+        await using var client = await _clientFactory().ConfigureAwait(false);
         var list = new List<CodexThreadSummary>();
         string? currentCursor = null;
 
@@ -162,13 +162,20 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         string targetModelProvider,
         string targetModel,
         string? newName = null,
+        Guid? targetProfileId = null,
+        string? targetCatalogPath = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetModelProvider);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetModel);
 
-        var client = await _clientFactory().ConfigureAwait(false);
+        await using var client = await _clientFactory().ConfigureAwait(false);
+
+        // Historical source metadata is evidence only. It is deliberately
+        // never used as the destination: target provider/model come only from
+        // the caller's freshly resolved TargetEnvironment.
+        var sourceMetadata = await TryReadThreadMetadataAsync(client, sourceThreadId, cancellationToken).ConfigureAwait(false);
 
         var forkParams = new Dictionary<string, object?>
         {
@@ -253,8 +260,12 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             returnedProvider = tmpEl.GetString();
         }
 
-        if (!string.IsNullOrWhiteSpace(returnedProvider) &&
-            !string.Equals(returnedProvider, targetModelProvider, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(returnedProvider))
+        {
+            throw new InvalidOperationException("thread/fork did not return modelProvider. A verified target provider is required.");
+        }
+
+        if (!string.Equals(returnedProvider, targetModelProvider, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Target modelProvider mismatch. Requested: '{targetModelProvider}', returned: '{returnedProvider}'");
         }
@@ -270,8 +281,12 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             returnedModel = tmEl.GetString();
         }
 
-        if (!string.IsNullOrWhiteSpace(returnedModel) &&
-            !string.Equals(returnedModel, targetModel, StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(returnedModel))
+        {
+            throw new InvalidOperationException("thread/fork did not return model. A verified target model is required.");
+        }
+
+        if (!string.Equals(returnedModel, targetModel, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Target model mismatch. Requested: '{targetModel}', returned: '{returnedModel}'");
         }
@@ -298,37 +313,21 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             }
         }
 
-        // Read-back verification (Requirement K): verify the new thread is persisted and readable
-        bool threadReadOk = false;
-        try
+        // Read-back is the persistence boundary. Metadata is validated when
+        // the app-server exposes it; a response that exposes a conflicting
+        // target is never papered over in local Switchboard state.
+        var readback = await TryReadThreadMetadataAsync(client, forkedThreadId, cancellationToken).ConfigureAwait(false);
+        bool threadReadOk = readback?.IsReadable == true &&
+            (string.IsNullOrWhiteSpace(readback.ThreadId) ||
+             string.Equals(readback.ThreadId, forkedThreadId, StringComparison.Ordinal));
+        if (threadReadOk)
         {
-            var readResp = await client.RequestAsync("thread/read", new { threadId = forkedThreadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
-            if (readResp.ValueKind == JsonValueKind.Object)
-            {
-                string? readId = null;
-                if (readResp.TryGetProperty("thread", out var readThread) && readThread.ValueKind == JsonValueKind.Object && readThread.TryGetProperty("id", out var rtid))
-                {
-                    readId = rtid.GetString();
-                }
-                else if (readResp.TryGetProperty("id", out var rid))
-                {
-                    readId = rid.GetString();
-                }
-
-                if (string.Equals(readId, forkedThreadId, StringComparison.OrdinalIgnoreCase) ||
-                    readResp.TryGetProperty("turns", out _) ||
-                    readResp.TryGetProperty("history", out _))
-                {
-                    threadReadOk = true;
-                }
-            }
-        }
-        catch (Exception)
-        {
-            // Fallback to thread/list with modelProviders = []
+            ValidateMetadataWhenAvailable("thread/read", readback!, targetModelProvider, targetModel);
         }
 
         bool threadListOk = false;
+        string? listProvider = null;
+        string? listModel = null;
         if (!threadReadOk)
         {
             try
@@ -340,6 +339,9 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
                     {
                         if (item.TryGetProperty("id", out var idProp) && string.Equals(idProp.GetString(), forkedThreadId, StringComparison.OrdinalIgnoreCase))
                         {
+                            listProvider = ReadString(item, "modelProvider", "model_provider");
+                            listModel = ReadString(item, "model");
+                            ValidateMetadataWhenAvailable("thread/list", listProvider, listModel, targetModelProvider, targetModel);
                             threadListOk = true;
                             break;
                         }
@@ -361,8 +363,8 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         _audit?.Record(
             "thread-fork-diagnostic",
             verifiedReadable ? "success" : "failed",
-            $"THREAD_ID={forkedThreadId} FORKED_FROM_ID={returnedForkedFromId ?? sourceThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={returnedPathPresent} RETURNED_PATH_EXISTS={returnedPathExists} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
-        System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] THREAD_ID={forkedThreadId} FORKED_FROM_ID={returnedForkedFromId ?? sourceThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={returnedPathPresent} RETURNED_PATH_EXISTS={returnedPathExists} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
+            $"SOURCE_THREAD_ID={sourceThreadId} SOURCE_PROVIDER={sourceMetadata?.ModelProvider ?? "unavailable"} SOURCE_MODEL={sourceMetadata?.Model ?? "unavailable"} TARGET_PROFILE_ID={targetProfileId?.ToString("D") ?? "unavailable"} TARGET_PROVIDER={targetModelProvider} TARGET_MODEL={targetModel} TARGET_CATALOG_PATH={targetCatalogPath ?? "unavailable"} FORK_REQUEST_PROVIDER={targetModelProvider} FORK_REQUEST_MODEL={targetModel} FORK_RESPONSE_THREAD_ID={forkedThreadId} FORK_RESPONSE_PROVIDER={returnedProvider} FORK_RESPONSE_MODEL={returnedModel} READBACK_PROVIDER={readback?.ModelProvider ?? listProvider ?? "unavailable"} READBACK_MODEL={readback?.Model ?? listModel ?? "unavailable"} FORKED_FROM_ID={returnedForkedFromId ?? sourceThreadId} EPHEMERAL=false RETURNED_PATH_PRESENT={returnedPathPresent} RETURNED_PATH_EXISTS={returnedPathExists} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
+        System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] SOURCE_THREAD_ID={sourceThreadId} SOURCE_PROVIDER={sourceMetadata?.ModelProvider ?? "unavailable"} SOURCE_MODEL={sourceMetadata?.Model ?? "unavailable"} TARGET_PROFILE_ID={targetProfileId?.ToString("D") ?? "unavailable"} TARGET_PROVIDER={targetModelProvider} TARGET_MODEL={targetModel} TARGET_CATALOG_PATH={targetCatalogPath ?? "unavailable"} FORK_REQUEST_PROVIDER={targetModelProvider} FORK_REQUEST_MODEL={targetModel} FORK_RESPONSE_THREAD_ID={forkedThreadId} FORK_RESPONSE_PROVIDER={returnedProvider} FORK_RESPONSE_MODEL={returnedModel} READBACK_PROVIDER={readback?.ModelProvider ?? listProvider ?? "unavailable"} READBACK_MODEL={readback?.Model ?? listModel ?? "unavailable"} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
 
         // Best-effort rename using official thread/name/set ONLY AFTER thread persistence is verified
         if (!string.IsNullOrWhiteSpace(newName))
@@ -377,7 +379,20 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             }
         }
 
-        return new ThreadForkResult(forkedThreadId, sourceThreadId, targetModelProvider, targetModel, newName);
+        return new ThreadForkResult(forkedThreadId, sourceThreadId, targetModelProvider, targetModel, newName)
+        {
+            SourceModelProvider = sourceMetadata?.ModelProvider,
+            SourceModel = sourceMetadata?.Model,
+            ResponseModelProvider = returnedProvider,
+            ResponseModel = returnedModel,
+            ReadbackModelProvider = readback?.ModelProvider ?? listProvider,
+            ReadbackModel = readback?.Model ?? listModel,
+            TargetProfileId = targetProfileId,
+            TargetCatalogPath = targetCatalogPath,
+            ThreadReadVerified = threadReadOk,
+            ThreadListVerified = threadListOk,
+            ReturnedPathExists = returnedPathExists,
+        };
     }
 
     public async Task<ThreadForkResult> StartFreshThreadAsync(
@@ -385,12 +400,14 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         string targetModel,
         string? cwd = null,
         string? name = null,
+        Guid? targetProfileId = null,
+        string? targetCatalogPath = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetModelProvider);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetModel);
 
-        var client = await _clientFactory().ConfigureAwait(false);
+        await using var client = await _clientFactory().ConfigureAwait(false);
 
         var startParams = new Dictionary<string, object?>
         {
@@ -456,8 +473,12 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             returnedProvider = tmpEl.GetString();
         }
 
-        if (!string.IsNullOrWhiteSpace(returnedProvider) &&
-            !string.Equals(returnedProvider, targetModelProvider, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(returnedProvider))
+        {
+            throw new InvalidOperationException("thread/start did not return modelProvider. A verified target provider is required.");
+        }
+
+        if (!string.Equals(returnedProvider, targetModelProvider, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Target modelProvider mismatch on thread/start. Requested: '{targetModelProvider}', returned: '{returnedProvider}'");
         }
@@ -473,8 +494,12 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             returnedModel = tmEl.GetString();
         }
 
-        if (!string.IsNullOrWhiteSpace(returnedModel) &&
-            !string.Equals(returnedModel, targetModel, StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(returnedModel))
+        {
+            throw new InvalidOperationException("thread/start did not return model. A verified target model is required.");
+        }
+
+        if (!string.Equals(returnedModel, targetModel, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Target model mismatch on thread/start. Requested: '{targetModel}', returned: '{returnedModel}'");
         }
@@ -492,22 +517,63 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         bool freshPathPresent = !string.IsNullOrWhiteSpace(freshPath);
         bool freshPathExists = freshPathPresent && File.Exists(freshPath);
 
-        // Read-back verification (Requirement K): verify the fresh thread is persisted and readable
-        try
+        var freshReadback = await TryReadThreadMetadataAsync(client, freshThreadId, cancellationToken).ConfigureAwait(false);
+        var freshReadOk = freshReadback?.IsReadable == true &&
+            (string.IsNullOrWhiteSpace(freshReadback.ThreadId) ||
+             string.Equals(freshReadback.ThreadId, freshThreadId, StringComparison.Ordinal));
+        if (freshReadOk)
         {
-            await client.RequestAsync("thread/read", new { threadId = freshThreadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+            ValidateMetadataWhenAvailable("thread/read", freshReadback!, targetModelProvider, targetModel);
         }
-        catch (Exception)
+
+        bool freshListOk = false;
+        string? freshListProvider = null;
+        string? freshListModel = null;
+        if (!freshReadOk)
         {
-            // Fallback / best effort
+            try
+            {
+                var listResponse = await client.RequestAsync(
+                    "thread/list",
+                    new { limit = 50, modelProviders = Array.Empty<string>() },
+                    TimeSpan.FromSeconds(20),
+                    cancellationToken).ConfigureAwait(false);
+                if (listResponse.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in data.EnumerateArray())
+                    {
+                        if (string.Equals(ReadString(item, "id"), freshThreadId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            freshListProvider = ReadString(item, "modelProvider", "model_provider");
+                            freshListModel = ReadString(item, "model");
+                            ValidateMetadataWhenAvailable("thread/list", freshListProvider, freshListModel, targetModelProvider, targetModel);
+                            freshListOk = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // The hard readable postcondition below reports the failure.
+            }
+        }
+
+        if (!freshReadOk && !freshListOk)
+        {
+            throw new InvalidOperationException($"Started thread '{freshThreadId}' could not be verified via thread/read or thread/list.");
         }
 
         // Safe Human-QA Diagnostic Log (no prompt text, no credentials, no auth, no thread content)
         _audit?.Record(
             "thread-start-diagnostic",
             "success",
-            $"FRESH_THREAD_ID={freshThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={freshPathPresent} RETURNED_PATH_EXISTS={freshPathExists}");
-        System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] FRESH_THREAD_ID={freshThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={freshPathPresent} RETURNED_PATH_EXISTS={freshPathExists}");
+            $"FRESH_THREAD_ID={freshThreadId} TARGET_PROFILE_ID={targetProfileId?.ToString("D") ?? "unavailable"} TARGET_PROVIDER={targetModelProvider} TARGET_MODEL={targetModel} TARGET_CATALOG_PATH={targetCatalogPath ?? "unavailable"} RESPONSE_PROVIDER={returnedProvider} RESPONSE_MODEL={returnedModel} READBACK_PROVIDER={freshReadback?.ModelProvider ?? freshListProvider ?? "unavailable"} READBACK_MODEL={freshReadback?.Model ?? freshListModel ?? "unavailable"} EPHEMERAL=false RETURNED_PATH_PRESENT={freshPathPresent} RETURNED_PATH_EXISTS={freshPathExists} THREAD_READ_OK={freshReadOk} THREAD_LIST_OK={freshListOk}");
+        System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] FRESH_THREAD_ID={freshThreadId} TARGET_PROFILE_ID={targetProfileId?.ToString("D") ?? "unavailable"} TARGET_PROVIDER={targetModelProvider} TARGET_MODEL={targetModel} TARGET_CATALOG_PATH={targetCatalogPath ?? "unavailable"} RESPONSE_PROVIDER={returnedProvider} RESPONSE_MODEL={returnedModel} READBACK_PROVIDER={freshReadback?.ModelProvider ?? freshListProvider ?? "unavailable"} READBACK_MODEL={freshReadback?.Model ?? freshListModel ?? "unavailable"} THREAD_READ_OK={freshReadOk} THREAD_LIST_OK={freshListOk}");
 
         // Best-effort rename using official thread/name/set
         if (!string.IsNullOrWhiteSpace(name))
@@ -522,7 +588,18 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             }
         }
 
-        return new ThreadForkResult(freshThreadId, string.Empty, targetModelProvider, targetModel, name);
+        return new ThreadForkResult(freshThreadId, string.Empty, targetModelProvider, targetModel, name)
+        {
+            ResponseModelProvider = returnedProvider,
+            ResponseModel = returnedModel,
+            ReadbackModelProvider = freshReadback?.ModelProvider ?? freshListProvider,
+            ReadbackModel = freshReadback?.Model ?? freshListModel,
+            TargetProfileId = targetProfileId,
+            TargetCatalogPath = targetCatalogPath,
+            ThreadReadVerified = freshReadOk,
+            ThreadListVerified = freshListOk,
+            ReturnedPathExists = freshPathExists,
+        };
     }
 
     public async Task<ThreadCompatibilityAssessment> AssessThreadCompatibilityAsync(
@@ -535,7 +612,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
 
         try
         {
-            var client = await _clientFactory().ConfigureAwait(false);
+            await using var client = await _clientFactory().ConfigureAwait(false);
             var response = await client.RequestAsync("thread/read", new { threadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
 
             var itemTypes = new List<string>();
@@ -547,6 +624,110 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         {
             // If app-server cannot read thread or method is unavailable, default to compatible
             return ThreadCompatibilityAssessment.Compatible(threadId);
+        }
+    }
+
+    private sealed record ThreadMetadata(
+        bool IsReadable,
+        string? ThreadId,
+        string? ModelProvider,
+        string? Model);
+
+    private static async Task<ThreadMetadata?> TryReadThreadMetadataAsync(
+        ICodexAppServerClient client,
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await client.RequestAsync(
+                "thread/read",
+                new { threadId },
+                TimeSpan.FromSeconds(20),
+                cancellationToken).ConfigureAwait(false);
+            return ParseThreadMetadata(response);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static ThreadMetadata ParseThreadMetadata(JsonElement response)
+    {
+        JsonElement? thread = null;
+        if (response.ValueKind == JsonValueKind.Object &&
+            response.TryGetProperty("thread", out var threadValue) &&
+            threadValue.ValueKind == JsonValueKind.Object)
+        {
+            thread = threadValue;
+        }
+
+        var id = ReadString(response, thread, "id", "threadId", "thread_id");
+        var provider = ReadString(response, thread, "modelProvider", "model_provider");
+        var model = ReadString(response, thread, "model");
+        var readable = !string.IsNullOrWhiteSpace(id) ||
+            (response.ValueKind == JsonValueKind.Object &&
+             (response.TryGetProperty("turns", out _) ||
+              response.TryGetProperty("history", out _) ||
+              thread.HasValue));
+        return new ThreadMetadata(readable, id, provider, model);
+    }
+
+    private static string? ReadString(JsonElement root, JsonElement? nested, params string[] propertyNames)
+    {
+        var direct = ReadString(root, propertyNames);
+        return !string.IsNullOrWhiteSpace(direct) || !nested.HasValue
+            ? direct
+            : ReadString(nested.Value, propertyNames);
+    }
+
+    private static string? ReadString(JsonElement element, params string[] propertyNames)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            if (element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    private static void ValidateMetadataWhenAvailable(
+        string operation,
+        ThreadMetadata metadata,
+        string expectedProvider,
+        string expectedModel) =>
+        ValidateMetadataWhenAvailable(operation, metadata.ModelProvider, metadata.Model, expectedProvider, expectedModel);
+
+    private static void ValidateMetadataWhenAvailable(
+        string operation,
+        string? actualProvider,
+        string? actualModel,
+        string expectedProvider,
+        string expectedModel)
+    {
+        if (!string.IsNullOrWhiteSpace(actualProvider) &&
+            !string.Equals(actualProvider, expectedProvider, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"{operation} modelProvider mismatch. Expected '{expectedProvider}', returned '{actualProvider}'.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(actualModel) &&
+            !string.Equals(actualModel, expectedModel, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"{operation} model mismatch. Expected '{expectedModel}', returned '{actualModel}'.");
         }
     }
 

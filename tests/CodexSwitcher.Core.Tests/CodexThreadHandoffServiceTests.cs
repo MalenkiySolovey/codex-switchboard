@@ -162,6 +162,16 @@ public sealed class CodexThreadHandoffServiceTests
                     }";
                     return JsonDocument.Parse(json).RootElement;
                 }
+                if (method == "thread/read")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""thread"": {
+                            ""id"": ""thread-fresh-999"",
+                            ""modelProvider"": ""switchboard_8f31c20a"",
+                            ""model"": ""gpt-5.6-sol""
+                        }
+                    }").RootElement;
+                }
                 return JsonDocument.Parse("{}").RootElement;
             }
         };

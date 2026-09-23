@@ -30,6 +30,72 @@ public enum ModelDiscoveryStatus
 }
 
 /// <summary>
+/// Cosmetic-only formatter for model slugs. It deliberately does not infer
+/// capabilities, limits, provider identity, or any other model fact.
+/// </summary>
+public static class ModelDisplayName
+{
+    public static string FromSlug(string slug)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
+
+        // Preserve an exact slug when it contains characters for which a
+        // "humanized" rendering could be misleading. This is presentation
+        // only; persistence always retains <paramref name="slug"/> verbatim.
+        var result = slug
+            .Replace('-', ' ')
+            .Replace('_', ' ');
+
+        // Keep version-like and suffix segments intact while making familiar
+        // family names readable. No capability facts are derived here.
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"(?<!^)(?=[A-Z])",
+            " ");
+
+        var words = result.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
+        {
+            return slug;
+        }
+
+        return string.Join(" ", words.Select(word =>
+        {
+            if (word.Length == 0 || word.StartsWith(':'))
+            {
+                return word;
+            }
+
+            if (word.Equals("deepseek", StringComparison.OrdinalIgnoreCase))
+            {
+                return "DeepSeek";
+            }
+
+            if (word.Length > 1 && word[0] is 'v' or 'V' && char.IsDigit(word[1]))
+            {
+                return "v" + word[1..];
+            }
+
+            if (word.Length == 1 && char.IsLetter(word[0]))
+            {
+                return word.ToUpperInvariant();
+            }
+
+            return char.ToUpperInvariant(word[0]) + word[1..];
+        }));
+    }
+}
+
+/// <summary>
+/// Counts the meaningful changes made while merging a GET /models response.
+/// </summary>
+public sealed record ModelInventoryMergeResult(
+    int ModelsAdded,
+    int ModelsUpdated,
+    int ManualModelsPreserved,
+    int ReportedCount);
+
+/// <summary>
 /// Represents a single model item in an API provider's inventory.
 /// </summary>
 public sealed class ApiProviderModelItem
@@ -70,25 +136,42 @@ public sealed class ApiProviderModelInventory
     /// Merges an incoming list of discovered model slugs from the API provider.
     /// Preserves existing manual models and existing configurations, marking missing discovered models as NotReported.
     /// </summary>
-    public void MergeDiscoveredModels(IEnumerable<string>? discoveredSlugs)
+    public ModelInventoryMergeResult MergeDiscoveredModels(
+        IEnumerable<string>? discoveredSlugs,
+        DateTimeOffset? observedAt = null)
     {
-        if (discoveredSlugs == null) return;
-        DiscoveryStatus = ModelDiscoveryStatus.Discovered;
-        LastDiscoveryAt = DateTimeOffset.UtcNow;
+        if (discoveredSlugs == null)
+        {
+            return new ModelInventoryMergeResult(0, 0, Models.Count(m => m.DiscoverySource is ModelDiscoverySource.Manual or ModelDiscoverySource.Mixed), 0);
+        }
 
-        var existingMap = Models.ToDictionary(m => m.Slug, StringComparer.OrdinalIgnoreCase);
-        var discoveredSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var observationTime = observedAt ?? DateTimeOffset.UtcNow;
+        DiscoveryStatus = ModelDiscoveryStatus.Discovered;
+        LastDiscoveryAt = observationTime;
+
+        // Model slugs are exact persisted identifiers. Do not trim, normalize
+        // suffixes, or fuzzy-match (e.g. ":free" is a distinct model).
+        var existingMap = Models
+            .Where(m => !string.IsNullOrEmpty(m.Slug))
+            .GroupBy(m => m.Slug, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var discoveredSet = new HashSet<string>(StringComparer.Ordinal);
+        var added = 0;
+        var updated = 0;
 
         foreach (var slug in discoveredSlugs)
         {
             if (string.IsNullOrWhiteSpace(slug)) continue;
-            var cleanSlug = slug.Trim();
-            discoveredSet.Add(cleanSlug);
+            discoveredSet.Add(slug);
 
-            if (existingMap.TryGetValue(cleanSlug, out var existing))
+            if (existingMap.TryGetValue(slug, out var existing))
             {
+                if (existing.Availability != ModelAvailability.Reported)
+                {
+                    updated++;
+                }
                 existing.Availability = ModelAvailability.Reported;
-                existing.LastSeenAt = DateTimeOffset.UtcNow;
+                existing.LastSeenAt = observationTime;
                 if (existing.DiscoverySource == ModelDiscoverySource.Manual)
                 {
                     existing.DiscoverySource = ModelDiscoverySource.Mixed;
@@ -98,33 +181,44 @@ public sealed class ApiProviderModelInventory
             {
                 Models.Add(new ApiProviderModelItem
                 {
-                    Slug = cleanSlug,
-                    DisplayName = cleanSlug,
+                    Slug = slug,
+                    DisplayName = ModelDisplayName.FromSlug(slug),
                     Enabled = true,
                     DiscoverySource = ModelDiscoverySource.Discovered,
                     Availability = ModelAvailability.Reported,
-                    LastSeenAt = DateTimeOffset.UtcNow
+                    LastSeenAt = observationTime
                 });
+                added++;
             }
         }
 
-        // Mark previously discovered models that were not reported in this pass
+        // Preserve manual entries but retain truthful availability evidence:
+        // an exact manual/legacy selected slug that a provider no longer
+        // returns is still usable by explicit user choice, yet it must be
+        // presented as NotReported rather than silently claimed as current.
+        // Previously discovered and mixed entries receive the same stale
+        // evidence without being deleted.
         foreach (var m in Models)
         {
-            if (!discoveredSet.Contains(m.Slug) && m.DiscoverySource != ModelDiscoverySource.Manual)
+            if (!discoveredSet.Contains(m.Slug))
             {
                 m.Availability = ModelAvailability.NotReported;
             }
         }
+
+        var manualPreserved = Models.Count(m =>
+            m.DiscoverySource is ModelDiscoverySource.Manual or ModelDiscoverySource.Mixed);
+        return new ModelInventoryMergeResult(added, updated, manualPreserved, discoveredSet.Count);
     }
 
     /// <summary>
-    /// Ensures that the profile's active or selected model exists as an enabled item in the inventory.
-    /// Performs backward-compatible migration for existing profiles that lack an explicit inventory.
+    /// Ensures that the profile's active or selected model exists in the inventory.
+    /// Performs backward-compatible migration for existing profiles that lack an explicit inventory,
+    /// while preserving an explicit user-disabled state for an existing item.
     /// </summary>
     public void EnsureSelectedModelMigrated(
         string? selectedModel,
-        string? nickname = null,
+        string? displayName = null,
         long? contextWindow = null,
         CodexModelOverrides? overrides = null)
     {
@@ -132,13 +226,15 @@ public sealed class ApiProviderModelInventory
 
         SelectedModel ??= selectedModel;
 
-        var existing = Models.FirstOrDefault(m => string.Equals(m.Slug, selectedModel, StringComparison.OrdinalIgnoreCase));
+        var existing = Models.FirstOrDefault(m => string.Equals(m.Slug, selectedModel, StringComparison.Ordinal));
         if (existing == null)
         {
             Models.Insert(0, new ApiProviderModelItem
             {
                 Slug = selectedModel,
-                DisplayName = nickname ?? selectedModel,
+                DisplayName = !string.IsNullOrWhiteSpace(displayName)
+                    ? displayName
+                    : ModelDisplayName.FromSlug(selectedModel),
                 Enabled = true,
                 DiscoverySource = ModelDiscoverySource.Manual,
                 Availability = ModelAvailability.Reported,
@@ -154,7 +250,6 @@ public sealed class ApiProviderModelInventory
         }
         else
         {
-            existing.Enabled = true;
             if (existing.ContextWindow == null && contextWindow.HasValue)
             {
                 existing.ContextWindow = contextWindow;

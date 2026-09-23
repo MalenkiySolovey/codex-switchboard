@@ -182,6 +182,64 @@ public sealed class DeclarativeProviderInspector : IDeclarativeProviderInspector
         };
     }
 
+    /// <inheritdoc />
+    public async Task<ApiProviderSnapshot> DiscoverModelsAsync(
+        ProviderDescriptor descriptor,
+        string activeBaseUrl,
+        string? apiKey,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        if (string.IsNullOrWhiteSpace(activeBaseUrl))
+        {
+            throw new ArgumentException("Active base URL cannot be empty.", nameof(activeBaseUrl));
+        }
+
+        var modelsRecipe = descriptor.Capabilities?.Models;
+        if (modelsRecipe is null || modelsRecipe.Status != CapabilityStatus.Supported)
+        {
+            return new ApiProviderSnapshot
+            {
+                ConnectionStatus = HealthStatus.Unknown,
+                Capabilities = new Dictionary<string, CapabilityStatus>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["models"] = modelsRecipe?.Status ?? CapabilityStatus.Unknown,
+                },
+                Error = "This provider does not declare a supported GET /models strategy.",
+                LastCheckedAt = DateTimeOffset.UtcNow,
+            };
+        }
+
+        var (valid, plan, planError) = _planner.PlanProbe(descriptor, modelsRecipe, activeBaseUrl, "models");
+        if (!valid || plan is null)
+        {
+            return new ApiProviderSnapshot
+            {
+                ConnectionStatus = HealthStatus.Error,
+                Capabilities = new Dictionary<string, CapabilityStatus>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["models"] = modelsRecipe.Status,
+                },
+                Error = planError,
+                LastCheckedAt = DateTimeOffset.UtcNow,
+            };
+        }
+
+        var response = await _transport.SendProbeAsync(plan, descriptor, apiKey, ct).ConfigureAwait(false);
+        var (success, models, mapError) = _mapper.MapModelsResponse(response, plan.ModelsPointer);
+        return new ApiProviderSnapshot
+        {
+            ConnectionStatus = success ? HealthStatus.Valid : HealthStatus.Error,
+            Models = models ?? [],
+            Capabilities = new Dictionary<string, CapabilityStatus>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["models"] = success ? CapabilityStatus.Supported : CapabilityStatus.Unknown,
+            },
+            Error = mapError ?? response.Error,
+            LastCheckedAt = DateTimeOffset.UtcNow,
+        };
+    }
+
     /// <summary>
     /// Inspects an unknown generic OpenAI-compatible provider using safe default endpoints.
     /// strictly never guesses balance/credits paths.

@@ -607,6 +607,16 @@ public sealed class ContinueChatThreadForkTests
                         }
                     }").RootElement;
                 }
+                if (method == "thread/read")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""thread"": {
+                            ""id"": ""thread-fresh-123"",
+                            ""modelProvider"": ""switchboard_prov_1"",
+                            ""model"": ""test-model""
+                        }
+                    }").RootElement;
+                }
                 return JsonDocument.Parse("{}").RootElement;
             }
         };

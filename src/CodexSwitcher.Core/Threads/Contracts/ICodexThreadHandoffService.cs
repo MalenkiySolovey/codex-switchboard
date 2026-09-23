@@ -50,6 +50,8 @@ public interface ICodexThreadHandoffService
         string targetModelProvider,
         string targetModel,
         string? newName = null,
+        Guid? targetProfileId = null,
+        string? targetCatalogPath = null,
         CancellationToken cancellationToken = default);
 
     Task<ThreadForkResult> StartFreshThreadAsync(
@@ -57,6 +59,8 @@ public interface ICodexThreadHandoffService
         string targetModel,
         string? cwd = null,
         string? name = null,
+        Guid? targetProfileId = null,
+        string? targetCatalogPath = null,
         CancellationToken cancellationToken = default);
 
     Task<ThreadCompatibilityAssessment> AssessThreadCompatibilityAsync(

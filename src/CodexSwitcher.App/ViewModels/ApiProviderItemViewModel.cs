@@ -11,6 +11,7 @@ using CodexSwitcher.Core.Common.Logging;
 using CodexSwitcher.Core.Common.Storage;
 using CodexSwitcher.Core.Common.Time;
 using CodexSwitcher.Core.Providers.Contracts;
+using CodexSwitcher.Core.Providers.Models;
 using CodexSwitcher.Core.Providers.Services;
 using CodexSwitcher.Core.Routing.Contracts;
 using CodexSwitcher.Core.Routing.Services;
@@ -47,7 +48,6 @@ using CodexSwitcher.Infra.Security.Totp;
 using CodexSwitcher.Infra.Settings;
 using CodexSwitcher.Core.Routing.Models;
 using CodexSwitcher.Core.Providers.Catalog;
-using CodexSwitcher.Core.Providers.Models;
 using CodexSwitcher.App.Localization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -70,6 +70,8 @@ public enum ApiProviderCardVisualState
 /// </summary>
 public sealed partial class ApiProviderItemViewModel : ObservableObject
 {
+    private long _latestRefreshGeneration;
+
     private static Strings Loc => Strings.Current;
 
     public ApiProviderProfile Profile { get; private set; }
@@ -128,6 +130,25 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string ModelsStatusMessage { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModelsSummary))]
+    public partial int ModelsReportedCount { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModelsSummary))]
+    public partial int ModelsEnabledCount { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModelsSummary))]
+    public partial DateTimeOffset? LastModelsRefreshAt { get; set; }
+
+    /// <summary>Compact, persisted-inventory based model summary for the card.</summary>
+    public string ModelsSummary => ModelsReportedCount > 0
+        ? $"{ModelsReportedCount} reported · {ModelsEnabledCount} enabled"
+        : ModelsEnabledCount > 0
+            ? $"{ModelsEnabledCount} enabled"
+            : "No models discovered";
 
     [ObservableProperty]
     public partial string BalanceSummary { get; set; } = "Unknown";
@@ -213,6 +234,7 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
         Initials = ComputeInitials(CatalogProviderName, DisplayName);
 
         ApplyTruthfulCapabilityFacts(descriptor);
+        RefreshInventoryPresentation(profile);
     }
 
     public void UpdateProfile(ApiProviderProfile updated, ProviderDescriptor? descriptor, bool hasSecret, bool isTargetActive)
@@ -235,11 +257,71 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
         Initials = ComputeInitials(CatalogProviderName, DisplayName);
 
         ApplyTruthfulCapabilityFacts(descriptor);
+        RefreshInventoryPresentation(updated);
     }
 
     public void SetDiscoveredModels(IReadOnlyList<string> models)
     {
-        ModelsStatusMessage = $"{models.Count} models available";
+        if (models.Count > 0 && ModelsReportedCount == 0)
+        {
+            ModelsReportedCount = models.Count;
+            ModelsStatusMessage = $"{models.Count} models available";
+        }
+    }
+
+    /// <summary>
+    /// Applies the one authoritative refresh result. A newer service generation
+    /// is the only state allowed to replace a card's previous error text.
+    /// </summary>
+    public void ApplyRefreshResult(ModelInventoryRefreshResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (result.RequestGeneration < _latestRefreshGeneration)
+        {
+            return;
+        }
+
+        _latestRefreshGeneration = result.RequestGeneration;
+
+        switch (result.Outcome)
+        {
+            case ModelInventoryRefreshOutcome.Refreshing:
+                IsLoadingModels = true;
+                ModelsStatusMessage = result.ProgressMessage ?? "Refreshing models...";
+                break;
+            case ModelInventoryRefreshOutcome.Succeeded:
+                IsLoadingModels = false;
+                ModelsReportedCount = result.ModelsReportedCount;
+                ModelsEnabledCount = Profile.ModelInventory?.GetEnabledModels().Count() ?? 0;
+                LastModelsRefreshAt = result.ObservedAt;
+                ModelsStatusMessage = $"{result.ModelsReportedCount} models reported · Updated just now";
+                break;
+            case ModelInventoryRefreshOutcome.Superseded:
+                // The latest generation will publish its own projection. Do not
+                // replace a newer success with a stale terminal observation.
+                break;
+            default:
+                IsLoadingModels = false;
+                ModelsStatusMessage = result.ErrorMessageSanitized
+                    ?? "Model refresh did not return a usable inventory.";
+                break;
+        }
+    }
+
+    private void RefreshInventoryPresentation(ApiProviderProfile profile)
+    {
+        var inventory = profile.ModelInventory;
+        ModelsEnabledCount = inventory?.GetEnabledModels().Count() ?? 0;
+        ModelsReportedCount = inventory?.Models.Count(item => item.Availability == ModelAvailability.Reported)
+            ?? profile.DiscoveredModels?.Count
+            ?? 0;
+        LastModelsRefreshAt = inventory?.LastDiscoveryAt;
+
+        if (ModelsReportedCount > 0 && string.IsNullOrWhiteSpace(ModelsStatusMessage))
+        {
+            ModelsStatusMessage = $"{ModelsReportedCount} models reported";
+        }
     }
 
     private void ApplyTruthfulCapabilityFacts(ProviderDescriptor? descriptor)

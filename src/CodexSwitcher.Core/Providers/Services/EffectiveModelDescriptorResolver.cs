@@ -38,9 +38,13 @@ public sealed class EffectiveModelDescriptorResolver : IEffectiveModelDescriptor
             ? modelItem.Slug
             : (!string.IsNullOrWhiteSpace(profile.SelectedModel) ? profile.SelectedModel : "default-model");
 
+        // The endpoint/profile nickname identifies credentials and routing,
+        // never the model itself. Keep a provider-reported inventory display
+        // name when present; otherwise use only a conservative cosmetic slug
+        // representation. No capability facts are inferred from the slug.
         var displayName = !string.IsNullOrWhiteSpace(modelItem.DisplayName)
             ? modelItem.DisplayName
-            : (!string.IsNullOrWhiteSpace(profile.Nickname) && isSelectedModel ? profile.Nickname : slug);
+            : ModelDisplayName.FromSlug(slug);
 
         // 1. Resolve Context Window & Limits
         var requestedContext = modelItem.UserOverrides?.ContextWindowTokens

@@ -69,6 +69,12 @@ public sealed class EditApiProviderResult
     public string? RoutePoolLabel { get; set; }
     public string? ProviderPresetId { get; set; }
     public List<string>? DiscoveredModels { get; set; }
+    /// <summary>
+    /// Edited working copy of the persisted model inventory. Kept separate
+    /// from discovery text so enablement, manual entries, availability, and
+    /// exact selected slug survive the dialog boundary atomically.
+    /// </summary>
+    public ApiProviderModelInventory? ModelInventory { get; set; }
     public CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
     public ProviderProbeReport? LastProbeReport { get; set; }
 }

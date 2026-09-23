@@ -30,6 +30,7 @@ public sealed class CodexTargetSwitchServiceTests
         var apiStore = new ApiProviderStore(_fs, paths.ApiProvidersPath, secretStore);
         var routingStore = new CodexRoutingConfigStore(_fs, paths);
         var brokerInstaller = new KeyBrokerInstaller(paths, _fs, brokerExe);
+        var modelCatalogService = new CodexModelCatalogService(_fs, paths);
         var processManager = new FakeProcessManager();
         var clock = new FakeClock();
         var audit = new FakeAudit();
@@ -40,7 +41,7 @@ public sealed class CodexTargetSwitchServiceTests
 
         var targetSwitch = new CodexTargetSwitchService(
             chatGptSwitch, routingStore, apiStore, secretStore, brokerInstaller,
-            processManager, _fs, clock, audit, paths.Codex);
+            processManager, _fs, clock, audit, paths.Codex, modelCatalogService);
 
         // Setup API Profile
         var apiProfileId = Guid.NewGuid();
@@ -94,6 +95,7 @@ public sealed class CodexTargetSwitchServiceTests
         var apiStore = new ApiProviderStore(_fs, paths.ApiProvidersPath, secretStore);
         var routingStore = new CodexRoutingConfigStore(_fs, paths);
         var brokerInstaller = new KeyBrokerInstaller(paths, _fs, brokerExe);
+        var modelCatalogService = new CodexModelCatalogService(_fs, paths);
         var processManager = new FakeProcessManager();
         var clock = new FakeClock();
         var audit = new FakeAudit();
@@ -104,7 +106,7 @@ public sealed class CodexTargetSwitchServiceTests
 
         var targetSwitch = new CodexTargetSwitchService(
             chatGptSwitch, routingStore, apiStore, secretStore, brokerInstaller,
-            processManager, _fs, clock, audit, paths.Codex);
+            processManager, _fs, clock, audit, paths.Codex, modelCatalogService);
 
         var activeProfile = new ProfileMetadata
         {
@@ -146,6 +148,7 @@ public sealed class CodexTargetSwitchServiceTests
         var apiStore = new ApiProviderStore(_fs, paths.ApiProvidersPath, secretStore);
         var routingStore = new CodexRoutingConfigStore(_fs, paths);
         var brokerInstaller = new KeyBrokerInstaller(paths, _fs, brokerExe);
+        var modelCatalogService = new CodexModelCatalogService(_fs, paths);
         var processManager = new FakeProcessManager();
         var clock = new FakeClock();
         var audit = new FakeAudit();
@@ -156,7 +159,7 @@ public sealed class CodexTargetSwitchServiceTests
 
         var targetSwitch = new CodexTargetSwitchService(
             chatGptSwitch, routingStore, apiStore, secretStore, brokerInstaller,
-            processManager, _fs, clock, audit, paths.Codex);
+            processManager, _fs, clock, audit, paths.Codex, modelCatalogService);
 
         var idA = Guid.NewGuid();
         var idB = Guid.NewGuid();
@@ -207,6 +210,7 @@ public sealed class CodexTargetSwitchServiceTests
         var apiStore = new ApiProviderStore(_fs, paths.ApiProvidersPath, secretStore);
         var routingStore = new CodexRoutingConfigStore(_fs, paths);
         var brokerInstaller = new KeyBrokerInstaller(paths, _fs, brokerExe);
+        var modelCatalogService = new CodexModelCatalogService(_fs, paths);
         var processManager = new FakeProcessManager();
         var clock = new FakeClock();
         var audit = new FakeAudit();
@@ -217,7 +221,7 @@ public sealed class CodexTargetSwitchServiceTests
 
         var targetSwitch = new CodexTargetSwitchService(
             chatGptSwitch, routingStore, apiStore, secretStore, brokerInstaller,
-            processManager, _fs, clock, audit, paths.Codex);
+            processManager, _fs, clock, audit, paths.Codex, modelCatalogService);
 
         var id = Guid.NewGuid();
         var prof = new ApiProviderProfile
@@ -306,6 +310,7 @@ public sealed class CodexTargetSwitchServiceTests
         public ApiKeySecretStore SecretStore { get; }
         public ApiProviderStore ApiStore { get; }
         public KeyBrokerInstaller BrokerInstaller { get; }
+        public CodexModelCatalogService CatalogService { get; }
         public SwitchService ChatGptSwitch { get; }
         public CodexTargetSwitchService TargetSwitch { get; }
         public List<ProfileMetadata> ChatGptProfiles { get; } = [];
@@ -325,11 +330,12 @@ public sealed class CodexTargetSwitchServiceTests
             ApiStore = new ApiProviderStore(Fs, Paths.ApiProvidersPath, SecretStore);
             RoutingStore = new CodexRoutingConfigStore(Fs, Paths);
             BrokerInstaller = new KeyBrokerInstaller(Paths, Fs, brokerExe);
+            CatalogService = new CodexModelCatalogService(Fs, Paths);
 
             ChatGptSwitch = new SwitchService(Vault, ProfileStore, Fs, Proc, Config, Clock, Audit, Paths.Codex, Paths.BackupsDir);
             TargetSwitch = new CodexTargetSwitchService(
                 ChatGptSwitch, RoutingStore, ApiStore, SecretStore, BrokerInstaller,
-                Proc, Fs, Clock, Audit, Paths.Codex);
+                Proc, Fs, Clock, Audit, Paths.Codex, CatalogService);
         }
 
         public ProfileMetadata AddChatGptProfile(string nick, byte[] authBytes, bool active)

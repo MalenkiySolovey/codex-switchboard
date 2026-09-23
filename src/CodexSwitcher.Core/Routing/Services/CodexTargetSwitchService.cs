@@ -50,8 +50,51 @@ public sealed class CodexTargetSwitchService : ICodexTargetSwitchService, IDispo
         IAuditLog audit,
         CodexPaths paths)
         : this(
+            chatGptSwitchService,
+            routingConfig,
+            apiProviderStore,
+            secretStore,
+            brokerInstaller,
+            processes,
+            fs,
+            clock,
+            audit,
+            paths,
+            modelCatalogService: null)
+    {
+    }
+
+    /// <summary>
+    /// Compatibility composition overload that preserves the legacy facade
+    /// shape while accepting the mandatory profile-catalog dependency for API
+    /// routing. Production composition uses the decomposed constructor.
+    /// </summary>
+    public CodexTargetSwitchService(
+        SwitchService chatGptSwitchService,
+        ICodexRoutingConfigStore routingConfig,
+        IApiProviderStore apiProviderStore,
+        IApiKeySecretStore secretStore,
+        IKeyBrokerInstaller brokerInstaller,
+        IProcessManager processes,
+        IFileSystem fs,
+        IClock clock,
+        IAuditLog audit,
+        CodexPaths paths,
+        ICodexModelCatalogService? modelCatalogService,
+        ICodexRuntimeModelCatalogVerifier? runtimeModelCatalogVerifier = null)
+        : this(
             new SwitchPlanBuilder(apiProviderStore, secretStore, brokerInstaller, routingConfig, paths),
-            new SwitchTransactionExecutor(chatGptSwitchService, routingConfig, apiProviderStore, processes, fs, clock, audit, paths))
+            new SwitchTransactionExecutor(
+                chatGptSwitchService,
+                routingConfig,
+                apiProviderStore,
+                processes,
+                fs,
+                clock,
+                audit,
+                paths,
+                modelCatalogService: modelCatalogService,
+                runtimeModelCatalogVerifier: runtimeModelCatalogVerifier))
     {
     }
 

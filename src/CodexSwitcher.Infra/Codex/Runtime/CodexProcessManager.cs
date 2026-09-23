@@ -220,6 +220,29 @@ public sealed class CodexProcessManager : IProcessManager
         }
     }
 
+    public bool TryOpenThreadDeepLink(string threadId)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var deepLink = $"codex://threads/{Uri.EscapeDataString(threadId)}";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = deepLink,
+                UseShellExecute = true,
+            });
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static CodexProcessKind Classify(string lowerPath)
     {
         // App desktop empacotado (MSIX): ...\WindowsApps\OpenAI.Codex_<ver>_..\app\ChatGPT.exe.

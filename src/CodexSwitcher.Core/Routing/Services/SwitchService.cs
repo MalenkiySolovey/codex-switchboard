@@ -40,7 +40,8 @@ public sealed record SwitchExecutionOptions(
     TimeSpan GracefulCloseTimeout,
     int BackupsToKeep,
     bool EnsureFileStore = true,
-    bool ReopenDesktopAfterSwitch = true)
+    bool ReopenDesktopAfterSwitch = true,
+    IProgress<string>? Progress = null)
 {
     public static SwitchExecutionOptions From(AppSettings s) => new(
         s.CloseReopenMode,

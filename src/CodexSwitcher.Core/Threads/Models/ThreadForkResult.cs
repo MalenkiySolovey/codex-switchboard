@@ -38,4 +38,22 @@ public sealed record ThreadForkResult(
     string SourceThreadId,
     string TargetModelProvider,
     string TargetModel,
-    string? Name);
+    string? Name)
+{
+    /// <summary>Sanitized source metadata observed before a fork, when exposed by thread/read.</summary>
+    public string? SourceModelProvider { get; init; }
+    public string? SourceModel { get; init; }
+
+    /// <summary>Exact provider/model returned by the protocol response.</summary>
+    public string? ResponseModelProvider { get; init; }
+    public string? ResponseModel { get; init; }
+
+    /// <summary>Provider/model observed through persistence read-back when available.</summary>
+    public string? ReadbackModelProvider { get; init; }
+    public string? ReadbackModel { get; init; }
+    public Guid? TargetProfileId { get; init; }
+    public string? TargetCatalogPath { get; init; }
+    public bool ThreadReadVerified { get; init; }
+    public bool ThreadListVerified { get; init; }
+    public bool ReturnedPathExists { get; init; }
+}

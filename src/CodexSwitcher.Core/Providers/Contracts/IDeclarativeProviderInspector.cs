@@ -41,6 +41,17 @@ namespace CodexSwitcher.Core.Providers.Contracts;
 public interface IDeclarativeProviderInspector
 {
     /// <summary>
+    /// Performs only the descriptor-authorized GET /models request. Unlike the
+    /// broader inspection methods, this never probes balance, usage, or model
+    /// compatibility endpoints.
+    /// </summary>
+    Task<ApiProviderSnapshot> DiscoverModelsAsync(
+        ProviderDescriptor descriptor,
+        string activeBaseUrl,
+        string? apiKey,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Inspects a provider using its catalog descriptor and returns a normalized snapshot.
     /// </summary>
     Task<ApiProviderSnapshot> InspectAsync(

@@ -239,6 +239,7 @@ public sealed class Phase10CApiProviderUiTests
         var apiStore = new ApiProviderStore(_fs, paths.ApiProvidersPath, secretStore);
         var routingStore = new CodexRoutingConfigStore(_fs, paths);
         var brokerInstaller = new KeyBrokerInstaller(paths, _fs, brokerExe);
+        var modelCatalogService = new CodexModelCatalogService(_fs, paths);
         var processManager = new FakeProcessManager();
         var clock = new FakeClock();
         var audit = new FakeAudit();
@@ -249,7 +250,7 @@ public sealed class Phase10CApiProviderUiTests
 
         var targetSwitch = new CodexTargetSwitchService(
             chatGptSwitch, routingStore, apiStore, secretStore, brokerInstaller,
-            processManager, _fs, clock, audit, paths.Codex);
+            processManager, _fs, clock, audit, paths.Codex, modelCatalogService);
 
         var profileId = Guid.NewGuid();
         var profile = new ApiProviderProfile

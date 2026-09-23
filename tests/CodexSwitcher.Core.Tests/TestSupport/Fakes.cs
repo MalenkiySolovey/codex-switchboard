@@ -37,6 +37,9 @@ public sealed class FakeProcessManager : IProcessManager
     public bool CloseCalled { get; set; }
     public bool TryLaunchDesktopCalled { get; set; }
     public bool TryLaunchDesktopResult { get; set; } = true;
+    public bool TryOpenThreadDeepLinkCalled { get; set; }
+    public bool TryOpenThreadDeepLinkResult { get; set; } = true;
+    public string? OpenedThreadId { get; private set; }
     public List<CodexProcessInfo> Relaunched { get; } = [];
     private bool _closed;
 
@@ -45,6 +48,8 @@ public sealed class FakeProcessManager : IProcessManager
         CloseCalled = false;
         _closed = false;
         TryLaunchDesktopCalled = false;
+        TryOpenThreadDeepLinkCalled = false;
+        OpenedThreadId = null;
         Relaunched.Clear();
         Running.Clear();
     }
@@ -73,7 +78,23 @@ public sealed class FakeProcessManager : IProcessManager
     public bool TryLaunchDesktop()
     {
         TryLaunchDesktopCalled = true;
+        if (TryLaunchDesktopResult && !Running.Any(process => process.Kind == CodexProcessKind.DesktopApp))
+        {
+            Running.Add(new CodexProcessInfo(
+                999,
+                "Codex",
+                @"C:\Apps\Codex\Codex.exe",
+                null,
+                CodexProcessKind.DesktopApp));
+        }
         return TryLaunchDesktopResult;
+    }
+
+    public bool TryOpenThreadDeepLink(string threadId)
+    {
+        TryOpenThreadDeepLinkCalled = true;
+        OpenedThreadId = threadId;
+        return TryOpenThreadDeepLinkResult;
     }
 }
 

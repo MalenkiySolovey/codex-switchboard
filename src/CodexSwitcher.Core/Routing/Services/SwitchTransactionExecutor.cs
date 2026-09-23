@@ -35,6 +35,37 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
     private readonly CodexPaths _paths;
     private readonly Func<ISwitchCompensationCoordinator>? _coordinatorFactory;
     private readonly ICodexModelCatalogService? _modelCatalogService;
+    private readonly ICodexRuntimeModelCatalogVerifier? _runtimeModelCatalogVerifier;
+
+    // Kept as a concrete overload for binary compatibility with already
+    // compiled presentation/plugin assemblies from preview.18. New callers
+    // use the verifier-aware constructor below; this overload preserves the
+    // same behavior with no runtime model/list verifier available.
+    public SwitchTransactionExecutor(
+        SwitchService chatGptSwitchService,
+        ICodexRoutingConfigStore routingConfig,
+        IApiProviderStore apiProviderStore,
+        IProcessManager processes,
+        IFileSystem fs,
+        IClock clock,
+        IAuditLog audit,
+        CodexPaths paths,
+        Func<ISwitchCompensationCoordinator>? coordinatorFactory,
+        ICodexModelCatalogService? modelCatalogService)
+        : this(
+            chatGptSwitchService,
+            routingConfig,
+            apiProviderStore,
+            processes,
+            fs,
+            clock,
+            audit,
+            paths,
+            coordinatorFactory,
+            modelCatalogService,
+            runtimeModelCatalogVerifier: null)
+    {
+    }
 
     public SwitchTransactionExecutor(
         SwitchService chatGptSwitchService,
@@ -46,7 +77,8 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         IAuditLog audit,
         CodexPaths paths,
         Func<ISwitchCompensationCoordinator>? coordinatorFactory = null,
-        ICodexModelCatalogService? modelCatalogService = null)
+        ICodexModelCatalogService? modelCatalogService = null,
+        ICodexRuntimeModelCatalogVerifier? runtimeModelCatalogVerifier = null)
     {
         _chatGptSwitchService = chatGptSwitchService ?? throw new ArgumentNullException(nameof(chatGptSwitchService));
         _routingConfig = routingConfig ?? throw new ArgumentNullException(nameof(routingConfig));
@@ -58,6 +90,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _coordinatorFactory = coordinatorFactory;
         _modelCatalogService = modelCatalogService;
+        _runtimeModelCatalogVerifier = runtimeModelCatalogVerifier;
     }
 
     private ISwitchCompensationCoordinator CreateCompensationCoordinator() =>
@@ -123,7 +156,33 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
     {
         var targetProfile = apiPlan.TargetProfile;
         var options = apiPlan.Options;
-        var model = targetProfile.SelectedModel ?? "gpt-5.6-sol";
+        var model = targetProfile.SelectedModel;
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return new TargetSwitchResult(
+                TargetSwitchOutcome.Failed,
+                "Select an enabled model before activating this API profile.",
+                new ActiveTarget.Api(targetProfile),
+                ErrorInfo.Create(ErrorCategory.Unknown, "No selected API model", _clock.UtcNow));
+        }
+
+        targetProfile.ModelInventory ??= new ApiProviderModelInventory();
+        targetProfile.ModelInventory.EnsureSelectedModelMigrated(
+            model,
+            displayName: null,
+            contextWindow: targetProfile.ModelOverrides?.ContextWindowTokens,
+            overrides: targetProfile.ModelOverrides);
+        var selectedInventoryItem = targetProfile.ModelInventory.Models.FirstOrDefault(item =>
+            string.Equals(item.Slug, model, StringComparison.Ordinal));
+        if (selectedInventoryItem is null || !selectedInventoryItem.Enabled)
+        {
+            return new TargetSwitchResult(
+                TargetSwitchOutcome.Failed,
+                "Select an enabled model before activating this API profile.",
+                new ActiveTarget.Api(targetProfile),
+                ErrorInfo.Create(ErrorCategory.Unknown, "Selected API model is not enabled", _clock.UtcNow));
+        }
 
         var secretOwnerId = targetProfile.EndpointId ?? targetProfile.Id;
         var currentRouting = _routingConfig.ReadRoutingState(_paths.ConfigTomlPath);
@@ -170,17 +229,18 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
             string? modelCatalogJson = null;
             try
             {
+                options.Progress?.Report("Updating catalog...");
                 modelCatalogJson = _modelCatalogService?.EnsureProfileModelCatalog(
                     targetProfile,
                     model,
                     targetProfile.ModelOverrides?.ContextWindowTokens,
                     targetProfile.ModelOverrides,
-                    toolPolicy)
-                    ?? _modelCatalogService?.EnsureModelCatalog(
-                        model,
-                        targetProfile.ModelOverrides?.ContextWindowTokens,
-                        targetProfile.ModelOverrides,
-                        toolPolicy);
+                    toolPolicy);
+
+                if (string.IsNullOrWhiteSpace(modelCatalogJson))
+                {
+                    throw new InvalidOperationException("A profile-specific model catalog is required for every active API provider with an enabled model.");
+                }
             }
             catch (Exception catEx)
             {
@@ -206,6 +266,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
             // 3. Capture & close Codex processes if catalog changed or automatic close requested
             if (closeApps)
             {
+                options.Progress?.Report("Restarting Codex...");
                 captured = _processes.FindRunningCodexProcesses().Where(p => p.IsClosable).ToList();
                 closed = await _processes.CloseGracefullyThenKillAsync(captured, options.GracefulCloseTimeout, cancellationToken).ConfigureAwait(false);
                 compensator.RegisterCapturedProcesses(captured);
@@ -327,6 +388,34 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                         }
                     }
                 }
+            }
+
+            // A custom catalog is a startup-time runtime input. After closing
+            // relevant Codex processes and applying config, start a short-lived
+            // owned production app-server and prove model/list sees the exact
+            // enabled inventory before reporting routing success or reopening
+            // Desktop. The verifier owns only its own process.
+            if (!string.IsNullOrWhiteSpace(modelCatalogJson) && _runtimeModelCatalogVerifier is not null)
+            {
+                options.Progress?.Report("Verifying models...");
+                var expectedModels = targetProfile.ModelInventory.GetEnabledModels()
+                    .Select(item => item.Slug)
+                    .ToArray();
+                var runtimeVerification = await _runtimeModelCatalogVerifier.VerifyAsync(
+                    targetProfile.StableCodexProviderId,
+                    model,
+                    expectedModels,
+                    cancellationToken).ConfigureAwait(false);
+                if (!runtimeVerification.Succeeded)
+                {
+                    throw new InvalidOperationException($"Runtime model/list verification failed: {runtimeVerification.FailureReason ?? "unknown failure"}");
+                }
+
+                trace.ActiveModelListVerified = true;
+                // The owned app-server was started after the catalog changed;
+                // even if Desktop was not previously running, this proves the
+                // startup-only catalog was loaded by the exact runtime.
+                trace.RuntimeRestartCompleted = true;
             }
 
             // 5. Update profile metadata

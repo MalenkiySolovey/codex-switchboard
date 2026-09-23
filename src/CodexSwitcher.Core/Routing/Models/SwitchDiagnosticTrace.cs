@@ -23,6 +23,7 @@ public sealed class SwitchDiagnosticTrace
     public bool CatalogChanged { get; set; }
     public bool RuntimeRestartRequired { get; set; }
     public bool RuntimeRestartCompleted { get; set; }
+    public bool ActiveModelListVerified { get; set; }
 
     public string? EffectiveModelProvider { get; set; }
     public string? EffectiveModel { get; set; }
@@ -43,6 +44,7 @@ public sealed class SwitchDiagnosticTrace
         sb.AppendLine(CultureInfo.InvariantCulture, $"CatalogChanged: {CatalogChanged}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"RuntimeRestartRequired: {RuntimeRestartRequired}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"RuntimeRestartCompleted: {RuntimeRestartCompleted}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"ActiveModelListVerified: {ActiveModelListVerified}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"EffectiveModelProvider: {EffectiveModelProvider}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"EffectiveModel: {EffectiveModel}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"RoutingStateCommitted: {RoutingStateCommitted}");
