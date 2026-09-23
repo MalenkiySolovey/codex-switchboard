@@ -366,32 +366,49 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             $"SOURCE_THREAD_ID={sourceThreadId} SOURCE_PROVIDER={sourceMetadata?.ModelProvider ?? "unavailable"} SOURCE_MODEL={sourceMetadata?.Model ?? "unavailable"} TARGET_PROFILE_ID={targetProfileId?.ToString("D") ?? "unavailable"} TARGET_PROVIDER={targetModelProvider} TARGET_MODEL={targetModel} TARGET_CATALOG_PATH={targetCatalogPath ?? "unavailable"} FORK_REQUEST_PROVIDER={targetModelProvider} FORK_REQUEST_MODEL={targetModel} FORK_RESPONSE_THREAD_ID={forkedThreadId} FORK_RESPONSE_PROVIDER={returnedProvider} FORK_RESPONSE_MODEL={returnedModel} READBACK_PROVIDER={readback?.ModelProvider ?? listProvider ?? "unavailable"} READBACK_MODEL={readback?.Model ?? listModel ?? "unavailable"} FORKED_FROM_ID={returnedForkedFromId ?? sourceThreadId} EPHEMERAL=false RETURNED_PATH_PRESENT={returnedPathPresent} RETURNED_PATH_EXISTS={returnedPathExists} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
         System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] SOURCE_THREAD_ID={sourceThreadId} SOURCE_PROVIDER={sourceMetadata?.ModelProvider ?? "unavailable"} SOURCE_MODEL={sourceMetadata?.Model ?? "unavailable"} TARGET_PROFILE_ID={targetProfileId?.ToString("D") ?? "unavailable"} TARGET_PROVIDER={targetModelProvider} TARGET_MODEL={targetModel} TARGET_CATALOG_PATH={targetCatalogPath ?? "unavailable"} FORK_REQUEST_PROVIDER={targetModelProvider} FORK_REQUEST_MODEL={targetModel} FORK_RESPONSE_THREAD_ID={forkedThreadId} FORK_RESPONSE_PROVIDER={returnedProvider} FORK_RESPONSE_MODEL={returnedModel} READBACK_PROVIDER={readback?.ModelProvider ?? listProvider ?? "unavailable"} READBACK_MODEL={readback?.Model ?? listModel ?? "unavailable"} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
 
-        // Best-effort rename using official thread/name/set ONLY AFTER thread persistence is verified
-        if (!string.IsNullOrWhiteSpace(newName))
+        // Best-effort rename using the official app-server method ONLY AFTER
+        // the fork's persistence and target provider/model have been verified.
+        var nameUpdateAttempted = !string.IsNullOrWhiteSpace(newName);
+        var nameUpdateSucceeded = false;
+        ThreadMetadata? renamedReadback = null;
+        if (nameUpdateAttempted)
         {
             try
             {
                 await client.RequestAsync("thread/name/set", new { threadId = forkedThreadId, name = newName }, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                renamedReadback = await TryReadThreadMetadataAsync(client, forkedThreadId, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
                 // Renaming is cosmetic and best effort per official protocol
             }
+
+            if (renamedReadback is { IsReadable: true } &&
+                (string.IsNullOrWhiteSpace(renamedReadback.ThreadId) ||
+                 string.Equals(renamedReadback.ThreadId, forkedThreadId, StringComparison.Ordinal)))
+            {
+                // A name update must not mask a provider/model regression.
+                ValidateMetadataWhenAvailable("thread/read after thread/name/set", renamedReadback, targetModelProvider, targetModel);
+                nameUpdateSucceeded = string.Equals(renamedReadback.Name, newName, StringComparison.Ordinal);
+            }
         }
 
-        return new ThreadForkResult(forkedThreadId, sourceThreadId, targetModelProvider, targetModel, newName)
+        var verifiedName = nameUpdateSucceeded ? renamedReadback?.Name : readback?.Name;
+        return new ThreadForkResult(forkedThreadId, sourceThreadId, targetModelProvider, targetModel, verifiedName)
         {
             SourceModelProvider = sourceMetadata?.ModelProvider,
             SourceModel = sourceMetadata?.Model,
             ResponseModelProvider = returnedProvider,
             ResponseModel = returnedModel,
-            ReadbackModelProvider = readback?.ModelProvider ?? listProvider,
-            ReadbackModel = readback?.Model ?? listModel,
+            ReadbackModelProvider = renamedReadback?.ModelProvider ?? readback?.ModelProvider ?? listProvider,
+            ReadbackModel = renamedReadback?.Model ?? readback?.Model ?? listModel,
             TargetProfileId = targetProfileId,
             TargetCatalogPath = targetCatalogPath,
             ThreadReadVerified = threadReadOk,
             ThreadListVerified = threadListOk,
             ReturnedPathExists = returnedPathExists,
+            NameUpdateAttempted = nameUpdateAttempted,
+            NameUpdateSucceeded = nameUpdateSucceeded,
         };
     }
 
@@ -630,6 +647,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
     private sealed record ThreadMetadata(
         bool IsReadable,
         string? ThreadId,
+        string? Name,
         string? ModelProvider,
         string? Model);
 
@@ -668,6 +686,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         }
 
         var id = ReadString(response, thread, "id", "threadId", "thread_id");
+        var name = ReadString(response, thread, "name");
         var provider = ReadString(response, thread, "modelProvider", "model_provider");
         var model = ReadString(response, thread, "model");
         var readable = !string.IsNullOrWhiteSpace(id) ||
@@ -675,7 +694,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
              (response.TryGetProperty("turns", out _) ||
               response.TryGetProperty("history", out _) ||
               thread.HasValue));
-        return new ThreadMetadata(readable, id, provider, model);
+        return new ThreadMetadata(readable, id, name, provider, model);
     }
 
     private static string? ReadString(JsonElement root, JsonElement? nested, params string[] propertyNames)

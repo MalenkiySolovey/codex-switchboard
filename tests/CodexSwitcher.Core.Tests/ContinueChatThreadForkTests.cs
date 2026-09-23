@@ -709,4 +709,156 @@ public sealed class ContinueChatThreadForkTests
 
         Assert.Contains("file does not exist on disk", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Theory]
+    [InlineData("Test", "Test [copy]")]
+    [InlineData("Test [copy]", "Test [copy] [copy]")]
+    [InlineData("Test [copy] [copy]", "Test [copy] [copy] [copy]")]
+    public void ThreadContinuationTitle_CreateCopyTitle_AddsOneMarkerForEachNewFork(string sourceTitle, string expected)
+    {
+        Assert.Equal(expected, ThreadContinuationTitle.CreateCopyTitle(sourceTitle, "Visible fallback"));
+    }
+
+    [Fact]
+    public void ThreadContinuationTitle_CreateVerifiedNameLine_DisplaysReadBackNameImmediately()
+    {
+        Assert.Equal("Name: Test [copy]\n", ThreadContinuationTitle.CreateVerifiedNameLine("Test [copy]", true));
+        Assert.Equal(string.Empty, ThreadContinuationTitle.CreateVerifiedNameLine("Test [copy]", false));
+    }
+
+    [Fact]
+    public async Task ForkThreadAsync_RenamesOnlyPersistedForkAndReturnsVerifiedNameForImmediateDisplay()
+    {
+        const string sourceId = "source-thread";
+        const string forkId = "fork-thread";
+        const string targetProvider = "switchboard_target";
+        const string targetModel = "deepseek-v4.1-flash";
+        var sourceName = "Test";
+        string? forkName = null;
+
+        var client = new MockAppServerClient
+        {
+            Handler = (method, parameters) =>
+            {
+                if (method == "thread/fork")
+                {
+                    return JsonDocument.Parse(JsonSerializer.Serialize(new
+                    {
+                        modelProvider = targetProvider,
+                        model = targetModel,
+                        thread = new { id = forkId, ephemeral = false },
+                    })).RootElement;
+                }
+
+                if (method == "thread/name/set")
+                {
+                    using var request = JsonDocument.Parse(JsonSerializer.Serialize(parameters));
+                    var threadId = request.RootElement.GetProperty("threadId").GetString();
+                    var name = request.RootElement.GetProperty("name").GetString();
+                    if (string.Equals(threadId, sourceId, StringComparison.Ordinal))
+                        sourceName = name ?? string.Empty;
+                    else if (string.Equals(threadId, forkId, StringComparison.Ordinal))
+                        forkName = name;
+                    return JsonDocument.Parse("{}").RootElement;
+                }
+
+                if (method == "thread/read")
+                {
+                    using var request = JsonDocument.Parse(JsonSerializer.Serialize(parameters));
+                    var threadId = request.RootElement.GetProperty("threadId").GetString();
+                    if (string.Equals(threadId, sourceId, StringComparison.Ordinal))
+                    {
+                        return JsonDocument.Parse("""
+                            {"thread":{"id":"source-thread","name":"Test","modelProvider":"source_provider","model":"deepseek-v4.1-flash:free"}}
+                            """).RootElement;
+                    }
+
+                    return JsonDocument.Parse(JsonSerializer.Serialize(new
+                    {
+                        thread = new
+                        {
+                            id = forkId,
+                            name = forkName,
+                            modelProvider = targetProvider,
+                            model = targetModel,
+                        }
+                    })).RootElement;
+                }
+
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var result = await service.ForkThreadAsync(
+            sourceId,
+            targetProvider,
+            targetModel,
+            ThreadContinuationTitle.CreateCopyTitle("Test", "Test"));
+
+        var forkIndex = client.Requests.FindIndex(request => request.Method == "thread/fork");
+        var persistenceReadIndex = client.Requests.FindIndex(forkIndex + 1, request => request.Method == "thread/read");
+        var nameSetIndex = client.Requests.FindIndex(request => request.Method == "thread/name/set");
+        var nameReadIndex = client.Requests.FindIndex(nameSetIndex + 1, request => request.Method == "thread/read");
+        Assert.True(forkIndex >= 0);
+        Assert.True(persistenceReadIndex > forkIndex);
+        Assert.True(nameSetIndex > persistenceReadIndex);
+        Assert.True(nameReadIndex > nameSetIndex);
+
+        var nameRequest = JsonDocument.Parse(JsonSerializer.Serialize(client.Requests[nameSetIndex].Parameters));
+        Assert.Equal(forkId, nameRequest.RootElement.GetProperty("threadId").GetString());
+        Assert.Equal("Test [copy]", nameRequest.RootElement.GetProperty("name").GetString());
+        Assert.Equal("Test", sourceName);
+        Assert.Equal("Test [copy]", result.Name);
+        Assert.True(result.NameUpdateAttempted);
+        Assert.True(result.NameUpdateSucceeded);
+
+        var forkRequest = JsonDocument.Parse(JsonSerializer.Serialize(client.Requests[forkIndex].Parameters));
+        Assert.Equal(targetProvider, forkRequest.RootElement.GetProperty("modelProvider").GetString());
+        Assert.Equal(targetModel, forkRequest.RootElement.GetProperty("model").GetString());
+        Assert.Equal(targetProvider, result.TargetModelProvider);
+        Assert.Equal(targetModel, result.TargetModel);
+        Assert.Equal(targetProvider, result.ReadbackModelProvider);
+        Assert.Equal(targetModel, result.ReadbackModel);
+    }
+
+    [Fact]
+    public async Task ForkThreadAsync_NameSetFailureIsNonFatalAndPreservesVerifiedTarget()
+    {
+        var client = new MockAppServerClient
+        {
+            Handler = (method, _) =>
+            {
+                if (method == "thread/fork")
+                {
+                    return JsonDocument.Parse("""
+                        {"modelProvider":"target_provider","model":"target-model","thread":{"id":"forked","ephemeral":false}}
+                        """).RootElement;
+                }
+                if (method == "thread/name/set")
+                {
+                    throw new InvalidOperationException("name service unavailable");
+                }
+                if (method == "thread/read")
+                {
+                    return JsonDocument.Parse("""
+                        {"thread":{"id":"forked","name":"Test","modelProvider":"target_provider","model":"target-model"}}
+                        """).RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var result = await service.ForkThreadAsync("source", "target_provider", "target-model", "Test [copy]");
+
+        Assert.Equal("forked", result.ForkedThreadId);
+        Assert.True(result.ThreadReadVerified);
+        Assert.True(result.NameUpdateAttempted);
+        Assert.False(result.NameUpdateSucceeded);
+        Assert.Equal("target_provider", result.TargetModelProvider);
+        Assert.Equal("target-model", result.TargetModel);
+        Assert.Equal("target_provider", result.ReadbackModelProvider);
+        Assert.Equal("target-model", result.ReadbackModel);
+    }
 }

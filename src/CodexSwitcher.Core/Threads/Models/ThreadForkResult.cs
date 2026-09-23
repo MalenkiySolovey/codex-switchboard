@@ -56,4 +56,8 @@ public sealed record ThreadForkResult(
     public bool ThreadReadVerified { get; init; }
     public bool ThreadListVerified { get; init; }
     public bool ReturnedPathExists { get; init; }
+    /// <summary>True when a post-persistence thread/name/set was requested.</summary>
+    public bool NameUpdateAttempted { get; init; }
+    /// <summary>True only when thread/read confirmed the requested name.</summary>
+    public bool NameUpdateSucceeded { get; init; }
 }

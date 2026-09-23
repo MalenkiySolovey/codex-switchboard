@@ -700,6 +700,11 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             return;
         }
 
+        // Match the title shown in the source picker when the app-server has
+        // no explicit name (its existing fallback is the thread ID).
+        var displayedSourceTitle = !string.IsNullOrWhiteSpace(selected.Name) ? selected.Name : selected.Id;
+        var continuationName = ThreadContinuationTitle.CreateCopyTitle(selected.Name, displayedSourceTitle);
+
         await RunBusyAsync(Loc.ContinueOn, async () =>
         {
             // Routing switch transaction MUST happen before the fork transaction per ARCH-R6
@@ -728,20 +733,27 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 selected.Id,
                     resolvedTarget.StableCodexProviderId,
                     exactTargetModel,
-                    null,
+                    continuationName,
                 targetProfileId: resolvedTarget.Id,
                 targetCatalogPath: switchResult.DiagnosticTrace?.EffectiveModelCatalogJson,
                 cancellationToken: _cts.Token);
 
             var openedInDesktop = await LaunchAndOpenContinuationAsync(forkResult.ForkedThreadId);
+            var namingFailed = forkResult.NameUpdateAttempted && !forkResult.NameUpdateSucceeded;
+            var verifiedNameLine = ThreadContinuationTitle.CreateVerifiedNameLine(
+                forkResult.Name,
+                forkResult.NameUpdateSucceeded);
 
             ShowInfo(
                 Loc.ForkSuccessTitle,
-                $"Continuation created successfully.\nProvider: {forkResult.TargetModelProvider}\nModel: {forkResult.TargetModel}\nThread: {forkResult.ForkedThreadId}" +
+                $"Continuation created successfully.\n{verifiedNameLine}Provider: {forkResult.TargetModelProvider}\nModel: {forkResult.TargetModel}\nThread: {forkResult.ForkedThreadId}" +
+                (namingFailed
+                    ? "\nContinuation created, but its [copy] name could not be applied."
+                    : string.Empty) +
                 (openedInDesktop
                     ? "\nOpened the exact continuation in Codex Desktop."
                     : "\nContinuation is persisted, but Codex Desktop could not be opened to this thread automatically."),
-                InfoBarSeverity.Success);
+                namingFailed ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
         });
 
         TargetStateChanged?.Invoke(this, EventArgs.Empty);
