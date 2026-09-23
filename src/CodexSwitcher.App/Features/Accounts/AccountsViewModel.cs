@@ -151,7 +151,7 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
     {
         await RunBusy(Loc.BusyLoading, () =>
         {
-            _profiles.Load();
+            _profiles.Load(auditOrphans: false);
             return Task.CompletedTask;
         });
 
@@ -159,12 +159,26 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         await _usage.LoadCacheAsync(Loc.Pt);
 
         Rebuild(_lastActiveTarget, _lastIsRoutingActiveToApi);
+        StartupTracer.Instance.RecordMilestone("T13:CachedCardsVisible");
         _usage.StartTimers(() => _profiles.Profiles);
 
         // Background initial refresh across accounts
         if (_profiles.Profiles.Count > 0)
         {
-            _ = _usage.TriggerBackgroundRefreshForProfiles(_profiles.Profiles);
+            StartupTracer.Instance.RecordMilestone("T14:BackgroundInitScheduled");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _profiles.AuditOrphanVaultBlobs();
+                    await _usage.TriggerBackgroundRefreshForProfiles(_profiles.Profiles).ConfigureAwait(false);
+                }
+                finally
+                {
+                    StartupTracer.Instance.RecordMilestone("T15:BackgroundInitFinished");
+                    StartupTracer.Instance.FlushToFile();
+                }
+            });
         }
     }
 
@@ -173,7 +187,6 @@ public sealed partial class AccountsViewModel : ObservableObject, IDisposable
         _lastActiveTarget = activeTarget;
         _lastIsRoutingActiveToApi = isRoutingActiveToApi;
 
-        _profiles.Reconcile();
         var now = _clock.UtcNow;
 
         var existingMap = _all.ToDictionary(a => a.Id);

@@ -737,7 +737,9 @@
         </Grid>
 
         <!-- Tab 1: API Providers -->
-        <Grid Visibility="{x:Bind ViewModel.SelectedTab, Mode=OneWay, Converter={StaticResource IntToVis}, ConverterParameter=1}">
+        <Grid x:Name="ApiProvidersTabGrid"
+              x:Load="{x:Bind ViewModel.IsApiProvidersTabLoaded, Mode=OneWay}"
+              Visibility="{x:Bind ViewModel.SelectedTab, Mode=OneWay, Converter={StaticResource IntToVis}, ConverterParameter=1}">
             <!-- API Providers Empty State -->
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Spacing="16"
                         Visibility="{x:Bind ViewModel.ApiProviders.ShowEmptyState, Mode=OneWay, Converter={StaticResource BoolToVis}}">

@@ -73,6 +73,15 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public IAppBusyService Busy { get; }
 
     [ObservableProperty] public partial int SelectedTab { get; set; }
+    [ObservableProperty] public partial bool IsApiProvidersTabLoaded { get; set; }
+
+    partial void OnSelectedTabChanged(int value)
+    {
+        if (value == 1)
+        {
+            IsApiProvidersTabLoaded = true;
+        }
+    }
 
     public ShellViewModel(
         AccountsViewModel accounts,

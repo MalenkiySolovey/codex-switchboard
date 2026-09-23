@@ -70,19 +70,31 @@ public sealed class ProfileService
     }
 
     /// <summary>Carrega os perfis do disco e reconcilia com o slot ativo.</summary>
-    public ReconciliationResult Load()
+    public ReconciliationResult Load(bool auditOrphans = false)
     {
         lock (_sync)
         {
             Profiles = _store.LoadAll();
             EnsureSortOrderInitialized();
             EnsureDetectedSubscriptions();
+            if (auditOrphans)
+            {
+                AuditOrphanVaultBlobs();
+            }
+            return Reconcile();
+        }
+    }
+
+    /// <summary>Audita blobs orfãos no cofre e registra auditoria se existirem.</summary>
+    public void AuditOrphanVaultBlobs()
+    {
+        lock (_sync)
+        {
             var orphanBlobs = DetectOrphanVaultBlobs();
             if (orphanBlobs.Count > 0)
             {
                 _audit.Record("vault-audit", "orphans-detected", $"{orphanBlobs.Count} orphan vault blob(s) detected.");
             }
-            return Reconcile();
         }
     }
 

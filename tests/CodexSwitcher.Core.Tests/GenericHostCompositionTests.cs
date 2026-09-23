@@ -67,7 +67,7 @@ public sealed class GenericHostCompositionTests : IDisposable
         return null;
     }
 
-    private IHost CreateTestHost()
+    private IHost CreateTestHost(bool validateContainer = true)
     {
         var appAssembly = LoadAppAssembly()
             ?? throw new InvalidOperationException("Could not load CodexSwitchboard.dll for host composition testing.");
@@ -75,11 +75,26 @@ public sealed class GenericHostCompositionTests : IDisposable
         var builderType = appAssembly.GetType("CodexSwitcher.App.Composition.SwitchboardHostBuilder")
             ?? throw new InvalidOperationException("SwitchboardHostBuilder type not found.");
 
+        var createHostValidated = builderType.GetMethod("CreateHost", new[] { typeof(AppPaths), typeof(Action<IServiceCollection>), typeof(bool) });
+        if (createHostValidated != null)
+        {
+            return (IHost)createHostValidated.Invoke(null, new object?[] { _testPaths, null, validateContainer })!;
+        }
+
         var createHostMethod = builderType.GetMethod("CreateHost", new[] { typeof(AppPaths), typeof(Action<IServiceCollection>) })
             ?? throw new InvalidOperationException("CreateHost method not found on SwitchboardHostBuilder.");
 
         var host = (IHost)createHostMethod.Invoke(null, new object?[] { _testPaths, null })!;
         return host;
+    }
+
+    [Fact]
+    public void ContainerValidation_WhenEnabledInTest_ValidatesScopesAndDependencies()
+    {
+        using var host = CreateTestHost(validateContainer: true);
+        Assert.NotNull(host);
+        using var scope = host.Services.CreateScope();
+        Assert.NotNull(scope);
     }
 
     [Fact]

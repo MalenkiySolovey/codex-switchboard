@@ -103,11 +103,18 @@ public sealed partial class ShellView : UserControl
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        StartupTracer.Instance.RecordMilestone("T11:ShellLoaded");
         Loaded -= OnLoaded;
         if (ViewModel is not null)
         {
             await ViewModel.LoadCommand.ExecuteAsync(null);
         }
+
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            StartupTracer.Instance.RecordMilestone("T12:UIInteractive");
+            StartupTracer.Instance.FlushToFile();
+        });
     }
 
     private TotpWindow? _totpWindow;

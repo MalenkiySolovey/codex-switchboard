@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-preview.12] - 2026-09-22
+
+### Performance & Stabilization (Startup & Shutdown)
+- **High-Resolution Monotonic Instrumentation:** Added zero-overhead monotonic milestone profiling (`T0..T15` for startup and `S0..S16` for shutdown) with sensitive data redaction.
+- **Optimized Generic Host Composition:** Restricted reflection-heavy container validation (`ValidateOnBuild` and `ValidateScopes`) to development and CI test suites, cutting cold/warm host initialization time.
+- **Deferred Provider Catalog Loading:** Eliminated blocking cryptographic RSA signature verification and JSON parsing from the startup critical path (`T6..T8`), loading on first access to the API Providers tab or routing inspection.
+- **Optimized Accounts Reconcile & Vault Audit:** Removed redundant synchronous duplicate profile reconciliations during startup and deferred orphan vault blob detection to background execution.
+- **XAML Visual Tree Reduction:** Added `x:Load` deferred realization for Tab 1 (API Providers) to avoid materializing non-active tab UI subtrees during initial startup.
+- **Instantaneous Window Hide on Shutdown:** Intercepted `AppWindow.Closing` to hide the window immediately (< 1 ms user-perceived responsiveness) while executing bounded, graceful background cleanup.
+- **Bounded Coordinated Shutdown:** Tightened child process termination and host stop timeouts to 250ms with prompt cancellation tokens.
+- **ReadyToRun (R2R) Deployment:** Enabled `-p:PublishReadyToRun=true` in Release packaging, reducing median warm startup to ~1230 ms and cold startup to ~1211 ms (> 21% improvement over baseline) and trimming artifact footprint.
+- **Automated Performance & Lifecycle Suite:** Added automated benchmark harness and regression tests verifying all startup/shutdown invariants.
+
+---
+
 ## [0.2.0] - 2026-09-15
 
 ### Added

@@ -375,4 +375,28 @@ public sealed class CatalogLoaderAndFallbackTests
         // System.Text.Json default max depth is 64; parsing 100-level deep JSON throws JsonReaderException
         Assert.ThrowsAny<JsonException>(() => JsonDocument.Parse(deepJson));
     }
+
+    [Fact]
+    public void ProviderCatalogService_DefersCatalogLoading_UntilFirstAccess()
+    {
+        using var temp = new TempDir();
+        var loader = new ProviderCatalogLoader(
+            _fs,
+            temp.Combine("non_existent_catalog.json"),
+            temp.Combine("non_existent_catalog.sig"),
+            temp.Combine("non_existent_catalog.previous.json"),
+            temp.Combine("non_existent_local.json"),
+            "0.1.3");
+
+        var service = new ProviderCatalogService(loader);
+        Assert.NotNull(service);
+
+        // First access evaluates the catalog
+        var result = service.CurrentResult;
+        Assert.NotNull(result);
+        Assert.Equal(CatalogSourceLayer.EmbeddedBootstrap, result.ActiveLayer);
+
+        // Subsequent access returns cached result
+        Assert.Same(result, service.CurrentResult);
+    }
 }

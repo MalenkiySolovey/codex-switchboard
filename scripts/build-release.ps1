@@ -4,7 +4,7 @@
 # ==============================================================================
 [CmdletBinding()]
 param(
-    [string]$Version = "0.2.1-preview.9",
+    [string]$Version = "0.2.1-preview.12",
     [switch]$SkipTests = $false,
     [switch]$PublicRelease = $false
 )
@@ -72,6 +72,9 @@ $publishArgs = @(
     "-r", "win-x64",
     "--self-contained", "true",
     "-p:PublishSingleFile=false",
+    "-p:PublishReadyToRun=true",
+    "-p:Version=$Version",
+    "-p:InformationalVersion=$Version",
     "--no-restore",
     "-o", $StagingDir
 )

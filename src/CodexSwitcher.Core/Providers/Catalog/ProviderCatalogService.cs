@@ -42,12 +42,11 @@ public sealed class ProviderCatalogService : IProviderCatalogService
 {
     private readonly ProviderCatalogLoader _loader;
     private readonly object _lock = new();
-    private CatalogLoadResult _currentResult;
+    private CatalogLoadResult? _currentResult;
 
     public ProviderCatalogService(ProviderCatalogLoader loader)
     {
         _loader = loader ?? throw new ArgumentNullException(nameof(loader));
-        _currentResult = _loader.LoadCatalog();
     }
 
     public CatalogLoadResult CurrentResult
@@ -56,7 +55,7 @@ public sealed class ProviderCatalogService : IProviderCatalogService
         {
             lock (_lock)
             {
-                return _currentResult;
+                return _currentResult ??= _loader.LoadCatalog();
             }
         }
     }

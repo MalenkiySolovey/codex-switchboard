@@ -14,7 +14,7 @@ namespace CodexSwitcher.App.Composition;
 /// </summary>
 public static class SwitchboardHostBuilder
 {
-    public static HostApplicationBuilder CreateApplicationBuilder(AppPaths? paths = null)
+    public static HostApplicationBuilder CreateApplicationBuilder(AppPaths? paths = null, bool validateContainer = false)
     {
         var appPaths = paths ?? new AppPaths();
         appPaths.EnsureDirectories();
@@ -26,12 +26,15 @@ public static class SwitchboardHostBuilder
             DisableDefaults = true
         });
 
-        // Enforce strict container validation: captive dependencies and scope validation
-        builder.Services.Configure<ServiceProviderOptions>(options =>
+        // Enforce strict container validation in test environments; skip reflection penalty in production
+        if (validateContainer)
         {
-            options.ValidateOnBuild = true;
-            options.ValidateScopes = true;
-        });
+            builder.Services.Configure<ServiceProviderOptions>(options =>
+            {
+                options.ValidateOnBuild = true;
+                options.ValidateScopes = true;
+            });
+        }
 
         builder.Services.AddSwitchboardServices(appPaths);
 
@@ -39,11 +42,19 @@ public static class SwitchboardHostBuilder
     }
 
     public static IHost CreateHost(
+        AppPaths? paths,
+        Action<IServiceCollection>? configureServices,
+        bool validateContainer)
+    {
+        var builder = CreateApplicationBuilder(paths, validateContainer);
+        configureServices?.Invoke(builder.Services);
+        return builder.Build();
+    }
+
+    public static IHost CreateHost(
         AppPaths? paths = null,
         Action<IServiceCollection>? configureServices = null)
     {
-        var builder = CreateApplicationBuilder(paths);
-        configureServices?.Invoke(builder.Services);
-        return builder.Build();
+        return CreateHost(paths, configureServices, validateContainer: false);
     }
 }

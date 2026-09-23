@@ -71,6 +71,8 @@ public sealed partial class MainWindow : Window
     private readonly WindowChromeService _chromeService;
     private readonly WindowLifecycleCoordinator _lifecycleCoordinator;
 
+    public CodexSwitcher.App.Views.ShellView ShellRoot => Root;
+
     public MainWindow(
         WindowChromeService chromeService,
         WindowLifecycleCoordinator lifecycleCoordinator,
@@ -87,6 +89,7 @@ public sealed partial class MainWindow : Window
         _lifecycleCoordinator = lifecycleCoordinator ?? throw new ArgumentNullException(nameof(lifecycleCoordinator));
 
         Root.Initialize(shellViewModel, paths, settingsVmFactory);
+        StartupTracer.Instance.RecordMilestone("T8:ShellResolved");
 
         _chromeService.ConfigureTitleBar(this, Root.TitleBarElement);
 
@@ -96,6 +99,7 @@ public sealed partial class MainWindow : Window
         _chromeService.TrySetWindowIcon(this, _appWindow);
 
         _appWindow.Changed += OnAppWindowChanged;
+        _appWindow.Closing += OnAppWindowClosing;
         VisibilityChanged += OnVisibilityChanged;
         Activated += OnWindowActivated;
 
@@ -110,13 +114,42 @@ public sealed partial class MainWindow : Window
         Closed += OnWindowClosed;
     }
 
+    private int _activatedOnce;
+    private int _closingStarted;
+
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
+        if (Interlocked.Exchange(ref _activatedOnce, 1) == 0)
+        {
+            StartupTracer.Instance.RecordMilestone("T10:FirstWindowActivated");
+        }
         _lifecycleCoordinator.HandleActivation(args.WindowActivationState, () => Root.ViewModel?.HideAllRevealedTotp());
+    }
+
+    private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (Interlocked.Exchange(ref _closingStarted, 1) == 0)
+        {
+            try
+            {
+                _appWindow.Hide();
+            }
+            catch { }
+            ShutdownTracer.Instance.RecordMilestone("S15:WindowHidden");
+        }
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
+        if (Interlocked.Exchange(ref _closingStarted, 1) == 0)
+        {
+            try
+            {
+                _appWindow?.Hide();
+            }
+            catch { }
+            ShutdownTracer.Instance.RecordMilestone("S15:WindowHidden");
+        }
         _lifecycleCoordinator.HandleWindowClosed(
             () => Root.ViewModel?.HideAllRevealedTotp(),
             () => Root.ViewModel?.Cleanup());

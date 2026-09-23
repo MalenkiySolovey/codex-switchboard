@@ -60,6 +60,7 @@ namespace CodexSwitcher.App;
 public static class Program
 {
     public const string SingleInstanceKey = "CodexSwitchboard.SingleInstance";
+    public static string[] CommandLineArgs { get; private set; } = [];
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     private static extern bool AttachConsole(int dwProcessId);
@@ -67,6 +68,8 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        CommandLineArgs = args ?? [];
+        StartupTracer.Instance.RecordMilestone("T0:ProcessEntry");
         if (args != null && args.Length > 0 && Array.Exists(args, a => a.Equals("--diagnose-windows-auth", StringComparison.OrdinalIgnoreCase)))
         {
             AttachConsole(-1);
