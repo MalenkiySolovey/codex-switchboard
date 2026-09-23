@@ -52,6 +52,13 @@ public interface ICodexThreadHandoffService
         string? newName = null,
         CancellationToken cancellationToken = default);
 
+    Task<ThreadForkResult> StartFreshThreadAsync(
+        string targetModelProvider,
+        string targetModel,
+        string? cwd = null,
+        string? name = null,
+        CancellationToken cancellationToken = default);
+
     Task<ThreadCompatibilityAssessment> AssessThreadCompatibilityAsync(
         string threadId,
         EffectiveToolPolicy targetPolicy,

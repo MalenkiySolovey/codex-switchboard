@@ -60,5 +60,6 @@ public interface IProviderDialogService : ICommonDialogService
     Task<EditApiProviderResult?> PromptEditApiProviderAsync(ApiProviderProfile profile, ProviderDescriptor? descriptor);
     Task<string?> PromptRotateApiKeyAsync(string providerDisplayName);
     Task<CodexThreadSummary?> PromptContinueOnThreadAsync(IReadOnlyList<CodexThreadSummary> threads, string targetProviderName, string targetModel);
+    Task<bool> PromptFreshThreadChoiceAsync(string threadTitle, IReadOnlyList<string> incompatibleFeatures, string targetProviderName, string targetModel);
     Task<bool> ConfirmSwitchToApiAsync(string providerName, string model, string route);
 }

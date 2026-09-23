@@ -96,6 +96,15 @@ public sealed class CodexThreadHandoffServiceTests
                     }";
                     return JsonDocument.Parse(json).RootElement;
                 }
+                if (method == "thread/read")
+                {
+                    var json = @"{
+                        ""thread"": {
+                            ""id"": ""thread-forked-789""
+                        }
+                    }";
+                    return JsonDocument.Parse(json).RootElement;
+                }
                 return JsonDocument.Parse("{}").RootElement;
             }
         };
@@ -120,10 +129,63 @@ public sealed class CodexThreadHandoffServiceTests
         Assert.Contains("gpt-5.6-sol", paramJson);
         Assert.Contains("source-thread-123", paramJson);
 
-        var renameReq = fakeClient.Requests.FirstOrDefault(r => r.Method == "thread/setName");
+        // Verification of persistence was sent
+        var readReq = fakeClient.Requests.FirstOrDefault(r => r.Method == "thread/read");
+        Assert.NotNull(readReq.Parameters);
+
+        // Official rename method is thread/name/set
+        var renameReq = fakeClient.Requests.FirstOrDefault(r => r.Method == "thread/name/set");
         Assert.NotNull(renameReq.Parameters);
         var renameJson = JsonSerializer.Serialize(renameReq.Parameters);
         Assert.Contains("thread-forked-789", renameJson);
         Assert.Contains("Forked on Router.Cheap", renameJson);
+
+        // Ensure obsolete thread/setName was NOT called
+        Assert.DoesNotContain(fakeClient.Requests, r => r.Method == "thread/setName");
+    }
+
+    [Fact]
+    public async Task StartFreshThreadAsync_PropagatesExplicitModelProviderAndModel()
+    {
+        var fakeClient = new FakeAppServerClient
+        {
+            ResponseHandler = (method, _) =>
+            {
+                if (method == "thread/start")
+                {
+                    var json = @"{
+                        ""modelProvider"": ""switchboard_8f31c20a"",
+                        ""model"": ""gpt-5.6-sol"",
+                        ""thread"": {
+                            ""id"": ""thread-fresh-999""
+                        }
+                    }";
+                    return JsonDocument.Parse(json).RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(fakeClient));
+        var result = await service.StartFreshThreadAsync(
+            "switchboard_8f31c20a",
+            "gpt-5.6-sol",
+            @"C:\workspace",
+            "Fresh Session");
+
+        Assert.Equal("thread-fresh-999", result.ForkedThreadId);
+        Assert.Equal(string.Empty, result.SourceThreadId);
+        Assert.Equal("switchboard_8f31c20a", result.TargetModelProvider);
+        Assert.Equal("gpt-5.6-sol", result.TargetModel);
+
+        var startReq = fakeClient.Requests.FirstOrDefault(r => r.Method == "thread/start");
+        Assert.NotNull(startReq.Parameters);
+
+        var paramJson = JsonSerializer.Serialize(startReq.Parameters);
+        Assert.Contains("switchboard_8f31c20a", paramJson);
+        Assert.Contains("gpt-5.6-sol", paramJson);
+
+        var renameReq = fakeClient.Requests.FirstOrDefault(r => r.Method == "thread/name/set");
+        Assert.NotNull(renameReq.Parameters);
     }
 }

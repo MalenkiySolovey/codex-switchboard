@@ -197,6 +197,14 @@ public sealed class Phase10CApiProviderUiTests
                     }";
                     return JsonDocument.Parse(json).RootElement;
                 }
+                if (method == "thread/read")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""thread"": {
+                            ""id"": ""thread-forked-789""
+                        }
+                    }").RootElement;
+                }
                 return JsonDocument.Parse("{}").RootElement;
             }
         };

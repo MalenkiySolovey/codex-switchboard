@@ -582,15 +582,86 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
         var targetModel = !string.IsNullOrWhiteSpace(item.SelectedModel)
             ? item.SelectedModel
-            : _modelCache.GetLatestModels(item.Profile.Id) is { Count: > 0 } cachedModels ? cachedModels[0] : null
-              ?? item.Descriptor?.Codex.DefaultModel
-              ?? "gpt-5.6-sol";
+            : !string.IsNullOrWhiteSpace(item.Profile.SelectedModel)
+                ? item.Profile.SelectedModel
+                : _modelCache.GetLatestModels(item.Profile.Id) is { Count: > 0 } cachedModels ? cachedModels[0] : null
+                  ?? item.Descriptor?.Codex.DefaultModel
+                  ?? "gpt-5.6-sol";
 
         var selected = await _ui.PromptContinueOnThreadAsync(threads, item.DisplayName, targetModel);
         if (selected is null) return;
 
+        // Assess tool compatibility and RequiresFreshThread boundary
+        var toolPolicy = EffectiveToolPolicy.Resolve(item.Profile);
+        var assessment = await _threadHandoffService.AssessThreadCompatibilityAsync(selected.Id, toolPolicy, _cts.Token);
+
+        if (assessment.RequiresFreshThread)
+        {
+            var acceptFresh = await _ui.PromptFreshThreadChoiceAsync(
+                selected.Name ?? selected.Id,
+                assessment.IncompatibleFeatures,
+                item.DisplayName,
+                targetModel);
+
+            if (!acceptFresh)
+            {
+                return;
+            }
+
+            await RunBusyAsync(Loc.ContinueOn, async () =>
+            {
+                if (!item.IsTargetActive)
+                {
+                    var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
+                        item.Profile.Id,
+                        SwitchExecutionOptions.From(_settings),
+                        _cts.Token);
+
+                    if (switchResult.Outcome != TargetSwitchOutcome.Success &&
+                        switchResult.Outcome != TargetSwitchOutcome.SuccessWithReopenWarning &&
+                        switchResult.Outcome != TargetSwitchOutcome.NoOp)
+                    {
+                        ShowInfo(Loc.ErrorTitle, $"Routing switch failed: {switchResult.Message}. Thread start aborted.", InfoBarSeverity.Error);
+                        return;
+                    }
+                }
+
+                var freshResult = await _threadHandoffService.StartFreshThreadAsync(
+                    item.Profile.StableCodexProviderId,
+                    targetModel,
+                    selected.Cwd,
+                    selected.Name != null ? $"{selected.Name} (Fresh)" : null,
+                    _cts.Token);
+
+                ShowInfo(
+                    "Fresh Chat Created",
+                    $"Started fresh conversation on {item.DisplayName}.\nProvider: {freshResult.TargetModelProvider}\nModel: {freshResult.TargetModel}\nThread: {freshResult.ForkedThreadId}",
+                    InfoBarSeverity.Success);
+            });
+
+            TargetStateChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
         await RunBusyAsync(Loc.ContinueOn, async () =>
         {
+            // Routing switch transaction MUST happen before the fork transaction per ARCH-R6
+            if (!item.IsTargetActive)
+            {
+                var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
+                    item.Profile.Id,
+                    SwitchExecutionOptions.From(_settings),
+                    _cts.Token);
+
+                if (switchResult.Outcome != TargetSwitchOutcome.Success &&
+                    switchResult.Outcome != TargetSwitchOutcome.SuccessWithReopenWarning &&
+                    switchResult.Outcome != TargetSwitchOutcome.NoOp)
+                {
+                    ShowInfo(Loc.ErrorTitle, $"Routing switch failed: {switchResult.Message}. Fork aborted.", InfoBarSeverity.Error);
+                    return;
+                }
+            }
+
             var forkResult = await _threadHandoffService.ForkThreadAsync(
                 selected.Id,
                 item.Profile.StableCodexProviderId,
@@ -598,12 +669,10 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 null,
                 _cts.Token);
 
-            if (!item.IsTargetActive)
-            {
-                await _targetSwitchService.SwitchToApiProviderAsync(item.Profile.Id, SwitchExecutionOptions.From(_settings), _cts.Token);
-            }
-
-            ShowInfo(Loc.ForkSuccessTitle, Loc.ForkSuccessMessage(item.DisplayName, selected.Name ?? selected.Id), InfoBarSeverity.Success);
+            ShowInfo(
+                Loc.ForkSuccessTitle,
+                $"Continuation created successfully.\nProvider: {forkResult.TargetModelProvider}\nModel: {forkResult.TargetModel}\nThread: {forkResult.ForkedThreadId}",
+                InfoBarSeverity.Success);
         });
 
         TargetStateChanged?.Invoke(this, EventArgs.Empty);

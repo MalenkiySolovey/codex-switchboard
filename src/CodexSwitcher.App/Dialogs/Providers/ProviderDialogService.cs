@@ -1037,12 +1037,69 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             listView.Items.Add(itemNode);
         }
 
+        var comparisonBorder = new Border
+        {
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(20, 128, 128, 128)),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var comparisonStack = new StackPanel { Spacing = 4 };
+        var sourceComparisonText = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.9
+        };
+        var targetComparisonText = new TextBlock
+        {
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        comparisonStack.Children.Add(sourceComparisonText);
+        comparisonStack.Children.Add(targetComparisonText);
+        comparisonBorder.Child = comparisonStack;
+
+        void UpdateComparison(CodexThreadSummary? t)
+        {
+            if (t is null)
+            {
+                sourceComparisonText.Text = "Source: None selected";
+                targetComparisonText.Text = $"Continue on: {targetProviderName} · {targetModel}";
+                return;
+            }
+            var sName = !string.IsNullOrWhiteSpace(t.Name) ? t.Name : t.Id;
+            var sProv = !string.IsNullOrWhiteSpace(t.ModelProvider) ? t.ModelProvider : "ChatGPT";
+            var sModel = !string.IsNullOrWhiteSpace(t.Model) ? t.Model : "-";
+
+            sourceComparisonText.Text = $"Source: {sName} ({sProv} · {sModel})";
+            targetComparisonText.Text = $"Continue on: {targetProviderName} · {targetModel}";
+        }
+
+        listView.SelectionChanged += (s, e) =>
+        {
+            if (listView.SelectedItem is ListViewItem selItem && selItem.Tag is CodexThreadSummary selThread)
+            {
+                UpdateComparison(selThread);
+            }
+        };
+
         if (listView.Items.Count > 0)
         {
             listView.SelectedIndex = 0;
+            if (listView.SelectedItem is ListViewItem firstItem && firstItem.Tag is CodexThreadSummary firstThread)
+            {
+                UpdateComparison(firstThread);
+            }
+        }
+        else
+        {
+            UpdateComparison(null);
         }
 
         panel.Children.Add(listView);
+        panel.Children.Add(comparisonBorder);
 
         var dialog = new ContentDialog
         {
@@ -1060,6 +1117,60 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             return selected;
         }
         return null;
+    }
+
+    public async Task<bool> PromptFreshThreadChoiceAsync(
+        string threadTitle,
+        IReadOnlyList<string> incompatibleFeatures,
+        string targetProviderName,
+        string targetModel)
+    {
+        var panel = new StackPanel { Spacing = 10, Width = 420 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Incompatible Conversation History",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontSize = 14
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"The selected thread '{threadTitle}' contains tool history not supported by {targetProviderName}:",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12
+        });
+
+        var featureList = new StackPanel { Spacing = 2, Margin = new Thickness(10, 0, 0, 0) };
+        foreach (var feat in incompatibleFeatures)
+        {
+            featureList.Children.Add(new TextBlock
+            {
+                Text = $"• {feat}",
+                FontSize = 11,
+                Opacity = 0.8
+            });
+        }
+        panel.Children.Add(featureList);
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"Would you like to start a fresh chat on {targetProviderName} ({targetModel}) instead?",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.Medium
+        });
+
+        var dialog = new ContentDialog
+        {
+            Title = "Fresh Chat Required",
+            Content = panel,
+            PrimaryButtonText = "Start Fresh Chat",
+            CloseButtonText = _loc.Cancel,
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        return result == ContentDialogResult.Primary;
     }
 
 

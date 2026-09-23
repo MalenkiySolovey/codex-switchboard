@@ -7,12 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-preview.13] - 2026-09-23
+
+### Fixed
+- **Continue Chat Target Model Propagation:** Fixed cross-provider and intra-provider thread continuation where destination models were not reliably applied. Thread forks now explicitly propagate target `modelProvider` and exact target `model` (e.g. `deepseek-v4.1-flash:free` -> `deepseek-v4.1-flash`) without suffix stripping or premature fallback to source models.
+- **Authoritative Target Identity Enforcement:** Enforced postcondition verification on `ThreadForkResponse`. Mismatches in returned `modelProvider` or `model` immediately fail the fork transaction to prevent creating corrupted or misrouted sessions.
+- **Read-Back Persistence Verification:** Added pre-success verification requiring positive read-back of newly created fork IDs via `thread/read` or all-provider `thread/list` (`modelProviders: []`) before confirming continuation success.
+- **Protocol Compliance for Thread Naming:** Replaced obsolete `thread/setName` RPC calls with the official `thread/name/set` method. Thread renaming is strictly non-fatal best-effort and executes only after thread persistence is verified.
+- **RequiresFreshThread Safety Boundary:** Integrated tool compatibility assessment on Continue Chat handoff. When source threads contain historical tool calls (e.g. hosted web search or custom apply_patch) incompatible with the target provider policy, unsafe replay is blocked and the user is offered a clean Fresh Chat initialization (`thread/start`).
+- **All-Provider Thread Discovery & Pagination:** Configured `thread/list` with explicit `modelProviders: []` and bounded cursor pagination (`nextCursor`) to discover history across all configured providers without silent truncation.
+- **Routing Switch Order Invariant:** Enforced that Switchboard routing transactions execute and verify active before the fork transaction is sent, preventing orphan threads and stale routing context.
+- **Performance Boundary Preserved:** Thread listing and compatibility evaluations remain strictly on-demand (lazy) within the Continue Chat workflow, preserving all preview.12 startup and shutdown performance optimizations.
+
+---
+
 ## [0.2.1-preview.12] - 2026-09-22
 
 ### Performance & Stabilization (Startup & Shutdown)
 - **High-Resolution Monotonic Instrumentation:** Added zero-overhead monotonic milestone profiling (`T0..T15` for startup and `S0..S16` for shutdown) with sensitive data redaction.
 - **Optimized Generic Host Composition:** Restricted reflection-heavy container validation (`ValidateOnBuild` and `ValidateScopes`) to development and CI test suites, cutting cold/warm host initialization time.
-- **Deferred Provider Catalog Loading:** Eliminated blocking cryptographic RSA signature verification and JSON parsing from the startup critical path (`T6..T8`), loading on first access to the API Providers tab or routing inspection.
+- **Deferred Provider Catalog Loading:** Eliminated blocking cryptographic ECDSA signature verification and JSON parsing from the startup critical path (`T6..T8`), loading on first access to the API Providers tab or routing inspection.
 - **Optimized Accounts Reconcile & Vault Audit:** Removed redundant synchronous duplicate profile reconciliations during startup and deferred orphan vault blob detection to background execution.
 - **XAML Visual Tree Reduction:** Added `x:Load` deferred realization for Tab 1 (API Providers) to avoid materializing non-active tab UI subtrees during initial startup.
 - **Instantaneous Window Hide on Shutdown:** Intercepted `AppWindow.Closing` to hide the window immediately (< 1 ms user-perceived responsiveness) while executing bounded, graceful background cleanup.

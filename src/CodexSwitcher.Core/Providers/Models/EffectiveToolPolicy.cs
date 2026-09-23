@@ -75,4 +75,45 @@ public sealed record EffectiveToolPolicy(
             AllowNamespaceTools: allowNamespaceTools,
             AllowMultiAgent: allowMultiAgent);
     }
+
+    public static EffectiveToolPolicy Resolve(ApiProviderProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        var transport = profile.TransportOverrides;
+        var responsesPolicy = transport?.ResponsesPolicy ?? ResponsesCompatibilityPolicy.Auto;
+        var routeCaps = DeriveRouteCapabilities(profile);
+        return Resolve(responsesPolicy, routeCaps);
+    }
+
+    public static RouteCapabilities DeriveRouteCapabilities(ApiProviderProfile targetProfile)
+    {
+        ArgumentNullException.ThrowIfNull(targetProfile);
+        if (targetProfile.LastProbeReport is { } report)
+        {
+            return new RouteCapabilities(
+                routeId: targetProfile.SelectedRouteId ?? "active",
+                baseUrl: targetProfile.BaseUrl,
+                responses: report.ResponsesEndpoint,
+                streaming: report.StreamingSupport,
+                webSockets: CapabilityEvidence.Unknown("WebSocket route not probed"),
+                hostedWebSearch: report.HostedSearchSupport,
+                standardFunctionTools: report.BuiltInFunctionTools,
+                visionPassthrough: report.Vision,
+                customFreeformTools: report.CustomApplyPatch,
+                applyPatchFreeform: report.CustomApplyPatch,
+                toolSearch: report.ToolSearch,
+                standaloneWebSearch: report.StandaloneSearch,
+                namespaceTools: report.McpNamespaceTools,
+                promptCaching: CapabilityEvidence.Unknown("Prompt caching unverified"),
+                mcp: CapabilityEvidence.Unknown("MCP unverified"),
+                appsPlugins: report.Plugins);
+        }
+
+        if (targetProfile.BaseUrl.Contains("modelflare", StringComparison.OrdinalIgnoreCase))
+        {
+            return RouteCapabilities.ForModelflareGrok46(targetProfile.BaseUrl);
+        }
+
+        return RouteCapabilities.ForGenericResponses(targetProfile.BaseUrl);
+    }
 }

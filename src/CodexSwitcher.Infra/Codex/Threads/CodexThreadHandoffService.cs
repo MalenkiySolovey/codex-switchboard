@@ -71,50 +71,78 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         CancellationToken cancellationToken = default)
     {
         var client = await _clientFactory().ConfigureAwait(false);
-        JsonElement result;
-        try
-        {
-            // Per official Codex app-server schema, modelProviders: [] explicitly requests sessions across ALL providers
-            var allProvidersParams = new
-            {
-                limit,
-                modelProviders = Array.Empty<string>()
-            };
-            result = await client.RequestAsync("thread/list", allProvidersParams, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-            // Fallback for older Codex app-server versions that may not accept empty modelProviders array
-            result = await client.RequestAsync("thread/list", new { limit }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
-        }
-
         var list = new List<CodexThreadSummary>();
-        if (result.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array)
+        string? currentCursor = null;
+
+        while (list.Count < limit && !cancellationToken.IsCancellationRequested)
         {
-            foreach (var item in dataEl.EnumerateArray())
+            int pageLimit = Math.Min(limit - list.Count, 50);
+            var queryParams = new Dictionary<string, object?>
             {
-                var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-                if (string.IsNullOrWhiteSpace(id)) continue;
-
-                var name = item.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
-                var modelProvider = item.TryGetProperty("modelProvider", out var mpEl) ? mpEl.GetString() : null;
-                var model = item.TryGetProperty("model", out var mEl) ? mEl.GetString() : null;
-                var cwd = item.TryGetProperty("cwd", out var cwdEl) ? cwdEl.GetString() : null;
-
-                DateTimeOffset createdAt = DateTimeOffset.UtcNow;
-                if (item.TryGetProperty("createdAt", out var caEl) && caEl.TryGetInt64(out var caUnix))
-                {
-                    createdAt = DateTimeOffset.FromUnixTimeSeconds(caUnix);
-                }
-
-                DateTimeOffset updatedAt = createdAt;
-                if (item.TryGetProperty("updatedAt", out var uaEl) && uaEl.TryGetInt64(out var uaUnix))
-                {
-                    updatedAt = DateTimeOffset.FromUnixTimeSeconds(uaUnix);
-                }
-
-                list.Add(new CodexThreadSummary(id, name, modelProvider, model, createdAt, updatedAt, cwd));
+                ["limit"] = pageLimit,
+                ["modelProviders"] = Array.Empty<string>()
+            };
+            if (!string.IsNullOrWhiteSpace(currentCursor))
+            {
+                queryParams["cursor"] = currentCursor;
             }
+
+            JsonElement result;
+            try
+            {
+                result = await client.RequestAsync("thread/list", queryParams, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Fallback for app-server variants
+                result = await client.RequestAsync("thread/list", queryParams, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+            }
+
+            int countBefore = list.Count;
+            if (result.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in dataEl.EnumerateArray())
+                {
+                    var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+
+                    var name = item.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
+                    var modelProvider = item.TryGetProperty("modelProvider", out var mpEl) ? mpEl.GetString() : null;
+                    var model = item.TryGetProperty("model", out var mEl) ? mEl.GetString() : null;
+                    var cwd = item.TryGetProperty("cwd", out var cwdEl) ? cwdEl.GetString() : null;
+
+                    DateTimeOffset createdAt = DateTimeOffset.UtcNow;
+                    if (item.TryGetProperty("createdAt", out var caEl) && caEl.TryGetInt64(out var caUnix))
+                    {
+                        createdAt = DateTimeOffset.FromUnixTimeSeconds(caUnix);
+                    }
+
+                    DateTimeOffset updatedAt = createdAt;
+                    if (item.TryGetProperty("updatedAt", out var uaEl) && uaEl.TryGetInt64(out var uaUnix))
+                    {
+                        updatedAt = DateTimeOffset.FromUnixTimeSeconds(uaUnix);
+                    }
+
+                    list.Add(new CodexThreadSummary(id, name, modelProvider, model, createdAt, updatedAt, cwd));
+                    if (list.Count >= limit) break;
+                }
+            }
+
+            string? nextCursor = null;
+            if (result.TryGetProperty("nextCursor", out var ncEl) && ncEl.ValueKind == JsonValueKind.String)
+            {
+                nextCursor = ncEl.GetString();
+            }
+            else if (result.TryGetProperty("cursor", out var cEl) && cEl.ValueKind == JsonValueKind.String)
+            {
+                nextCursor = cEl.GetString();
+            }
+
+            if (string.IsNullOrWhiteSpace(nextCursor) || list.Count == countBefore || list.Count >= limit)
+            {
+                break;
+            }
+            currentCursor = nextCursor;
         }
 
         return list;
@@ -143,9 +171,17 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         var response = await client.RequestAsync("thread/fork", forkParams, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
 
         string forkedThreadId = string.Empty;
-        if (response.TryGetProperty("thread", out var threadEl) && threadEl.TryGetProperty("id", out var tidEl))
+        if (response.TryGetProperty("thread", out var threadEl) && threadEl.ValueKind == JsonValueKind.Object && threadEl.TryGetProperty("id", out var tidEl))
         {
             forkedThreadId = tidEl.GetString() ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(forkedThreadId) && response.TryGetProperty("id", out var idEl))
+        {
+            forkedThreadId = idEl.GetString() ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(forkedThreadId) && response.TryGetProperty("threadId", out var tIdEl))
+        {
+            forkedThreadId = tIdEl.GetString() ?? string.Empty;
         }
 
         if (string.IsNullOrWhiteSpace(forkedThreadId))
@@ -153,33 +189,209 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             throw new InvalidOperationException("thread/fork did not return a valid thread ID.");
         }
 
-        // Verify returned modelProvider matches explicit target
+        if (string.Equals(forkedThreadId, sourceThreadId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"thread/fork returned the source thread ID '{sourceThreadId}'. A distinct forked thread ID is required.");
+        }
+
+        // Authoritatively verify returned modelProvider matches explicit target
         string? returnedProvider = null;
-        if (response.TryGetProperty("modelProvider", out var rmpEl))
+        if (response.TryGetProperty("modelProvider", out var rmpEl) && rmpEl.ValueKind == JsonValueKind.String)
         {
             returnedProvider = rmpEl.GetString();
+        }
+        else if (response.TryGetProperty("thread", out var tEl) && tEl.ValueKind == JsonValueKind.Object && tEl.TryGetProperty("modelProvider", out var tmpEl) && tmpEl.ValueKind == JsonValueKind.String)
+        {
+            returnedProvider = tmpEl.GetString();
         }
 
         if (!string.IsNullOrWhiteSpace(returnedProvider) &&
             !string.Equals(returnedProvider, targetModelProvider, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"Target modelProvider mismatch. Requested: {targetModelProvider}, returned: {returnedProvider}");
+            throw new InvalidOperationException($"Target modelProvider mismatch. Requested: '{targetModelProvider}', returned: '{returnedProvider}'");
         }
 
-        // Rename if requested
+        // Authoritatively verify returned model matches explicit target (exact string equality, no suffix stripping)
+        string? returnedModel = null;
+        if (response.TryGetProperty("model", out var rmEl) && rmEl.ValueKind == JsonValueKind.String)
+        {
+            returnedModel = rmEl.GetString();
+        }
+        else if (response.TryGetProperty("thread", out var tEl2) && tEl2.ValueKind == JsonValueKind.Object && tEl2.TryGetProperty("model", out var tmEl) && tmEl.ValueKind == JsonValueKind.String)
+        {
+            returnedModel = tmEl.GetString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(returnedModel) &&
+            !string.Equals(returnedModel, targetModel, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Target model mismatch. Requested: '{targetModel}', returned: '{returnedModel}'");
+        }
+
+        // Read-back verification (Requirement K): verify the new thread is persisted and readable
+        bool verifiedReadable = false;
+        try
+        {
+            var readResp = await client.RequestAsync("thread/read", new { threadId = forkedThreadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+            if (readResp.ValueKind == JsonValueKind.Object)
+            {
+                string? readId = null;
+                if (readResp.TryGetProperty("thread", out var readThread) && readThread.ValueKind == JsonValueKind.Object && readThread.TryGetProperty("id", out var rtid))
+                {
+                    readId = rtid.GetString();
+                }
+                else if (readResp.TryGetProperty("id", out var rid))
+                {
+                    readId = rid.GetString();
+                }
+
+                if (string.Equals(readId, forkedThreadId, StringComparison.OrdinalIgnoreCase) ||
+                    readResp.TryGetProperty("turns", out _) ||
+                    readResp.TryGetProperty("history", out _))
+                {
+                    verifiedReadable = true;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Fallback to thread/list with modelProviders = []
+        }
+
+        if (!verifiedReadable)
+        {
+            try
+            {
+                var listResp = await client.RequestAsync("thread/list", new { limit = 50, modelProviders = Array.Empty<string>() }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+                if (listResp.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in dataArr.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("id", out var idProp) && string.Equals(idProp.GetString(), forkedThreadId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            verifiedReadable = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        if (!verifiedReadable)
+        {
+            throw new InvalidOperationException($"Forked thread '{forkedThreadId}' could not be verified via thread/read or thread/list.");
+        }
+
+        // Best-effort rename using official thread/name/set ONLY AFTER thread persistence is verified
         if (!string.IsNullOrWhiteSpace(newName))
         {
             try
             {
-                await client.RequestAsync("thread/setName", new { threadId = forkedThreadId, name = newName }, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                await client.RequestAsync("thread/name/set", new { threadId = forkedThreadId, name = newName }, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             }
             catch
             {
-                // Renaming is best effort
+                // Renaming is cosmetic and best effort per official protocol
             }
         }
 
         return new ThreadForkResult(forkedThreadId, sourceThreadId, targetModelProvider, targetModel, newName);
+    }
+
+    public async Task<ThreadForkResult> StartFreshThreadAsync(
+        string targetModelProvider,
+        string targetModel,
+        string? cwd = null,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetModelProvider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetModel);
+
+        var client = await _clientFactory().ConfigureAwait(false);
+
+        var startParams = new Dictionary<string, object?>
+        {
+            ["modelProvider"] = targetModelProvider,
+            ["model"] = targetModel
+        };
+        if (!string.IsNullOrWhiteSpace(cwd))
+        {
+            startParams["cwd"] = cwd;
+        }
+
+        var response = await client.RequestAsync("thread/start", startParams, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+
+        string freshThreadId = string.Empty;
+        if (response.TryGetProperty("thread", out var threadEl) && threadEl.ValueKind == JsonValueKind.Object && threadEl.TryGetProperty("id", out var tidEl))
+        {
+            freshThreadId = tidEl.GetString() ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(freshThreadId) && response.TryGetProperty("id", out var idEl))
+        {
+            freshThreadId = idEl.GetString() ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(freshThreadId) && response.TryGetProperty("threadId", out var tIdEl))
+        {
+            freshThreadId = tIdEl.GetString() ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(freshThreadId))
+        {
+            throw new InvalidOperationException("thread/start did not return a valid thread ID.");
+        }
+
+        // Authoritatively verify returned modelProvider matches explicit target
+        string? returnedProvider = null;
+        if (response.TryGetProperty("modelProvider", out var rmpEl) && rmpEl.ValueKind == JsonValueKind.String)
+        {
+            returnedProvider = rmpEl.GetString();
+        }
+        else if (response.TryGetProperty("thread", out var tEl) && tEl.ValueKind == JsonValueKind.Object && tEl.TryGetProperty("modelProvider", out var tmpEl) && tmpEl.ValueKind == JsonValueKind.String)
+        {
+            returnedProvider = tmpEl.GetString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(returnedProvider) &&
+            !string.Equals(returnedProvider, targetModelProvider, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Target modelProvider mismatch on thread/start. Requested: '{targetModelProvider}', returned: '{returnedProvider}'");
+        }
+
+        // Authoritatively verify returned model matches explicit target
+        string? returnedModel = null;
+        if (response.TryGetProperty("model", out var rmEl) && rmEl.ValueKind == JsonValueKind.String)
+        {
+            returnedModel = rmEl.GetString();
+        }
+        else if (response.TryGetProperty("thread", out var tEl2) && tEl2.ValueKind == JsonValueKind.Object && tEl2.TryGetProperty("model", out var tmEl) && tmEl.ValueKind == JsonValueKind.String)
+        {
+            returnedModel = tmEl.GetString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(returnedModel) &&
+            !string.Equals(returnedModel, targetModel, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Target model mismatch on thread/start. Requested: '{targetModel}', returned: '{returnedModel}'");
+        }
+
+        // Best-effort rename using official thread/name/set
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            try
+            {
+                await client.RequestAsync("thread/name/set", new { threadId = freshThreadId, name }, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Renaming is cosmetic and best effort per official protocol
+            }
+        }
+
+        return new ThreadForkResult(freshThreadId, string.Empty, targetModelProvider, targetModel, name);
     }
 
     public async Task<ThreadCompatibilityAssessment> AssessThreadCompatibilityAsync(
