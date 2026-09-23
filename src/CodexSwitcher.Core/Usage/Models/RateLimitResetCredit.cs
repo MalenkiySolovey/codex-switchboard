@@ -78,6 +78,17 @@ public sealed record RateLimitResetCredit(
 }
 
 /// <summary>
+/// High-level presentation state of rate-limit reset credits.
+/// </summary>
+public enum ResetCreditsState
+{
+    None = 0,
+    CountOnly = 1,
+    Detailed = 2,
+    TemporarilyUnavailable = 3,
+}
+
+/// <summary>
 /// Normalized summary of rate-limit reset credits.
 /// AvailableCount is authoritative; Credits may be null (when unsupported by runtime)
 /// or capped by the backend.
@@ -86,6 +97,13 @@ public sealed record RateLimitResetCredits(
     int AvailableCount,
     IReadOnlyList<RateLimitResetCredit>? Credits = null)
 {
+    /// <summary>
+    /// Presentation state of the reset credits.
+    /// </summary>
+    public ResetCreditsState State =>
+        AvailableCount <= 0 ? ResetCreditsState.None :
+        (Credits is { Count: > 0 } ? ResetCreditsState.Detailed : ResetCreditsState.CountOnly);
+
     /// <summary>
     /// Indicates whether detailed credit rows were reported by the server.
     /// </summary>

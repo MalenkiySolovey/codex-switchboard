@@ -56,4 +56,10 @@ public enum AccountActivityAvailability
 
     /// <summary>Temporary failure (e.g. transient timeout, server 500/overload) while quota succeeded.</summary>
     TemporarilyUnavailable = 5,
+
+    /// <summary>Activity summary is available but granular daily buckets are partial or omitted.</summary>
+    AvailablePartial = 6,
+
+    /// <summary>Showing last-known-good cached activity while current fetch was skipped or encountered error.</summary>
+    CachedStale = 7,
 }

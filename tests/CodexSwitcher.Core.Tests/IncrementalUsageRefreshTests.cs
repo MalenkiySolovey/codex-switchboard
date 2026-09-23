@@ -82,12 +82,12 @@ public class IncrementalUsageRefreshTests
         Assert.Contains(p2.Id, completedOrder);
         Assert.Contains(p3.Id, completedOrder);
 
-        // Verify provider received background fetch options
+        // Verify provider received repaired background fetch options (telemetry and reset credit details included)
         Assert.All(provider.Calls, call =>
         {
             Assert.NotNull(call.Options);
-            Assert.True(call.Options.ExcludeResetCreditDetails);
-            Assert.False(call.Options.IncludeActivity);
+            Assert.False(call.Options.ExcludeResetCreditDetails);
+            Assert.True(call.Options.IncludeActivity);
         });
     }
 

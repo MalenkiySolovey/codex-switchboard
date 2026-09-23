@@ -106,7 +106,7 @@ public static class CodexUsageResponseParser
     /// </summary>
     public static (string? PrimaryLimitId, IReadOnlyList<LimitBucket> Limits, int? ResetCreditsAvailable) ParseRateLimits(JsonElement root)
     {
-        var (primaryId, limits, credits, _, _) = ParseRateLimitsDetail(root);
+        var (primaryId, limits, credits, _, _, _) = ParseRateLimitsDetail(root);
         return (primaryId, limits, credits);
     }
 
@@ -114,10 +114,10 @@ public static class CodexUsageResponseParser
     /// Normalizes an <c>account/rateLimits/read</c> JSON response into a list of <see cref="LimitBucket"/>,
     /// primary limit ID, available reset credits count, detailed reset credits breakdown, and ordinary usage permission.
     /// </summary>
-    public static (string? PrimaryLimitId, IReadOnlyList<LimitBucket> Limits, int? ResetCreditsAvailable, RateLimitResetCredits? ResetCreditsDetail, bool? OrdinaryUsageAllowed) ParseRateLimitsDetail(JsonElement root)
+    public static (string? PrimaryLimitId, IReadOnlyList<LimitBucket> Limits, int? ResetCreditsAvailable, RateLimitResetCredits? ResetCreditsDetail, bool? OrdinaryUsageAllowed, string? AccountId) ParseRateLimitsDetail(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
-            return (null, [], null, null, null);
+            return (null, [], null, null, null, null);
 
         var buckets = new Dictionary<string, LimitBucket>(StringComparer.OrdinalIgnoreCase);
 
@@ -194,7 +194,25 @@ public static class CodexUsageResponseParser
                 ordinaryUsageAllowed = false;
         }
 
-        return (primaryLimitId, buckets.Values.ToList(), resetCreditsAvailable, resetCreditsDetail, ordinaryUsageAllowed);
+        // 5. Account identity tracking
+        string? accountId = null;
+        if (root.TryGetProperty("accountId", out var accIdEl) && accIdEl.ValueKind == JsonValueKind.String)
+        {
+            accountId = accIdEl.GetString();
+        }
+        else if (primaryLimitId != null && root.TryGetProperty("rateLimitsByLimitId", out var rlbliAcc) && rlbliAcc.ValueKind == JsonValueKind.Object &&
+                 rlbliAcc.TryGetProperty(primaryLimitId, out var primaryEl) && primaryEl.ValueKind == JsonValueKind.Object &&
+                 primaryEl.TryGetProperty("accountId", out var pAccEl) && pAccEl.ValueKind == JsonValueKind.String)
+        {
+            accountId = pAccEl.GetString();
+        }
+        else if (root.TryGetProperty("rateLimits", out var rlAcc) && rlAcc.ValueKind == JsonValueKind.Object &&
+                 rlAcc.TryGetProperty("accountId", out var rlAccEl) && rlAccEl.ValueKind == JsonValueKind.String)
+        {
+            accountId = rlAccEl.GetString();
+        }
+
+        return (primaryLimitId, buckets.Values.ToList(), resetCreditsAvailable, resetCreditsDetail, ordinaryUsageAllowed, accountId);
     }
 
     /// <summary>

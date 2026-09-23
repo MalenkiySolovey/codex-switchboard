@@ -35,6 +35,16 @@ using CodexSwitcher.Core.Common.Errors;
 namespace CodexSwitcher.Core.Usage.Models;
 
 /// <summary>
+/// Source origin for rate limits snapshot data.
+/// </summary>
+public enum QuotaDataOrigin
+{
+    Unknown = 0,
+    LiveAppServer = 1,
+    Cached = 2,
+}
+
+/// <summary>
 /// A normalized snapshot of rate limits for an account.
 /// </summary>
 public sealed record RateLimitsSnapshot(
@@ -48,7 +58,11 @@ public sealed record RateLimitsSnapshot(
     UsageStatus Status,
     ErrorInfo? LastError = null,
     RateLimitResetCredits? ResetCreditsDetail = null,
-    bool? OrdinaryUsageAllowed = null)
+    bool? OrdinaryUsageAllowed = null,
+    QuotaDataOrigin Origin = QuotaDataOrigin.Unknown,
+    string? RuntimeVersion = null,
+    bool AccountIdentityMatched = true,
+    bool RequestSucceeded = true)
 {
     private LimitBucket? PrimaryBucket =>
         Limits.FirstOrDefault(b => b.LimitId == (PrimaryLimitId ?? "codex"))

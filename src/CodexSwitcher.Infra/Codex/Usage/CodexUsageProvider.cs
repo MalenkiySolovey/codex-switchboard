@@ -203,12 +203,28 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
                         cancellationToken).ConfigureAwait(false);
                 }
 
-                var (primaryLimitId, buckets, resetCredits, resetCreditsDetail, ordinaryUsageAllowed) = CodexUsageResponseParser.ParseRateLimitsDetail(rateLimitsElement);
+                var (primaryLimitId, buckets, resetCredits, resetCreditsDetail, ordinaryUsageAllowed, accountId) = CodexUsageResponseParser.ParseRateLimitsDetail(rateLimitsElement);
 
                 // Authoritative backend rate limit check (do NOT infer solely from UsedPercent >= 100)
                 var isRateLimited = buckets.Any(b => !string.IsNullOrWhiteSpace(b.RateLimitReachedType));
                 var status = isRateLimited ? UsageStatus.RateLimited : UsageStatus.Healthy;
                 var effectivePlan = planType ?? buckets.FirstOrDefault(b => b.LimitId == (primaryLimitId ?? "codex"))?.PlanType;
+
+                var accountIdentityMatched = true;
+                if (!string.IsNullOrWhiteSpace(accountId))
+                {
+                    try
+                    {
+                        var (_, claims) = AuthJsonReader.Identify(authJsonBytes);
+                        if (!string.IsNullOrWhiteSpace(claims.Sub))
+                        {
+                            accountIdentityMatched = string.Equals(accountId, claims.Sub, StringComparison.OrdinalIgnoreCase);
+                        }
+                    }
+                    catch { }
+                }
+
+                var runtimeVersion = CodexRuntimeResolver.ProbeVersion(exePath);
 
                 snapshot = new RateLimitsSnapshot(
                     ProfileId: profileId,
@@ -219,8 +235,13 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
                     PlanType: effectivePlan,
                     AccountEmail: email,
                     Status: status,
+                    LastError: null,
                     ResetCreditsDetail: resetCreditsDetail,
-                    OrdinaryUsageAllowed: ordinaryUsageAllowed);
+                    OrdinaryUsageAllowed: ordinaryUsageAllowed,
+                    Origin: QuotaDataOrigin.LiveAppServer,
+                    RuntimeVersion: runtimeVersion,
+                    AccountIdentityMatched: accountIdentityMatched,
+                    RequestSucceeded: true);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -234,8 +255,8 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
 
             if (options?.IncludeActivity == false)
             {
-                // Activity read decoupled / bypassed for fast background polling
-                activityAvailability = AccountActivityAvailability.TemporarilyUnavailable;
+                // Activity read explicitly bypassed by caller
+                activityAvailability = AccountActivityAvailability.Unknown;
             }
             else
             {
@@ -258,9 +279,28 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
                             cancellationToken).ConfigureAwait(false);
 
                         activity = CodexUsageResponseParser.ParseAccountActivity(profileId, usageElement);
-                        activityAvailability = AccountActivityAvailability.Available;
+                        if (activity != null)
+                        {
+                            if (activity.Summary == null && activity.DailyBuckets.Count == 0)
+                            {
+                                activityAvailability = AccountActivityAvailability.NotReported;
+                            }
+                            else if (activity.Summary != null && activity.DailyBuckets.Count == 0)
+                            {
+                                activityAvailability = AccountActivityAvailability.AvailablePartial;
+                            }
+                            else
+                            {
+                                activityAvailability = AccountActivityAvailability.Available;
+                            }
+                        }
+                        else
+                        {
+                            activityAvailability = AccountActivityAvailability.NotReported;
+                        }
 
-                        _capabilityCache.SetCapabilities(exeIdentity, CodexRuntimeCapabilities.ModernFull);
+                        var existingCaps = _capabilityCache.GetCapabilities(exeIdentity) ?? CodexRuntimeCapabilities.Default;
+                        _capabilityCache.SetCapabilities(exeIdentity, existingCaps with { AccountUsageRead = CapabilityStatus.Supported });
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                     {
@@ -274,7 +314,8 @@ public sealed class CodexUsageProvider : ICodexUsageProvider
                             sanitized.Contains("Method not found", StringComparison.OrdinalIgnoreCase))
                         {
                             activityAvailability = AccountActivityAvailability.UnsupportedRuntime;
-                            _capabilityCache.SetCapabilities(exeIdentity, CodexRuntimeCapabilities.LegacyUnsupportedUsage);
+                            var existingCaps = _capabilityCache.GetCapabilities(exeIdentity) ?? CodexRuntimeCapabilities.Default;
+                            _capabilityCache.SetCapabilities(exeIdentity, existingCaps with { AccountUsageRead = CapabilityStatus.Unsupported });
                         }
                         else
                         {

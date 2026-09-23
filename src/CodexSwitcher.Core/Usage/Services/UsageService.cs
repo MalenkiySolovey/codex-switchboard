@@ -247,8 +247,8 @@ public sealed class UsageService : IUsageService, IDisposable
             using (await _priorityThrottle.AcquireAsync(priority, _serviceCts.Token).ConfigureAwait(false))
             {
                 var fetchOpts = new UsageFetchOptions(
-                    ExcludeResetCreditDetails: !force,
-                    IncludeActivity: force);
+                    ExcludeResetCreditDetails: false,
+                    IncludeActivity: true);
 
                 fetchResult = await _provider.FetchRateLimitsAsync(profile.Id, authBytes, fetchOpts, _serviceCts.Token).ConfigureAwait(false);
             }
@@ -359,15 +359,31 @@ public sealed class UsageService : IUsageService, IDisposable
             if (effectiveSnapshot is null && previousEntry?.Snapshot is not null &&
                 fetchResult.Status is UsageStatus.ProcessDown or UsageStatus.BackingOff or UsageStatus.Error)
             {
-                effectiveSnapshot = previousEntry.Snapshot;
+                effectiveSnapshot = previousEntry.Snapshot with { Origin = QuotaDataOrigin.Cached };
                 isStale = true;
             }
 
-            // Preserve cached activity if current fetch skipped activity
-            var effectiveActivity = fetchResult.Activity ?? previousEntry?.Activity;
-            var effectiveActivityAvailability = fetchResult.Activity is not null
-                ? fetchResult.ActivityAvailability
-                : (previousEntry?.ActivityAvailability ?? fetchResult.ActivityAvailability);
+            // Preserve cached activity if current fetch returned null
+            AccountActivitySnapshot? effectiveActivity;
+            AccountActivityAvailability effectiveActivityAvailability;
+
+            if (fetchResult.Activity is not null)
+            {
+                effectiveActivity = fetchResult.Activity;
+                effectiveActivityAvailability = fetchResult.ActivityAvailability;
+            }
+            else if (previousEntry?.Activity is not null)
+            {
+                effectiveActivity = previousEntry.Activity;
+                effectiveActivityAvailability = (fetchResult.ActivityAvailability == AccountActivityAvailability.UnsupportedRuntime)
+                    ? AccountActivityAvailability.UnsupportedRuntime
+                    : AccountActivityAvailability.CachedStale;
+            }
+            else
+            {
+                effectiveActivity = null;
+                effectiveActivityAvailability = fetchResult.ActivityAvailability;
+            }
 
             _cache.Set(
                 profile.Id,
@@ -381,7 +397,24 @@ public sealed class UsageService : IUsageService, IDisposable
                 activityAvailability: effectiveActivityAvailability);
 
             await _cache.SaveAsync(_serviceCts.Token).ConfigureAwait(false);
-            return fetchResult;
+
+            var resultToPublish = fetchResult.Success
+                ? UsageFetchResult.Ok(
+                    effectiveSnapshot ?? fetchResult.Snapshot!,
+                    activity: effectiveActivity,
+                    sandboxAuthMutated: fetchResult.SandboxAuthMutated,
+                    rotatedAuthJson: fetchResult.RotatedAuthJson,
+                    activityAvailability: effectiveActivityAvailability)
+                : (effectiveSnapshot is not null
+                    ? UsageFetchResult.Ok(
+                        effectiveSnapshot,
+                        activity: effectiveActivity,
+                        sandboxAuthMutated: fetchResult.SandboxAuthMutated,
+                        rotatedAuthJson: fetchResult.RotatedAuthJson,
+                        activityAvailability: effectiveActivityAvailability)
+                    : fetchResult);
+
+            return resultToPublish;
         }
         catch (OperationCanceledException) when (_serviceCts.IsCancellationRequested)
         {
@@ -394,16 +427,20 @@ public sealed class UsageService : IUsageService, IDisposable
             var prev = _cache.Get(profile.Id);
             if (prev?.Snapshot is not null)
             {
+                var cachedAvail = prev.ActivityAvailability == AccountActivityAvailability.UnsupportedRuntime
+                    ? AccountActivityAvailability.UnsupportedRuntime
+                    : AccountActivityAvailability.CachedStale;
+
                 _cache.Set(
                     profile.Id,
-                    prev.Snapshot,
+                    prev.Snapshot with { Origin = QuotaDataOrigin.Cached },
                     UsageStatus.Error,
                     err,
                     isStale: true,
                     credentialConflict: false,
                     conflictReason: CredentialConflictReason.None,
                     activity: prev.Activity,
-                    activityAvailability: prev.ActivityAvailability);
+                    activityAvailability: cachedAvail);
             }
             else
             {

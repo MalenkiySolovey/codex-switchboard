@@ -146,6 +146,12 @@ public sealed partial class AccountActivityViewModel : ObservableObject
                 ? "Exibindo atividade em cache. A versão atual do Codex não suporta atualizações ao vivo da atividade."
                 : "Showing cached activity. Current Codex runtime does not support live activity updates.";
         }
+        else if (availability == AccountActivityAvailability.CachedStale)
+        {
+            StatusNotice = Loc.Pt
+                ? "Exibindo atividade em cache da última consulta com sucesso."
+                : "Showing cached activity from last successful query.";
+        }
         else if (availability == AccountActivityAvailability.TemporarilyUnavailable)
         {
             StatusNotice = Loc.Pt

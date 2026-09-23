@@ -146,7 +146,10 @@ public static class UsagePresentationMapper
             Activity: activity,
             ActivityAvailability: activityAvailability,
             ResetCreditsDetail: snapshot?.ResetCreditsDetail,
-            OrdinaryUsageAllowed: snapshot?.OrdinaryUsageAllowed);
+            OrdinaryUsageAllowed: snapshot?.OrdinaryUsageAllowed,
+            Origin: snapshot?.Origin ?? (isStale ? QuotaDataOrigin.Cached : QuotaDataOrigin.Unknown),
+            RuntimeVersion: snapshot?.RuntimeVersion,
+            AccountIdentityMatched: snapshot?.AccountIdentityMatched ?? true);
     }
 
     private static IReadOnlyList<UsageWindow> ExtractWindows(RateLimitsSnapshot? snapshot)

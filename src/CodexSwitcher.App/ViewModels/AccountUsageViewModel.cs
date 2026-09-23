@@ -117,7 +117,8 @@ public sealed partial class AccountUsageViewModel : ObservableObject
 
     public bool HasWindows => Windows.Count > 0;
     public bool HasNotice => !string.IsNullOrWhiteSpace(NoticeMessage);
-    public bool HasResetCredits => ResetCreditsAvailable is { } credits && credits > 0;
+    public bool HasResetCredits => (ResetCreditsAvailable is { } credits && credits > 0) || (ResetCreditsDetail?.AvailableCount > 0);
+    public int ResetCreditsCount => ResetCreditsDetail?.AvailableCount ?? ResetCreditsAvailable ?? 0;
 
     public RateLimitResetCredits? ResetCreditsDetail { get; private set; }
     public ObservableCollection<ResetCreditItemViewModel> DetailedCredits { get; } = [];
@@ -126,7 +127,10 @@ public sealed partial class AccountUsageViewModel : ObservableObject
     public int UnreportedCount => ResetCreditsDetail?.UnreportedCount ?? 0;
     public string ResetCreditsHeader => Loc.ResetCreditsHeader;
     public string UnreportedCreditsText => Loc.ResetCreditsUnreported(UnreportedCount);
-    public string NoDetailedCreditsMessage => Loc.ResetCreditsNone;
+    public string NoDetailedCreditsMessage =>
+        ResetCreditsDetail?.State == ResetCreditsState.CountOnly
+            ? Loc.ResetCreditsExpirationUnavailable
+            : Loc.ResetCreditsNone;
 
     public bool ShowStaleBadge => IsStale || VisualState == UsageVisualState.StaleCache;
     public bool ShowRateLimitedBadge => VisualState == UsageVisualState.RateLimited;
@@ -140,12 +144,12 @@ public sealed partial class AccountUsageViewModel : ObservableObject
     public string RefreshUsageTooltip => Loc.Pt ? "Atualizar cota agora" : "Refresh quota now";
     public string ToggleActivityLabel => Loc.Pt ? "Atividade da conta" : "Account activity";
 
-    public string ResetCreditsText => ResetCreditsAvailable is { } c
-        ? $"{c} {(Loc.Pt ? (c == 1 ? "crédito de reinício" : "créditos de reinício") : (c == 1 ? "reset credit" : "reset credits"))}"
+    public string ResetCreditsText => ResetCreditsCount > 0
+        ? $"{ResetCreditsCount} {(Loc.Pt ? (ResetCreditsCount == 1 ? "crédito de reinício" : "créditos de reinício") : (ResetCreditsCount == 1 ? "reset credit" : "reset credits"))}"
         : string.Empty;
 
-    public string CompactResetCreditsText => ResetCreditsAvailable is { } c
-        ? Loc.CompactResetCreditsFormat(c)
+    public string CompactResetCreditsText => ResetCreditsCount > 0
+        ? Loc.CompactResetCreditsFormat(ResetCreditsCount)
         : string.Empty;
 
     public string CompactStatusText => VisualState switch
