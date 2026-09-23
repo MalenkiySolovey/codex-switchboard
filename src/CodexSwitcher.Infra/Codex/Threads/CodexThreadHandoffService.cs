@@ -60,10 +60,19 @@ namespace CodexSwitcher.Infra.Codex.Threads;
 public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
 {
     private readonly Func<Task<ICodexAppServerClient>> _clientFactory;
+    private readonly IAuditLog? _audit;
 
     public CodexThreadHandoffService(Func<Task<ICodexAppServerClient>> clientFactory)
+        : this(clientFactory, null)
+    {
+    }
+
+    public CodexThreadHandoffService(
+        Func<Task<ICodexAppServerClient>> clientFactory,
+        IAuditLog? audit)
     {
         _clientFactory = clientFactory ?? throw new ArgumentNullException(nameof(clientFactory));
+        _audit = audit;
     }
 
     public async Task<IReadOnlyList<CodexThreadSummary>> ListThreadsAsync(
@@ -161,19 +170,25 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
 
         var client = await _clientFactory().ConfigureAwait(false);
 
-        var forkParams = new
+        var forkParams = new Dictionary<string, object?>
         {
-            threadId = sourceThreadId,
-            modelProvider = targetModelProvider,
-            model = targetModel
+            ["threadId"] = sourceThreadId,
+            ["modelProvider"] = targetModelProvider,
+            ["model"] = targetModel,
+            ["ephemeral"] = false
         };
 
         var response = await client.RequestAsync("thread/fork", forkParams, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
 
         string forkedThreadId = string.Empty;
-        if (response.TryGetProperty("thread", out var threadEl) && threadEl.ValueKind == JsonValueKind.Object && threadEl.TryGetProperty("id", out var tidEl))
+        JsonElement? threadEl = null;
+        if (response.TryGetProperty("thread", out var tEl) && tEl.ValueKind == JsonValueKind.Object)
         {
-            forkedThreadId = tidEl.GetString() ?? string.Empty;
+            threadEl = tEl;
+            if (tEl.TryGetProperty("id", out var tidEl))
+            {
+                forkedThreadId = tidEl.GetString() ?? string.Empty;
+            }
         }
         if (string.IsNullOrWhiteSpace(forkedThreadId) && response.TryGetProperty("id", out var idEl))
         {
@@ -194,13 +209,46 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             throw new InvalidOperationException($"thread/fork returned the source thread ID '{sourceThreadId}'. A distinct forked thread ID is required.");
         }
 
+        // Validate forkedFromId when present
+        string? returnedForkedFromId = null;
+        if (threadEl.HasValue && threadEl.Value.TryGetProperty("forkedFromId", out var ffiEl) && ffiEl.ValueKind == JsonValueKind.String)
+        {
+            returnedForkedFromId = ffiEl.GetString();
+        }
+        else if (response.TryGetProperty("forkedFromId", out var ffiRoot) && ffiRoot.ValueKind == JsonValueKind.String)
+        {
+            returnedForkedFromId = ffiRoot.GetString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(returnedForkedFromId) &&
+            !string.Equals(returnedForkedFromId, sourceThreadId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"thread/fork returned mismatched forkedFromId '{returnedForkedFromId}'. Expected '{sourceThreadId}'.");
+        }
+
+        // Validate ephemeral is not true
+        if (threadEl.HasValue && threadEl.Value.TryGetProperty("ephemeral", out var ephEl) && ephEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            if (ephEl.GetBoolean())
+            {
+                throw new InvalidOperationException("thread/fork returned an ephemeral thread. Non-ephemeral thread is required for desktop persistence.");
+            }
+        }
+        else if (response.TryGetProperty("ephemeral", out var ephRoot) && ephRoot.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            if (ephRoot.GetBoolean())
+            {
+                throw new InvalidOperationException("thread/fork returned an ephemeral thread. Non-ephemeral thread is required for desktop persistence.");
+            }
+        }
+
         // Authoritatively verify returned modelProvider matches explicit target
         string? returnedProvider = null;
         if (response.TryGetProperty("modelProvider", out var rmpEl) && rmpEl.ValueKind == JsonValueKind.String)
         {
             returnedProvider = rmpEl.GetString();
         }
-        else if (response.TryGetProperty("thread", out var tEl) && tEl.ValueKind == JsonValueKind.Object && tEl.TryGetProperty("modelProvider", out var tmpEl) && tmpEl.ValueKind == JsonValueKind.String)
+        else if (threadEl.HasValue && threadEl.Value.TryGetProperty("modelProvider", out var tmpEl) && tmpEl.ValueKind == JsonValueKind.String)
         {
             returnedProvider = tmpEl.GetString();
         }
@@ -217,7 +265,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         {
             returnedModel = rmEl.GetString();
         }
-        else if (response.TryGetProperty("thread", out var tEl2) && tEl2.ValueKind == JsonValueKind.Object && tEl2.TryGetProperty("model", out var tmEl) && tmEl.ValueKind == JsonValueKind.String)
+        else if (threadEl.HasValue && threadEl.Value.TryGetProperty("model", out var tmEl) && tmEl.ValueKind == JsonValueKind.String)
         {
             returnedModel = tmEl.GetString();
         }
@@ -228,8 +276,30 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             throw new InvalidOperationException($"Target model mismatch. Requested: '{targetModel}', returned: '{returnedModel}'");
         }
 
+        // Verify returned path when exposed by runtime
+        string? returnedPath = null;
+        if (threadEl.HasValue && threadEl.Value.TryGetProperty("path", out var pEl) && pEl.ValueKind == JsonValueKind.String)
+        {
+            returnedPath = pEl.GetString();
+        }
+        else if (response.TryGetProperty("path", out var pRoot) && pRoot.ValueKind == JsonValueKind.String)
+        {
+            returnedPath = pRoot.GetString();
+        }
+
+        bool returnedPathPresent = !string.IsNullOrWhiteSpace(returnedPath);
+        bool returnedPathExists = false;
+        if (returnedPathPresent)
+        {
+            returnedPathExists = File.Exists(returnedPath);
+            if (!returnedPathExists)
+            {
+                throw new InvalidOperationException($"thread/fork returned path '{returnedPath}', but file does not exist on disk.");
+            }
+        }
+
         // Read-back verification (Requirement K): verify the new thread is persisted and readable
-        bool verifiedReadable = false;
+        bool threadReadOk = false;
         try
         {
             var readResp = await client.RequestAsync("thread/read", new { threadId = forkedThreadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
@@ -249,7 +319,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
                     readResp.TryGetProperty("turns", out _) ||
                     readResp.TryGetProperty("history", out _))
                 {
-                    verifiedReadable = true;
+                    threadReadOk = true;
                 }
             }
         }
@@ -258,7 +328,8 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             // Fallback to thread/list with modelProviders = []
         }
 
-        if (!verifiedReadable)
+        bool threadListOk = false;
+        if (!threadReadOk)
         {
             try
             {
@@ -269,7 +340,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
                     {
                         if (item.TryGetProperty("id", out var idProp) && string.Equals(idProp.GetString(), forkedThreadId, StringComparison.OrdinalIgnoreCase))
                         {
-                            verifiedReadable = true;
+                            threadListOk = true;
                             break;
                         }
                     }
@@ -280,10 +351,18 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             }
         }
 
+        bool verifiedReadable = threadReadOk || threadListOk;
         if (!verifiedReadable)
         {
             throw new InvalidOperationException($"Forked thread '{forkedThreadId}' could not be verified via thread/read or thread/list.");
         }
+
+        // Safe Human-QA Diagnostic Log (no prompt text, no credentials, no auth, no thread content)
+        _audit?.Record(
+            "thread-fork-diagnostic",
+            verifiedReadable ? "success" : "failed",
+            $"THREAD_ID={forkedThreadId} FORKED_FROM_ID={returnedForkedFromId ?? sourceThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={returnedPathPresent} RETURNED_PATH_EXISTS={returnedPathExists} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
+        System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] THREAD_ID={forkedThreadId} FORKED_FROM_ID={returnedForkedFromId ?? sourceThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={returnedPathPresent} RETURNED_PATH_EXISTS={returnedPathExists} THREAD_READ_OK={threadReadOk} THREAD_LIST_OK={threadListOk}");
 
         // Best-effort rename using official thread/name/set ONLY AFTER thread persistence is verified
         if (!string.IsNullOrWhiteSpace(newName))
@@ -316,7 +395,8 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         var startParams = new Dictionary<string, object?>
         {
             ["modelProvider"] = targetModelProvider,
-            ["model"] = targetModel
+            ["model"] = targetModel,
+            ["ephemeral"] = false
         };
         if (!string.IsNullOrWhiteSpace(cwd))
         {
@@ -326,9 +406,14 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         var response = await client.RequestAsync("thread/start", startParams, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
 
         string freshThreadId = string.Empty;
-        if (response.TryGetProperty("thread", out var threadEl) && threadEl.ValueKind == JsonValueKind.Object && threadEl.TryGetProperty("id", out var tidEl))
+        JsonElement? startThreadEl = null;
+        if (response.TryGetProperty("thread", out var threadEl) && threadEl.ValueKind == JsonValueKind.Object)
         {
-            freshThreadId = tidEl.GetString() ?? string.Empty;
+            startThreadEl = threadEl;
+            if (threadEl.TryGetProperty("id", out var tidEl))
+            {
+                freshThreadId = tidEl.GetString() ?? string.Empty;
+            }
         }
         if (string.IsNullOrWhiteSpace(freshThreadId) && response.TryGetProperty("id", out var idEl))
         {
@@ -344,13 +429,29 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
             throw new InvalidOperationException("thread/start did not return a valid thread ID.");
         }
 
+        // Validate ephemeral is not true
+        if (startThreadEl.HasValue && startThreadEl.Value.TryGetProperty("ephemeral", out var ephEl) && ephEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            if (ephEl.GetBoolean())
+            {
+                throw new InvalidOperationException("thread/start returned an ephemeral thread. Non-ephemeral thread is required for desktop persistence.");
+            }
+        }
+        else if (response.TryGetProperty("ephemeral", out var ephRoot) && ephRoot.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            if (ephRoot.GetBoolean())
+            {
+                throw new InvalidOperationException("thread/start returned an ephemeral thread. Non-ephemeral thread is required for desktop persistence.");
+            }
+        }
+
         // Authoritatively verify returned modelProvider matches explicit target
         string? returnedProvider = null;
         if (response.TryGetProperty("modelProvider", out var rmpEl) && rmpEl.ValueKind == JsonValueKind.String)
         {
             returnedProvider = rmpEl.GetString();
         }
-        else if (response.TryGetProperty("thread", out var tEl) && tEl.ValueKind == JsonValueKind.Object && tEl.TryGetProperty("modelProvider", out var tmpEl) && tmpEl.ValueKind == JsonValueKind.String)
+        else if (startThreadEl.HasValue && startThreadEl.Value.TryGetProperty("modelProvider", out var tmpEl) && tmpEl.ValueKind == JsonValueKind.String)
         {
             returnedProvider = tmpEl.GetString();
         }
@@ -367,7 +468,7 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         {
             returnedModel = rmEl.GetString();
         }
-        else if (response.TryGetProperty("thread", out var tEl2) && tEl2.ValueKind == JsonValueKind.Object && tEl2.TryGetProperty("model", out var tmEl) && tmEl.ValueKind == JsonValueKind.String)
+        else if (startThreadEl.HasValue && startThreadEl.Value.TryGetProperty("model", out var tmEl) && tmEl.ValueKind == JsonValueKind.String)
         {
             returnedModel = tmEl.GetString();
         }
@@ -377,6 +478,36 @@ public sealed class CodexThreadHandoffService : ICodexThreadHandoffService
         {
             throw new InvalidOperationException($"Target model mismatch on thread/start. Requested: '{targetModel}', returned: '{returnedModel}'");
         }
+
+        string? freshPath = null;
+        if (startThreadEl.HasValue && startThreadEl.Value.TryGetProperty("path", out var spEl) && spEl.ValueKind == JsonValueKind.String)
+        {
+            freshPath = spEl.GetString();
+        }
+        else if (response.TryGetProperty("path", out var spRoot) && spRoot.ValueKind == JsonValueKind.String)
+        {
+            freshPath = spRoot.GetString();
+        }
+
+        bool freshPathPresent = !string.IsNullOrWhiteSpace(freshPath);
+        bool freshPathExists = freshPathPresent && File.Exists(freshPath);
+
+        // Read-back verification (Requirement K): verify the fresh thread is persisted and readable
+        try
+        {
+            await client.RequestAsync("thread/read", new { threadId = freshThreadId }, TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Fallback / best effort
+        }
+
+        // Safe Human-QA Diagnostic Log (no prompt text, no credentials, no auth, no thread content)
+        _audit?.Record(
+            "thread-start-diagnostic",
+            "success",
+            $"FRESH_THREAD_ID={freshThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={freshPathPresent} RETURNED_PATH_EXISTS={freshPathExists}");
+        System.Diagnostics.Trace.TraceInformation($"[ThreadHandoffDiagnostic] FRESH_THREAD_ID={freshThreadId} MODEL_PROVIDER={targetModelProvider} MODEL={targetModel} EPHEMERAL=false RETURNED_PATH_PRESENT={freshPathPresent} RETURNED_PATH_EXISTS={freshPathExists}");
 
         // Best-effort rename using official thread/name/set
         if (!string.IsNullOrWhiteSpace(name))

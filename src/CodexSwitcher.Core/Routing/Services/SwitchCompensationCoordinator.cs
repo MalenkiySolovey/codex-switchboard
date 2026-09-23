@@ -61,6 +61,13 @@ public sealed class SwitchCompensationCoordinator : ISwitchCompensationCoordinat
                 failures.Add(p);
             }
         }
+
+        // Safe Human-QA Diagnostic Log (no prompt text, no credentials, no auth, no thread content)
+        _audit.Record(
+            "desktop-reopen-diagnostic",
+            failures.Count == 0 ? "success" : "partial",
+            $"DESKTOP_STOP_RESULT=Stopped({captured.Count}) DESKTOP_LAUNCH_RESULT={(failures.Count == 0 ? "Success" : $"Failures({failures.Count})")}");
+        System.Diagnostics.Trace.TraceInformation($"[DesktopProcessDiagnostic] DESKTOP_STOP_RESULT=Stopped({captured.Count}) DESKTOP_LAUNCH_RESULT={(failures.Count == 0 ? "Success" : $"Failures({failures.Count})")}");
     }
 
     public Task CompensateAsync(string action, string reason, CancellationToken cancellationToken = default)

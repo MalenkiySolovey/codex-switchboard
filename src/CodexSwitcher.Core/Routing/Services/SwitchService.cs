@@ -39,7 +39,8 @@ public sealed record SwitchExecutionOptions(
     CloseReopenMode CloseReopenMode,
     TimeSpan GracefulCloseTimeout,
     int BackupsToKeep,
-    bool EnsureFileStore = true)
+    bool EnsureFileStore = true,
+    bool ReopenDesktopAfterSwitch = true)
 {
     public static SwitchExecutionOptions From(AppSettings s) => new(
         s.CloseReopenMode,
@@ -234,7 +235,7 @@ public sealed class SwitchService
 
             // (10) Reabrir SOMENTE após o slot estar persistido (ponto 25). CLIs não reabrem (ponto 20).
             var reopenFailures = new List<CodexProcessInfo>();
-            if (closeApps)
+            if (closeApps && options.ReopenDesktopAfterSwitch)
                 ReopenDesktop(captured, out reopenFailures);
 
             if (reopenFailures.Count > 0)

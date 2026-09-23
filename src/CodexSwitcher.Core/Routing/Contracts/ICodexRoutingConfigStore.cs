@@ -98,4 +98,8 @@ public interface ICodexRoutingConfigStore
         string? expectedFingerprint = null);
 
     void RestoreExactBytes(string configTomlPath, byte[] exactBytes);
+
+    void CleanOrphanProviderBlocks(string configTomlPath, IReadOnlySet<string> knownProviderIds);
+
+    void ReconcileAndRepairContaminatedConfig(string configTomlPath, IReadOnlySet<string> knownProviderIds);
 }

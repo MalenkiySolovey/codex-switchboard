@@ -490,4 +490,213 @@ public sealed class ContinueChatThreadForkTests
         Assert.False(assessment.RequiresFreshThread);
         Assert.Empty(assessment.IncompatibleFeatures);
     }
+
+    [Fact]
+    public async Task ForkThreadAsync_SendsEphemeralFalse_AndValidatesPersistence()
+    {
+        var client = new MockAppServerClient
+        {
+            Handler = (method, _) =>
+            {
+                if (method == "thread/fork")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""modelProvider"": ""switchboard_prov_1"",
+                        ""model"": ""test-model"",
+                        ""thread"": {
+                            ""id"": ""thread-fork-123"",
+                            ""forkedFromId"": ""thread-src-123"",
+                            ""ephemeral"": false
+                        }
+                    }").RootElement;
+                }
+                if (method == "thread/read")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""thread"": { ""id"": ""thread-fork-123"" }
+                    }").RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var result = await service.ForkThreadAsync("thread-src-123", "switchboard_prov_1", "test-model");
+
+        Assert.Equal("thread-fork-123", result.ForkedThreadId);
+
+        var forkReq = client.Requests.First(r => r.Method == "thread/fork");
+        var json = JsonSerializer.Serialize(forkReq.Parameters);
+        Assert.Contains(@"""ephemeral"":false", json);
+    }
+
+    [Fact]
+    public async Task ForkThreadAsync_ThrowsIfResponseIsEphemeral()
+    {
+        var client = new MockAppServerClient
+        {
+            Handler = (method, _) =>
+            {
+                if (method == "thread/fork")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""modelProvider"": ""switchboard_prov_1"",
+                        ""model"": ""test-model"",
+                        ""thread"": {
+                            ""id"": ""thread-fork-ephemeral"",
+                            ""ephemeral"": true
+                        }
+                    }").RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ForkThreadAsync("thread-src-1", "switchboard_prov_1", "test-model"));
+
+        Assert.Contains("ephemeral", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ForkThreadAsync_ThrowsIfForkedFromIdMismatched()
+    {
+        var client = new MockAppServerClient
+        {
+            Handler = (method, _) =>
+            {
+                if (method == "thread/fork")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""modelProvider"": ""switchboard_prov_1"",
+                        ""model"": ""test-model"",
+                        ""thread"": {
+                            ""id"": ""thread-fork-bad-parent"",
+                            ""forkedFromId"": ""wrong-parent-id"",
+                            ""ephemeral"": false
+                        }
+                    }").RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ForkThreadAsync("thread-src-correct", "switchboard_prov_1", "test-model"));
+
+        Assert.Contains("forkedFromId", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StartFreshThreadAsync_SendsEphemeralFalse()
+    {
+        var client = new MockAppServerClient
+        {
+            Handler = (method, _) =>
+            {
+                if (method == "thread/start")
+                {
+                    return JsonDocument.Parse(@"{
+                        ""modelProvider"": ""switchboard_prov_1"",
+                        ""model"": ""test-model"",
+                        ""thread"": {
+                            ""id"": ""thread-fresh-123"",
+                            ""ephemeral"": false
+                        }
+                    }").RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var result = await service.StartFreshThreadAsync("switchboard_prov_1", "test-model");
+
+        Assert.Equal("thread-fresh-123", result.ForkedThreadId);
+
+        var startReq = client.Requests.First(r => r.Method == "thread/start");
+        var json = JsonSerializer.Serialize(startReq.Parameters);
+        Assert.Contains(@"""ephemeral"":false", json);
+    }
+
+    [Fact]
+    public async Task ForkThreadAsync_WhenPathReturnedAndFileExists_Succeeds()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var client = new MockAppServerClient
+            {
+                Handler = (method, _) =>
+                {
+                    if (method == "thread/fork")
+                    {
+                        return JsonDocument.Parse($@"{{
+                            ""modelProvider"": ""switchboard_prov_1"",
+                            ""model"": ""test-model"",
+                            ""thread"": {{
+                                ""id"": ""thread-fork-path-exists"",
+                                ""path"": {JsonSerializer.Serialize(tempFile)},
+                                ""ephemeral"": false
+                            }}
+                        }}").RootElement;
+                    }
+                    if (method == "thread/read")
+                    {
+                        return JsonDocument.Parse(@"{
+                            ""thread"": { ""id"": ""thread-fork-path-exists"" }
+                        }").RootElement;
+                    }
+                    return JsonDocument.Parse("{}").RootElement;
+                }
+            };
+
+            var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+            var result = await service.ForkThreadAsync("thread-src-1", "switchboard_prov_1", "test-model");
+
+            Assert.Equal("thread-fork-path-exists", result.ForkedThreadId);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ForkThreadAsync_WhenPathReturnedAndFileDoesNotExist_ThrowsInvalidOperationException()
+    {
+        var nonExistentPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".jsonl");
+        Assert.False(File.Exists(nonExistentPath));
+
+        var client = new MockAppServerClient
+        {
+            Handler = (method, _) =>
+            {
+                if (method == "thread/fork")
+                {
+                    return JsonDocument.Parse($@"{{
+                        ""modelProvider"": ""switchboard_prov_1"",
+                        ""model"": ""test-model"",
+                        ""thread"": {{
+                            ""id"": ""thread-fork-path-missing"",
+                            ""path"": {JsonSerializer.Serialize(nonExistentPath)},
+                            ""ephemeral"": false
+                        }}
+                    }}").RootElement;
+                }
+                return JsonDocument.Parse("{}").RootElement;
+            }
+        };
+
+        var service = new CodexThreadHandoffService(() => Task.FromResult<ICodexAppServerClient>(client));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ForkThreadAsync("thread-src-1", "switchboard_prov_1", "test-model"));
+
+        Assert.Contains("file does not exist on disk", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

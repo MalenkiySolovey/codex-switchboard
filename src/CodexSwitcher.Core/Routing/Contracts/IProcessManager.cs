@@ -57,4 +57,7 @@ public interface IProcessManager
 
     /// <summary>Relança um processo reabrível (só app desktop). Lança em falha para o chamador tratar.</summary>
     void Relaunch(CodexProcessInfo process);
+
+    /// <summary>Tenta iniciar o aplicativo desktop do Codex se instalado.</summary>
+    bool TryLaunchDesktop();
 }

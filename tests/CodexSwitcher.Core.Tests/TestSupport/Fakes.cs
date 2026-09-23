@@ -35,6 +35,8 @@ public sealed class FakeProcessManager : IProcessManager
     public bool RemnantAfterClose { get; set; }
     public bool ThrowOnRelaunch { get; set; }
     public bool CloseCalled { get; set; }
+    public bool TryLaunchDesktopCalled { get; set; }
+    public bool TryLaunchDesktopResult { get; set; } = true;
     public List<CodexProcessInfo> Relaunched { get; } = [];
     private bool _closed;
 
@@ -42,6 +44,7 @@ public sealed class FakeProcessManager : IProcessManager
     {
         CloseCalled = false;
         _closed = false;
+        TryLaunchDesktopCalled = false;
         Relaunched.Clear();
         Running.Clear();
     }
@@ -65,6 +68,12 @@ public sealed class FakeProcessManager : IProcessManager
         if (ThrowOnRelaunch)
             throw new IOException("relaunch failed (injected)");
         Relaunched.Add(process);
+    }
+
+    public bool TryLaunchDesktop()
+    {
+        TryLaunchDesktopCalled = true;
+        return TryLaunchDesktopResult;
     }
 }
 

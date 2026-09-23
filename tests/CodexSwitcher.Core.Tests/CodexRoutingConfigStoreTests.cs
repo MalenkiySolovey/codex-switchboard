@@ -171,15 +171,17 @@ Preserve all formatting and comments.
 
         var state = store.ReadRoutingState(configPath);
         Assert.Equal("openai", state.ModelProvider);
-        Assert.True(state.SwitchboardProviders.ContainsKey("switchboard_112233445566"));
+        // Preferred hygiene: Zero switchboard provider blocks when ChatGPT is active
+        Assert.Empty(state.SwitchboardProviders);
     }
+
     [Fact]
-    public void ApplySwitchboardRouting_WithTwoSwitchboardProviders_BothCoexist()
+    public void ApplySwitchboardRouting_WithTwoSwitchboardProviders_RetainsOnlyActiveBlock()
     {
         using var temp = new TempDir();
         var paths = new AppPaths(temp.Root);
         var configPath = Path.Combine(temp.Root, "config.toml");
-        File.WriteAllText(configPath, "# Config\nmodel_provider = \"openai\"\n");
+        File.WriteAllText(configPath, "# Config\nmodel_provider = \"openai\"\n[model_providers.openrouter]\nname = \"OpenRouter\"\nbase_url = \"https://openrouter.ai/api/v1\"\n");
 
         var store = new CodexRoutingConfigStore(_fs, paths);
         var providerA = new CodexProviderBlock(
@@ -195,9 +197,14 @@ Preserve all formatting and comments.
         var state = store.ReadRoutingState(configPath);
         Assert.Equal("switchboard_bbbb33334444", state.ModelProvider);
         Assert.Equal("model-b", state.Model);
-        Assert.Equal(2, state.SwitchboardProviders.Count);
-        Assert.True(state.SwitchboardProviders.ContainsKey("switchboard_aaaa11112222"));
+        // Exactly ONE switchboard provider block remains
+        Assert.Single(state.SwitchboardProviders);
         Assert.True(state.SwitchboardProviders.ContainsKey("switchboard_bbbb33334444"));
+        Assert.False(state.SwitchboardProviders.ContainsKey("switchboard_aaaa11112222"));
+
+        // User provider block openrouter is untouched
+        var rawToml = File.ReadAllText(configPath);
+        Assert.Contains("[model_providers.openrouter]", rawToml);
     }
 
     [Fact]

@@ -212,11 +212,22 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
             };
 
             // Clean up previously managed keys that this target doesn't specify
+            baseline.Generation++;
+            baseline.ActiveProviderId = providerBlock.ProviderId;
+            baseline.LastAppliedTargetKind = TargetKind.ApiProvider.ToString();
+            baseline.LastAppliedProfileId = providerBlock.ProviderId;
+            baseline.LastAppliedAt = DateTimeOffset.UtcNow;
+
+            // Clean up previously managed keys that this target doesn't specify
             foreach (var oldKey in baseline.ManagedRootKeys)
             {
                 if (knownSwitchboardManagedRootKeys.Contains(oldKey) && !keysToApply.ContainsKey(oldKey))
                 {
-                    if (baseline.BaselineValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                    if (baseline.ManagedKeys.TryGetValue(oldKey, out var prov) && prov.BaselineWasPresent && prov.BaselineValue is not null)
+                    {
+                        SetRootRawKey(lines, oldKey, prov.BaselineValue);
+                    }
+                    else if (baseline.BaselineValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
                     {
                         SetRootRawKey(lines, oldKey, userBaseline);
                     }
@@ -227,15 +238,28 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 }
             }
 
-            // Apply new keys
+            // Apply new keys and record provenance
             foreach (var (k, v) in keysToApply)
             {
                 newTargetManagedKeys.Add(k);
-                if (!baseline.ManagedRootKeys.Contains(k, StringComparer.OrdinalIgnoreCase))
+                if (!baseline.ManagedKeys.TryGetValue(k, out var prov))
                 {
                     var currentVal = GetRootKeyRaw(lines, k);
-                    baseline.BaselineValues[k] = currentVal;
+                    prov = new ManagedKeyProvenance
+                    {
+                        Key = k,
+                        BaselineWasPresent = currentVal is not null,
+                        BaselineValue = currentVal
+                    };
+                    baseline.ManagedKeys[k] = prov;
                 }
+
+                var appliedVal = v.IsRaw ? v.Value : $"\"{v.Value}\"";
+                prov.LastAppliedWasPresent = true;
+                prov.LastAppliedValue = appliedVal;
+                prov.OwnerTargetKind = TargetKind.ApiProvider.ToString();
+                prov.OwnerProfileId = providerBlock.ProviderId;
+                prov.Generation = baseline.Generation;
 
                 if (v.IsRaw)
                 {
@@ -270,7 +294,11 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
             {
                 if (knownSwitchboardManagedFeatureKeys.Contains(oldKey) && !featureKeysToApply.ContainsKey(oldKey))
                 {
-                    if (baseline.BaselineFeatureValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                    if (baseline.ManagedFeatures.TryGetValue(oldKey, out var fProv) && fProv.BaselineWasPresent && fProv.BaselineValue is not null)
+                    {
+                        SetFeatureKeyRaw(lines, oldKey, fProv.BaselineValue);
+                    }
+                    else if (baseline.BaselineFeatureValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
                     {
                         SetFeatureKeyRaw(lines, oldKey, userBaseline);
                     }
@@ -281,28 +309,44 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 }
             }
 
-            // Apply new feature keys
+            // Apply new feature keys and record provenance
             var newTargetManagedFeatureKeys = new List<string>();
             foreach (var (k, v) in featureKeysToApply)
             {
                 newTargetManagedFeatureKeys.Add(k);
-                if (!baseline.ManagedFeatureKeys.Contains(k, StringComparer.OrdinalIgnoreCase))
+                if (!baseline.ManagedFeatures.TryGetValue(k, out var fProv))
                 {
                     var currentVal = GetFeatureKeyRaw(lines, k);
-                    baseline.BaselineFeatureValues[k] = currentVal;
+                    fProv = new ManagedKeyProvenance
+                    {
+                        Key = k,
+                        BaselineWasPresent = currentVal is not null,
+                        BaselineValue = currentVal
+                    };
+                    baseline.ManagedFeatures[k] = fProv;
                 }
+
+                fProv.LastAppliedWasPresent = true;
+                fProv.LastAppliedValue = v;
+                fProv.OwnerTargetKind = TargetKind.ApiProvider.ToString();
+                fProv.OwnerProfileId = providerBlock.ProviderId;
+                fProv.Generation = baseline.Generation;
+
                 SetFeatureKeyRaw(lines, k, v);
             }
 
-            baseline.ActiveProviderId = providerBlock.ProviderId;
             baseline.ManagedRootKeys = newTargetManagedKeys;
             baseline.ManagedFeatureKeys = newTargetManagedFeatureKeys;
+            baseline.SyncLegacyCollections();
             SaveBaseline(baseline);
 
-            // 3. Format provider block
+            // 3. Provider block hygiene: Ensure only the active Switchboard provider block exists
+            CleanSwitchboardProviderBlocks(lines, keepProviderId: providerBlock.ProviderId);
+
+            // 4. Format provider block
             var blockLines = FormatProviderBlockLines(providerBlock);
 
-            // 4. Find and replace or append provider block
+            // 5. Find and replace or append provider block
             var (startIdx, endIdx) = FindProviderTableRange(lines, providerBlock.ProviderId);
             if (startIdx >= 0)
             {
@@ -403,13 +447,34 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
             var newline = raw.Contains("\r\n") ? "\r\n" : "\n";
             var lines = raw.Length == 0 ? new List<string>() : new List<string>(raw.Split('\n').Select(l => l.TrimEnd('\r')));
 
+            var baseline = LoadBaseline();
+            baseline.PurgePoisonedBaselines();
+
             SetRootKey(lines, "model_provider", "openai");
             if (!string.IsNullOrWhiteSpace(model))
             {
                 SetRootKey(lines, "model", model);
             }
+            else if (baseline.ManagedKeys.TryGetValue("model", out var modelProv))
+            {
+                if (modelProv.BaselineWasPresent && !string.IsNullOrWhiteSpace(modelProv.BaselineValue))
+                {
+                    SetRootRawKey(lines, "model", modelProv.BaselineValue);
+                }
+                else
+                {
+                    RemoveRootKey(lines, "model");
+                }
+            }
+            else if (baseline.BaselineValues.TryGetValue("model", out var userModel) && !string.IsNullOrWhiteSpace(userModel))
+            {
+                SetRootRawKey(lines, "model", userModel);
+            }
+            else
+            {
+                RemoveRootKey(lines, "model");
+            }
 
-            var baseline = LoadBaseline();
             var knownSwitchboardManagedRootKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "model_context_window",
@@ -423,18 +488,32 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 "web_search"
             };
 
-            foreach (var oldKey in baseline.ManagedRootKeys)
+            foreach (var oldKey in knownSwitchboardManagedRootKeys)
             {
-                if (knownSwitchboardManagedRootKeys.Contains(oldKey))
+                if (oldKey.Equals("model_catalog_json", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (baseline.BaselineValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                    RemoveRootKey(lines, oldKey);
+                    continue;
+                }
+
+                if (baseline.ManagedKeys.TryGetValue(oldKey, out var prov))
+                {
+                    if (prov.BaselineWasPresent && prov.BaselineValue is not null)
                     {
-                        SetRootRawKey(lines, oldKey, userBaseline);
+                        SetRootRawKey(lines, oldKey, prov.BaselineValue);
                     }
                     else
                     {
                         RemoveRootKey(lines, oldKey);
                     }
+                }
+                else if (baseline.BaselineValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                {
+                    SetRootRawKey(lines, oldKey, userBaseline);
+                }
+                else
+                {
+                    RemoveRootKey(lines, oldKey);
                 }
             }
 
@@ -444,25 +523,43 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 "multi_agent"
             };
 
-            foreach (var oldKey in baseline.ManagedFeatureKeys)
+            foreach (var oldKey in knownSwitchboardManagedFeatureKeys)
             {
-                if (knownSwitchboardManagedFeatureKeys.Contains(oldKey))
+                if (baseline.ManagedFeatures.TryGetValue(oldKey, out var fProv))
                 {
-                    if (baseline.BaselineFeatureValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                    if (fProv.BaselineWasPresent && fProv.BaselineValue is not null)
                     {
-                        SetFeatureKeyRaw(lines, oldKey, userBaseline);
+                        SetFeatureKeyRaw(lines, oldKey, fProv.BaselineValue);
                     }
                     else
                     {
                         RemoveFeatureKey(lines, oldKey);
                     }
                 }
+                else if (baseline.BaselineFeatureValues.TryGetValue(oldKey, out var userBaseline) && userBaseline is not null)
+                {
+                    SetFeatureKeyRaw(lines, oldKey, userBaseline);
+                }
+                else
+                {
+                    RemoveFeatureKey(lines, oldKey);
+                }
             }
 
+            // Preferred hygiene: ZERO Switchboard provider blocks when ChatGPT is active
+            CleanSwitchboardProviderBlocks(lines, keepProviderId: null);
+
             baseline.ActiveProviderId = null;
+            baseline.LastAppliedTargetKind = TargetKind.ChatGptAccount.ToString();
+            baseline.LastAppliedProfileId = null;
+            baseline.LastAppliedAt = DateTimeOffset.UtcNow;
+            baseline.Generation++;
             baseline.ManagedRootKeys.Clear();
             baseline.ManagedFeatureKeys.Clear();
             baseline.BaselineFeatureValues.Clear();
+            baseline.LastAppliedValues.Clear();
+            baseline.ManagedKeys.Clear();
+            baseline.ManagedFeatures.Clear();
             SaveBaseline(baseline);
 
             var updated = string.Join(newline, lines);
@@ -473,6 +570,123 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
 
             _fs.WriteAllTextAtomic(configTomlPath, updated);
             return ComputeFingerprint(configTomlPath);
+        }
+    }
+
+    public void CleanOrphanProviderBlocks(string configTomlPath, IReadOnlySet<string> knownProviderIds)
+    {
+        ArgumentNullException.ThrowIfNull(knownProviderIds);
+
+        lock (_sync)
+        {
+            if (!_fs.FileExists(configTomlPath)) return;
+
+            var raw = _fs.ReadAllText(configTomlPath);
+            var newline = raw.Contains("\r\n") ? "\r\n" : "\n";
+            var lines = new List<string>(raw.Split('\n').Select(l => l.TrimEnd('\r')));
+
+            var modified = false;
+            var i = 0;
+            while (i < lines.Count)
+            {
+                var match = ProviderTableHeaderRegex().Match(lines[i]);
+                if (match.Success)
+                {
+                    var id = match.Groups["id"].Value;
+                    if (id.StartsWith("switchboard_", StringComparison.OrdinalIgnoreCase) && !knownProviderIds.Contains(id))
+                    {
+                        var (startIdx, endIdx) = FindProviderTableRange(lines, id);
+                        if (startIdx >= 0 && endIdx > startIdx)
+                        {
+                            lines.RemoveRange(startIdx, endIdx - startIdx);
+                            if (startIdx < lines.Count && string.IsNullOrWhiteSpace(lines[startIdx]))
+                            {
+                                lines.RemoveAt(startIdx);
+                            }
+                            modified = true;
+                            i = startIdx;
+                            continue;
+                        }
+                    }
+                }
+                i++;
+            }
+
+            if (modified)
+            {
+                var updated = string.Join(newline, lines);
+                if (raw.EndsWith(newline, StringComparison.Ordinal) && !updated.EndsWith(newline, StringComparison.Ordinal))
+                {
+                    updated += newline;
+                }
+                _fs.WriteAllTextAtomic(configTomlPath, updated);
+            }
+        }
+    }
+
+    private static bool CleanSwitchboardProviderBlocks(List<string> lines, string? keepProviderId = null)
+    {
+        var modified = false;
+        var i = 0;
+        while (i < lines.Count)
+        {
+            var match = ProviderTableHeaderRegex().Match(lines[i]);
+            if (match.Success)
+            {
+                var id = match.Groups["id"].Value;
+                if (id.StartsWith("switchboard_", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (keepProviderId == null || !string.Equals(id, keepProviderId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var (startIdx, endIdx) = FindProviderTableRange(lines, id);
+                        if (startIdx >= 0 && endIdx > startIdx)
+                        {
+                            lines.RemoveRange(startIdx, endIdx - startIdx);
+                            if (startIdx < lines.Count && string.IsNullOrWhiteSpace(lines[startIdx]))
+                            {
+                                lines.RemoveAt(startIdx);
+                            }
+                            modified = true;
+                            i = startIdx;
+                            continue;
+                        }
+                    }
+                }
+            }
+            i++;
+        }
+        return modified;
+    }
+
+    public void ReconcileAndRepairContaminatedConfig(string configTomlPath, IReadOnlySet<string> knownProviderIds)
+    {
+        lock (_sync)
+        {
+            CleanOrphanProviderBlocks(configTomlPath, knownProviderIds);
+
+            var baseline = LoadBaseline();
+            var poisoned = baseline.PurgePoisonedBaselines();
+            if (poisoned)
+            {
+                SaveBaseline(baseline);
+            }
+
+            if (!_fs.FileExists(configTomlPath)) return;
+
+            var routing = ReadRoutingState(configTomlPath);
+
+            var isChatGpt = string.IsNullOrWhiteSpace(routing.ModelProvider) ||
+                            string.Equals(routing.ModelProvider, "openai", StringComparison.OrdinalIgnoreCase);
+
+            // Legacy contamination evidence: Switchboard catalog in config while active target is ChatGPT
+            var hasSwitchboardCatalog = !string.IsNullOrWhiteSpace(routing.ModelCatalogJson) &&
+                (routing.ModelCatalogJson.Contains("CodexSwitchboard", StringComparison.OrdinalIgnoreCase) ||
+                 routing.ModelCatalogJson.Contains("catalogs", StringComparison.OrdinalIgnoreCase));
+
+            if (isChatGpt && hasSwitchboardCatalog)
+            {
+                ReturnToOpenAi(configTomlPath);
+            }
         }
     }
 
@@ -756,6 +970,20 @@ public sealed partial class CodexRoutingConfigStore : ICodexRoutingConfigStore
                 if (!trimmed.StartsWith(subtablePrefix, StringComparison.OrdinalIgnoreCase))
                 {
                     endIdx = j;
+                    // Back up past comments or blank lines that precede the next table header,
+                    // as those comments belong to the next section.
+                    while (endIdx > startIdx + 1)
+                    {
+                        var prevLine = lines[endIdx - 1].Trim();
+                        if (prevLine.StartsWith('#') || string.IsNullOrEmpty(prevLine))
+                        {
+                            endIdx--;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
                     break;
                 }
             }

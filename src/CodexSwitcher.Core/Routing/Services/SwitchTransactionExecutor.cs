@@ -170,11 +170,17 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
             string? modelCatalogJson = null;
             try
             {
-                modelCatalogJson = _modelCatalogService?.EnsureModelCatalog(
+                modelCatalogJson = _modelCatalogService?.EnsureProfileModelCatalog(
+                    targetProfile,
                     model,
                     targetProfile.ModelOverrides?.ContextWindowTokens,
                     targetProfile.ModelOverrides,
-                    toolPolicy);
+                    toolPolicy)
+                    ?? _modelCatalogService?.EnsureModelCatalog(
+                        model,
+                        targetProfile.ModelOverrides?.ContextWindowTokens,
+                        targetProfile.ModelOverrides,
+                        toolPolicy);
             }
             catch (Exception catEx)
             {
@@ -243,6 +249,15 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
                 toolPolicy);
 
             _routingConfig.ApplySwitchboardRouting(_paths.ConfigTomlPath, providerBlock, model, targetProfile.ModelOverrides, modelCatalogJson);
+            try
+            {
+                var validProviderIds = new HashSet<string>(_apiProviderStore.GetAll().Select(p => p.StableCodexProviderId), StringComparer.OrdinalIgnoreCase);
+                _routingConfig.CleanOrphanProviderBlocks(_paths.ConfigTomlPath, validProviderIds);
+            }
+            catch
+            {
+                // Non-fatal hygiene pass
+            }
             trace.ConfigChanged = true;
 
             // 4. Verify auth.json is UNTOUCHED
@@ -323,7 +338,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
 
             // 6. Reopen Codex if captured
             var reopenFailures = new List<CodexProcessInfo>();
-            if (closeApps)
+            if (closeApps && options.ReopenDesktopAfterSwitch)
             {
                 compensator.ReopenDesktop(captured, out reopenFailures);
                 trace.RuntimeRestartCompleted = reopenFailures.Count == 0;
@@ -437,6 +452,8 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         try
         {
             _routingConfig.ReturnToOpenAi(_paths.ConfigTomlPath);
+            var validProviderIds = new HashSet<string>(_apiProviderStore.GetAll().Select(p => p.StableCodexProviderId), StringComparer.OrdinalIgnoreCase);
+            _routingConfig.CleanOrphanProviderBlocks(_paths.ConfigTomlPath, validProviderIds);
         }
         catch
         {
@@ -501,6 +518,8 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         try
         {
             _routingConfig.ReturnToOpenAi(_paths.ConfigTomlPath);
+            var validProviderIds = new HashSet<string>(_apiProviderStore.GetAll().Select(p => p.StableCodexProviderId), StringComparer.OrdinalIgnoreCase);
+            _routingConfig.CleanOrphanProviderBlocks(_paths.ConfigTomlPath, validProviderIds);
         }
         catch (Exception ex)
         {
@@ -513,7 +532,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
         }
 
         var reopenFailures = new List<CodexProcessInfo>();
-        if (closeApps)
+        if (closeApps && options.ReopenDesktopAfterSwitch)
         {
             compensator.ReopenDesktop(captured, out reopenFailures);
         }

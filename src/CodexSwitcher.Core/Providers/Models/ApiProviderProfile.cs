@@ -103,6 +103,9 @@ public sealed class ApiProviderProfile
     /// <summary>Cached list of model IDs discovered from the provider's /models endpoint.</summary>
     public List<string>? DiscoveredModels { get; set; }
 
+    /// <summary>Full model inventory (discovered and manual entries) with enablement flags.</summary>
+    public ApiProviderModelInventory? ModelInventory { get; set; }
+
     /// <summary>Latest overall qualification level for OpenAI Codex.</summary>
     public CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
 

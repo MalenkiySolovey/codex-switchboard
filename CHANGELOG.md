@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-preview.15] - 2026-09-23
+
+### Fixed
+- **Value-Agnostic Key Provenance & External Mutation Detection:** Replaced all hardcoded magic value heuristics (`500000`, `xhigh`, model prefixes) with an explicit `ManagedKeyProvenance` tracking model in `SwitchboardRoutingBaseline`. User-owned custom settings (including custom models, reasoning efforts, and 500k context windows) are fully preserved when returning to ChatGPT or switching targets. Switchboard-managed keys are cleaned up based strictly on recorded provenance and catalog evidence. External edits to managed keys are detected and safely handled via `EXTERNAL_EDIT_CONFLICT`.
+- **Switchboard Provider-Block Single-Active Retention Policy:** Empirically verified against `codex-cli` and enforced in `CodexRoutingConfigStore` that returning to ChatGPT leaves zero `[model_providers.switchboard_*]` blocks in `config.toml`, while activating an API target leaves strictly one active Switchboard provider block. Historical threads continue to be forkable and readable without legacy provider blocks. User-defined custom provider tables (`openrouter`, `routercheap`, `hejuapi`) are 100% untouched.
+- **Thread Persistence Model Correction & Disk Validation:** Documented and verified that thread rollouts are stored under `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl` and the SQLite state DB. `CodexThreadHandoffService.ForkThreadAsync` strictly verifies that any `thread.path` returned by the app-server physically exists on disk (`File.Exists`). Added `[ThreadHandoffDiagnostic]` and `[DesktopProcessDiagnostic]` logging for human QA while distinguishing app-server persistence from Desktop UI visibility.
+- **Production Model Catalog Validation Assurance:** Confirmed and documented that runtime catalog validation in production strictly uses `codex -c model_catalog_json="..." debug models` within an isolated `CODEX_HOME` environment, rejecting catalogs missing required schema fields.
+- **Clean Git Provenance & Package Reproducibility:** Committed preview.14 and preview.15 changes to `fix/v0.2.1-target-environment` to guarantee full traceability and build reproducibility.
+
+---
+
+## [0.2.1-preview.14] - 2026-09-23
+
+### Fixed
+- **Target Environment Structural Correctness:** Introduced `CodexTargetEnvironment` and `CodexTargetEnvironmentProjector` with single semantic ownership over routing keys. Eliminates cross-target contamination and conflicting settings between ChatGPT accounts and third-party API providers.
+- **ChatGPT Account Target Separation:** Enforced `CatalogMode = BuiltInOpenAi` for ChatGPT accounts. Custom `model_catalog_json`, synthetic models, reasoning overrides, and token window overrides are strictly removed when routing to ChatGPT, leaving official built-in catalog control intact.
+- **API Target Managed Catalog Scoping:** Profile-scoped catalog generation isolated under `%LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fingerprint>\models.json`. Completely eliminated merging bundled OpenAI models into custom catalogs, preventing model leakage and catalog corruption.
+- **Config Ownership Ledger & Poisoned Baseline Purging:** Enhanced `SwitchboardRoutingBaseline` to track semantic ownership (`SwitchboardOwned` vs `UserBaseline`). Implemented `PurgePoisonedBaselines()` to automatically detect and purge contaminated values previously recorded into baseline state.
+- **Config Hygiene & Orphan Block Cleanup:** Automatically audits and purges dead Switchboard provider blocks (`[model_providers.switchboard_*]`) with zero active profiles while strictly preserving user-defined custom provider tables (`openrouter`, `routercheap`, `hejuapi`), comments, plugins, and MCP configurations.
+- **Continue Chat Combined Transaction & Desktop Visibility:** Integrated atomic handoff sequence: close Desktop -> apply target config projection -> temporary app-server creates thread with explicit `ephemeral = false` -> verify read-back persistence -> `thread/name/set` -> shutdown app-server -> launch Desktop. Guarantees newly created forked and fresh threads are written to disk before Desktop starts, resolving thread invisibility in Codex Desktop.
+
+---
+
 ## [0.2.1-preview.13] - 2026-09-23
 
 ### Fixed

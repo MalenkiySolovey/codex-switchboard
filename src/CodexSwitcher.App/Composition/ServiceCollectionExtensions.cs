@@ -144,7 +144,7 @@ public static class ServiceCollectionExtensions
                 var client = new CodexAppServerClient(codexPath, p.Codex.CodexHome);
                 await client.StartAsync();
                 return client;
-            });
+            }, sp.GetService<IAuditLog>());
         });
 
         services.AddSingleton<ILegacyMigrationService>(sp => new LegacyMigrationService(

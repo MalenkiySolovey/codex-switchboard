@@ -7,18 +7,28 @@ namespace CodexSwitcher.Core.Routing.Contracts;
 /// Service responsible for producing version-compatible custom model catalog files
 /// for external models whose context window exceeds Codex's fallback ceiling (~272k tokens)
 /// or requiring route-specific tool capability adaptations.
+/// Catalogs are strictly profile-scoped and contain ONLY models enabled for the target profile.
 /// </summary>
 public interface ICodexModelCatalogService
 {
     /// <summary>
-    /// Ensures a valid, version-compatible minimal Codex model catalog exists for the specified model slug
-    /// when custom context window tokens exceed the Codex fallback ceiling (272,000 tokens), custom model overrides are supplied,
-    /// or route tool policy requires disabling unsupported tools (e.g. apply_patch, tool_search).
-    /// Returns the absolute path to the generated catalog file, or null if no catalog is needed.
+    /// Ensures a valid, version-compatible minimal Codex model catalog exists for the specified model slug.
     /// </summary>
     string? EnsureModelCatalog(
         string modelSlug,
         long? contextWindowTokens,
+        CodexModelOverrides? modelOverrides = null,
+        EffectiveToolPolicy? toolPolicy = null);
+
+    /// <summary>
+    /// Ensures a valid, profile-scoped model catalog exists under
+    /// %LOCALAPPDATA%\CodexSwitchboard\catalogs\&lt;profile-guid&gt;\&lt;runtime-fingerprint&gt;\models.json
+    /// containing strictly the enabled models for that profile.
+    /// </summary>
+    string? EnsureProfileModelCatalog(
+        ApiProviderProfile profile,
+        string? modelSlug = null,
+        long? contextWindowTokens = null,
         CodexModelOverrides? modelOverrides = null,
         EffectiveToolPolicy? toolPolicy = null);
 }

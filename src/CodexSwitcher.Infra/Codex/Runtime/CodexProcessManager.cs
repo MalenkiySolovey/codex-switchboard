@@ -187,6 +187,39 @@ public sealed class CodexProcessManager : IProcessManager
         Process.Start(psi);
     }
 
+    public bool TryLaunchDesktop()
+    {
+        var running = FindRunningCodexProcesses().FirstOrDefault(p => p.Kind == CodexProcessKind.DesktopApp);
+        if (running != null)
+        {
+            try
+            {
+                Relaunch(running);
+                return true;
+            }
+            catch
+            {
+                // Fall through to standard AppUserModelId
+            }
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                UseShellExecute = true,
+            };
+            psi.ArgumentList.Add("shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App");
+            Process.Start(psi);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static CodexProcessKind Classify(string lowerPath)
     {
         // App desktop empacotado (MSIX): ...\WindowsApps\OpenAI.Codex_<ver>_..\app\ChatGPT.exe.

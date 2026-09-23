@@ -83,6 +83,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     private readonly IAppNotificationService _notifications;
     private readonly IAppBusyService _busyService;
     private readonly IProviderCompatibilityProbeService? _probeService;
+    private readonly IProcessManager? _processManager;
     private readonly CancellationTokenSource _cts = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task<ApiProviderSnapshot>> _inFlightInspections = new();
 
@@ -114,7 +115,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         IAppNotificationService notifications,
         IAppBusyService busyService,
         IAppLifetime? appLifetime = null,
-        IProviderCompatibilityProbeService? probeService = null)
+        IProviderCompatibilityProbeService? probeService = null,
+        IProcessManager? processManager = null)
     {
         _apiProviderStore = apiProviderStore ?? throw new ArgumentNullException(nameof(apiProviderStore));
         _inspectionService = inspectionService ?? throw new ArgumentNullException(nameof(inspectionService));
@@ -130,6 +132,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
         _busyService = busyService ?? throw new ArgumentNullException(nameof(busyService));
         _probeService = probeService;
+        _processManager = processManager;
 
         appLifetime?.ApplicationStopping.Register(() => CancelOperations());
     }
@@ -610,20 +613,18 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
             await RunBusyAsync(Loc.ContinueOn, async () =>
             {
-                if (!item.IsTargetActive)
-                {
-                    var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
-                        item.Profile.Id,
-                        SwitchExecutionOptions.From(_settings),
-                        _cts.Token);
+                var switchOptions = SwitchExecutionOptions.From(_settings) with { ReopenDesktopAfterSwitch = false };
+                var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
+                    item.Profile.Id,
+                    switchOptions,
+                    _cts.Token);
 
-                    if (switchResult.Outcome != TargetSwitchOutcome.Success &&
-                        switchResult.Outcome != TargetSwitchOutcome.SuccessWithReopenWarning &&
-                        switchResult.Outcome != TargetSwitchOutcome.NoOp)
-                    {
-                        ShowInfo(Loc.ErrorTitle, $"Routing switch failed: {switchResult.Message}. Thread start aborted.", InfoBarSeverity.Error);
-                        return;
-                    }
+                if (switchResult.Outcome != TargetSwitchOutcome.Success &&
+                    switchResult.Outcome != TargetSwitchOutcome.SuccessWithReopenWarning &&
+                    switchResult.Outcome != TargetSwitchOutcome.NoOp)
+                {
+                    ShowInfo(Loc.ErrorTitle, $"Routing switch failed: {switchResult.Message}. Thread start aborted.", InfoBarSeverity.Error);
+                    return;
                 }
 
                 var freshResult = await _threadHandoffService.StartFreshThreadAsync(
@@ -632,6 +633,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                     selected.Cwd,
                     selected.Name != null ? $"{selected.Name} (Fresh)" : null,
                     _cts.Token);
+
+                _processManager?.TryLaunchDesktop();
 
                 ShowInfo(
                     "Fresh Chat Created",
@@ -646,20 +649,18 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         await RunBusyAsync(Loc.ContinueOn, async () =>
         {
             // Routing switch transaction MUST happen before the fork transaction per ARCH-R6
-            if (!item.IsTargetActive)
-            {
-                var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
-                    item.Profile.Id,
-                    SwitchExecutionOptions.From(_settings),
-                    _cts.Token);
+            var switchOptions = SwitchExecutionOptions.From(_settings) with { ReopenDesktopAfterSwitch = false };
+            var switchResult = await _targetSwitchService.SwitchToApiProviderAsync(
+                item.Profile.Id,
+                switchOptions,
+                _cts.Token);
 
-                if (switchResult.Outcome != TargetSwitchOutcome.Success &&
-                    switchResult.Outcome != TargetSwitchOutcome.SuccessWithReopenWarning &&
-                    switchResult.Outcome != TargetSwitchOutcome.NoOp)
-                {
-                    ShowInfo(Loc.ErrorTitle, $"Routing switch failed: {switchResult.Message}. Fork aborted.", InfoBarSeverity.Error);
-                    return;
-                }
+            if (switchResult.Outcome != TargetSwitchOutcome.Success &&
+                switchResult.Outcome != TargetSwitchOutcome.SuccessWithReopenWarning &&
+                switchResult.Outcome != TargetSwitchOutcome.NoOp)
+            {
+                ShowInfo(Loc.ErrorTitle, $"Routing switch failed: {switchResult.Message}. Fork aborted.", InfoBarSeverity.Error);
+                return;
             }
 
             var forkResult = await _threadHandoffService.ForkThreadAsync(
@@ -668,6 +669,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 targetModel,
                 null,
                 _cts.Token);
+
+            _processManager?.TryLaunchDesktop();
 
             ShowInfo(
                 Loc.ForkSuccessTitle,

@@ -324,4 +324,55 @@ public sealed class CodexModelCatalogServiceTests
         Assert.NotEmpty(models);
         Assert.Contains(models, m => m.ContainsKey("slug") && !string.IsNullOrWhiteSpace(m["slug"]?.ToString()));
     }
+
+    [Fact]
+    public void EnsureProfileModelCatalog_CreatesIsolatedProfileDirectory_AndNeverIncludesOpenAiModels()
+    {
+        using var temp = new TempDir();
+        var paths = new AppPaths(temp.Root);
+        var service = new CodexModelCatalogService(_fs, paths);
+
+        var profile = new ApiProviderProfile
+        {
+            Id = Guid.NewGuid(),
+            Nickname = "Test Provider",
+            CatalogProviderId = "openrouter",
+            SelectedModel = "deepseek-v4.1-flash",
+            ModelInventory = new ApiProviderModelInventory
+            {
+                Models = [
+                    new ApiProviderModelItem { Slug = "deepseek-v4.1-flash", DisplayName = "DeepSeek Flash", Enabled = true },
+                    new ApiProviderModelItem { Slug = "anthropic/claude-3-opus", DisplayName = "Claude Opus", Enabled = true }
+                ]
+            }
+        };
+
+        var catalogPath = service.EnsureProfileModelCatalog(profile, "deepseek-v4.1-flash", 500000);
+        Assert.NotNull(catalogPath);
+        Assert.True(File.Exists(catalogPath));
+
+        // Invariant: Path is scoped by profile GUID
+        Assert.Contains(profile.Id.ToString("D"), catalogPath);
+
+        var json = File.ReadAllText(catalogPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.TryGetProperty("models", out var modelsProp));
+        Assert.Equal(JsonValueKind.Array, modelsProp.ValueKind);
+
+        // Invariant: Contains only models from profile
+        var slugs = new List<string>();
+        foreach (var m in modelsProp.EnumerateArray())
+        {
+            slugs.Add(m.GetProperty("slug").GetString()!);
+        }
+
+        Assert.Contains("deepseek-v4.1-flash", slugs);
+        Assert.Contains("anthropic/claude-3-opus", slugs);
+
+        // Invariant: Bundled OpenAI models must NEVER be present!
+        Assert.DoesNotContain("gpt-4", slugs);
+        Assert.DoesNotContain("gpt-4o", slugs);
+        Assert.DoesNotContain("o1", slugs);
+        Assert.DoesNotContain("o3-mini", slugs);
+    }
 }

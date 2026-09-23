@@ -181,9 +181,10 @@ public sealed class CodexTargetSwitchServiceTests
         Assert.Equal(profB.StableCodexProviderId, stateB.ModelProvider);
         Assert.Equal("mod-b", stateB.Model);
 
-        // Both provider blocks coexist for thread continuity
-        Assert.True(stateB.SwitchboardProviders.ContainsKey(profA.StableCodexProviderId));
+        // Exactly ONE Switchboard provider block remains active
+        Assert.Single(stateB.SwitchboardProviders);
         Assert.True(stateB.SwitchboardProviders.ContainsKey(profB.StableCodexProviderId));
+        Assert.False(stateB.SwitchboardProviders.ContainsKey(profA.StableCodexProviderId));
 
         // auth.json strictly unchanged
         var postAuthBytes = File.ReadAllBytes(paths.Codex.ActiveAuthPath);
