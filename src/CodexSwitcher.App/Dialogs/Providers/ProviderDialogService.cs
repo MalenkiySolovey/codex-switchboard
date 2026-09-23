@@ -356,7 +356,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
                         compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
                         compatibilityInfoBar.Title = "Models Refreshed";
-                        compatibilityInfoBar.Message = $"{modelIds.Count} models discovered from provider endpoint (read-only, no quota consumed).";
+                        compatibilityInfoBar.Message = $"{modelIds.Count} models reported by this API via GET /models. No inference request / does not consume model inference tokens.";
                         compatibilityInfoBar.IsOpen = true;
                     }
                     else
@@ -899,7 +899,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
                         compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
                         compatibilityInfoBar.Title = "Models Refreshed";
-                        compatibilityInfoBar.Message = $"{modelIds.Count} models discovered from provider endpoint (read-only, no quota consumed).";
+                        compatibilityInfoBar.Message = $"{modelIds.Count} models reported by this API via GET /models. No inference request / does not consume model inference tokens.";
                         compatibilityInfoBar.IsOpen = true;
                     }
                     else

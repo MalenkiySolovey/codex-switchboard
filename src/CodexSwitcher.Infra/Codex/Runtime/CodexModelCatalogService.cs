@@ -227,21 +227,6 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
             profile.ModelInventory ??= new ApiProviderModelInventory();
             profile.ModelInventory.EnsureSelectedModelMigrated(slug, profile.Nickname, effectiveContext, effectiveOverrides);
 
-            var inventoryHash = profile.ModelInventory.ComputeInventoryHash();
-            var profileDir = Path.Combine(_paths.CatalogsDir, profile.Id.ToString("D"), runtimeFingerprint, inventoryHash);
-            if (!_fs.DirectoryExists(profileDir))
-            {
-                _fs.CreateDirectory(profileDir);
-            }
-
-            var catalogPath = Path.Combine(profileDir, "models.json");
-            var cacheKey = $"profile:{profile.Id}:{runtimeFingerprint}:{inventoryHash}";
-
-            if (_catalogCache.TryGetValue(cacheKey, out var cached) && _fs.FileExists(cached.Path))
-            {
-                return cached.Path;
-            }
-
             var isLegacy = IsLegacyRuntime(runtimeInfo?.Version);
             var enabledModels = new List<ApiProviderModelItem>(profile.ModelInventory.GetEnabledModels());
             if (enabledModels.Count == 0)
@@ -255,6 +240,9 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                     UserOverrides = effectiveOverrides
                 });
             }
+
+            // Deterministic ordering by Slug Ordinal
+            enabledModels.Sort((a, b) => string.Compare(a.Slug, b.Slug, StringComparison.Ordinal));
 
             var effectiveToolPolicy = toolPolicy ?? EffectiveToolPolicy.Resolve(profile);
             var entries = new List<Dictionary<string, object?>>();
@@ -284,6 +272,35 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                 catalogJson = JsonSerializer.Serialize(payload, JsonOptions);
             }
 
+            var fullContentHash = ComputeCatalogFullHash(catalogJson);
+            var contentFingerprint = fullContentHash[..16];
+            var profileDir = Path.Combine(_paths.CatalogsDir, profile.Id.ToString("D"), runtimeFingerprint, contentFingerprint);
+            var catalogPath = Path.Combine(profileDir, "models.json");
+            var cacheKey = $"profile:{profile.Id}:{runtimeFingerprint}:{contentFingerprint}";
+
+            if (_catalogCache.TryGetValue(cacheKey, out var cached) && _fs.FileExists(cached.Path))
+            {
+                return cached.Path;
+            }
+
+            if (_fs.FileExists(catalogPath))
+            {
+                var existingBytes = _fs.ReadAllBytes(catalogPath);
+                var existingHash = Convert.ToHexString(SHA256.HashData(existingBytes)).ToLowerInvariant();
+                if (!string.Equals(existingHash, fullContentHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Catalog content collision or corruption detected at '{catalogPath}'. Existing content hash does not match computed catalog hash.");
+                }
+
+                _catalogCache[cacheKey] = (effectiveContext ?? FallbackContextCeiling, catalogPath, contentFingerprint);
+                return catalogPath;
+            }
+
+            if (!_fs.DirectoryExists(profileDir))
+            {
+                _fs.CreateDirectory(profileDir);
+            }
+
             _fs.WriteAllTextAtomic(catalogPath, catalogJson);
 
             try
@@ -296,10 +313,30 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
                 throw;
             }
 
-            var contentHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(catalogJson)));
-            _catalogCache[cacheKey] = (effectiveContext ?? FallbackContextCeiling, catalogPath, contentHash);
+            _catalogCache[cacheKey] = (effectiveContext ?? FallbackContextCeiling, catalogPath, contentFingerprint);
             return catalogPath;
         }
+    }
+
+    /// <summary>
+    /// Computes the 16-character lowercase hex SHA-256 fingerprint of the serialized catalog JSON.
+    /// </summary>
+    public static string ComputeCatalogContentHash(string catalogJson)
+    {
+        ArgumentNullException.ThrowIfNull(catalogJson);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(catalogJson);
+        var full = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        return full[..16];
+    }
+
+    /// <summary>
+    /// Computes the full 64-character lowercase hex SHA-256 hash of the serialized catalog JSON.
+    /// </summary>
+    public static string ComputeCatalogFullHash(string catalogJson)
+    {
+        ArgumentNullException.ThrowIfNull(catalogJson);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(catalogJson);
+        return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     }
 
     private Dictionary<string, object?> CreateLegacyModelEntry(

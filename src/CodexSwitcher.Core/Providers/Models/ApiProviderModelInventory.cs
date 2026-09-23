@@ -67,6 +67,58 @@ public sealed class ApiProviderModelInventory
     }
 
     /// <summary>
+    /// Merges an incoming list of discovered model slugs from the API provider.
+    /// Preserves existing manual models and existing configurations, marking missing discovered models as NotReported.
+    /// </summary>
+    public void MergeDiscoveredModels(IEnumerable<string>? discoveredSlugs)
+    {
+        if (discoveredSlugs == null) return;
+        DiscoveryStatus = ModelDiscoveryStatus.Discovered;
+        LastDiscoveryAt = DateTimeOffset.UtcNow;
+
+        var existingMap = Models.ToDictionary(m => m.Slug, StringComparer.OrdinalIgnoreCase);
+        var discoveredSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var slug in discoveredSlugs)
+        {
+            if (string.IsNullOrWhiteSpace(slug)) continue;
+            var cleanSlug = slug.Trim();
+            discoveredSet.Add(cleanSlug);
+
+            if (existingMap.TryGetValue(cleanSlug, out var existing))
+            {
+                existing.Availability = ModelAvailability.Reported;
+                existing.LastSeenAt = DateTimeOffset.UtcNow;
+                if (existing.DiscoverySource == ModelDiscoverySource.Manual)
+                {
+                    existing.DiscoverySource = ModelDiscoverySource.Mixed;
+                }
+            }
+            else
+            {
+                Models.Add(new ApiProviderModelItem
+                {
+                    Slug = cleanSlug,
+                    DisplayName = cleanSlug,
+                    Enabled = true,
+                    DiscoverySource = ModelDiscoverySource.Discovered,
+                    Availability = ModelAvailability.Reported,
+                    LastSeenAt = DateTimeOffset.UtcNow
+                });
+            }
+        }
+
+        // Mark previously discovered models that were not reported in this pass
+        foreach (var m in Models)
+        {
+            if (!discoveredSet.Contains(m.Slug) && m.DiscoverySource != ModelDiscoverySource.Manual)
+            {
+                m.Availability = ModelAvailability.NotReported;
+            }
+        }
+    }
+
+    /// <summary>
     /// Ensures that the profile's active or selected model exists as an enabled item in the inventory.
     /// Performs backward-compatible migration for existing profiles that lack an explicit inventory.
     /// </summary>
@@ -121,7 +173,7 @@ public sealed class ApiProviderModelInventory
 
     /// <summary>
     /// Computes a deterministic 16-character SHA-256 fingerprint representing the current set of enabled models
-    /// and their effective overrides. Used as an immutable path segment in profile model catalogs.
+    /// and their effective overrides.
     /// </summary>
     public string ComputeInventoryHash()
     {
@@ -144,7 +196,8 @@ public sealed class ApiProviderModelInventory
               .Append(m.ContextWindow?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append('|')
               .Append(m.UserOverrides?.ContextWindowTokens?.ToString(CultureInfo.InvariantCulture) ?? string.Empty).Append('|')
               .Append(m.UserOverrides?.ReasoningEffort.ToString() ?? string.Empty).Append('|')
-              .Append(m.UserOverrides?.Verbosity.ToString() ?? string.Empty).Append(';');
+              .Append(m.UserOverrides?.Verbosity.ToString() ?? string.Empty).Append('|')
+              .Append(m.Capabilities?.Vision.State.ToString() ?? string.Empty).Append(';');
         }
 
         var raw = sb.ToString();

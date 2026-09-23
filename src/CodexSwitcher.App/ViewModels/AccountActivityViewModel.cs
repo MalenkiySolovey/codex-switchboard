@@ -234,6 +234,9 @@ public sealed partial class AccountActivityViewModel : ObservableObject
     [RelayCommand]
     private void ToggleExpand()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         IsExpanded = !IsExpanded;
+        sw.Stop();
+        System.Diagnostics.Debug.WriteLine($"[PerfDiag] AccountActivity subtree expand toggled (IsExpanded={IsExpanded}) in {sw.ElapsedMilliseconds}ms ({sw.ElapsedTicks} ticks)");
     }
 }

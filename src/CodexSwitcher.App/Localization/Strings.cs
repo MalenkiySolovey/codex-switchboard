@@ -520,7 +520,7 @@ public sealed class Strings
     public string RefreshingModels => S("Atualizando modelos…", "Refreshing models…");
     public string CheckCodexCompatibility => S("Verificar compatibilidade com Codex", "Check Codex compatibility");
     public string CheckingCompatibility => S("Verificando compatibilidade…", "Checking compatibility…");
-    public string ReadOnlyDiscoveryNote => S("Consulta somente leitura via GET /models. Não consome cota.", "Read-only query via GET /models. Does not consume quota.");
+    public string ReadOnlyDiscoveryNote => S("Modelos reportados por esta API via GET /models. Nenhuma requisição de inferência / não consome tokens de inferência.", "Models reported by this API via GET /models. No inference request / does not consume model inference tokens.");
     public string InferenceProbeNote => S("Executa teste de inferência para verificar compatibilidade. Pode consumir cota de API.", "Runs inference test to verify compatibility. May consume API quota.");
     public string ProviderDialogTitle => S("Adicionar Provedor de API", "Add API Provider");
     public string EditProviderDialogTitle => S("Editar Provedor de API", "Edit API Provider");

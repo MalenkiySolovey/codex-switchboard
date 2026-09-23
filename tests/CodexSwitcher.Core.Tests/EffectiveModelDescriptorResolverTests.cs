@@ -177,12 +177,12 @@ public sealed class EffectiveModelDescriptorResolverTests
         Assert.NotNull(catalogPath);
         Assert.True(File.Exists(catalogPath));
 
-        // Immutable path invariant: %LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fp>\<inventory-hash>\models.json
-        Assert.Contains(profile.Id.ToString("D"), catalogPath);
-        Assert.Contains(hash, catalogPath);
-        Assert.EndsWith("models.json", catalogPath);
-
+        // Immutable content-addressed path invariant: %LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fp>\<content-fingerprint>\models.json
         var json = File.ReadAllText(catalogPath);
+        var contentHash = CodexModelCatalogService.ComputeCatalogContentHash(json);
+        Assert.Contains(profile.Id.ToString("D"), catalogPath);
+        Assert.Contains(contentHash, catalogPath);
+        Assert.EndsWith("models.json", catalogPath);
         using var doc = JsonDocument.Parse(json);
         Assert.True(doc.RootElement.TryGetProperty("models", out var modelsProp));
         Assert.Equal(1, modelsProp.GetArrayLength());

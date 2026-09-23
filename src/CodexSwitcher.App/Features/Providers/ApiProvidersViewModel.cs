@@ -706,6 +706,10 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             if (snapshot.Models.Count > 0)
             {
                 item.SetDiscoveredModels(snapshot.Models);
+                item.Profile.DiscoveredModels = snapshot.Models.ToList();
+                item.Profile.ModelInventory ??= new ApiProviderModelInventory();
+                item.Profile.ModelInventory.MergeDiscoveredModels(snapshot.Models);
+                _apiProviderStore.Save(item.Profile);
             }
             else if (!string.IsNullOrWhiteSpace(snapshot.Error))
             {

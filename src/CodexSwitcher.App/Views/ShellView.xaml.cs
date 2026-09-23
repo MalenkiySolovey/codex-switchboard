@@ -214,7 +214,13 @@ public sealed partial class ShellView : UserControl
 
     private void OnToggleCollapseClick(object sender, RoutedEventArgs e)
     {
-        if (ItemOf(sender) is { } item) ViewModel.Accounts.ToggleAccountCollapseCommand.Execute(item);
+        if (ItemOf(sender) is { } item)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            ViewModel.Accounts.ToggleAccountCollapseCommand.Execute(item);
+            sw.Stop();
+            System.Diagnostics.Debug.WriteLine($"[PerfDiag] Account toggle collapse (Id={item.Id}, IsCompact={item.IsCompact}) took {sw.ElapsedMilliseconds}ms ({sw.ElapsedTicks} ticks)");
+        }
     }
 
     private void OnExportItemClick(object sender, RoutedEventArgs e)

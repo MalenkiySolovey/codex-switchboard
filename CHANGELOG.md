@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-preview.18] - 2026-09-23
+
+### Fixed
+- **Content-Addressed API Model Catalog Identity & Collision Guard:** Model catalog directories under `%LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fp>\<content-fingerprint>\models.json` are now strictly content-addressed based on the canonical serialized `models.json` payload in memory (SHA-256, 16-hex). Any change to emitted catalog fields (context window, overrides, tool policies, enabled set, display name) deterministically generates a distinct directory. Existing catalog files are verified against the computed hash upon reuse; any mismatch triggers a hard corruption failure (`InvalidOperationException`). Non-emitted metadata (`LastSeenAt`, discovery timestamps) preserves catalog stability without churn.
+- **Server Account Activity & Daily Bucket Semantics Invariance:** Enforced that server-provided streak metrics (`CurrentStreakDays`, `LongestStreakDays`) remain strictly authoritative and are displayed directly without local recomputation or fabrication. Daily usage bucket `startDate` fields are parsed strictly as calendar-date labels (`DateOnly`) without UTC/local timezone transformations, preventing cross-midnight day shifts across timezones.
+- **Model Discovery Truthful Wording & UI Inventory Integration:** Updated discovery wording to "Models reported by this API via GET /models. No inference request / does not consume model inference tokens." Wired model discovery directly into the profile model inventory to merge and persist discovered models while preserving manual model additions.
+- **ListView Diagnostics (`[PerfDiag]`):** Added lightweight local stopwatch instrumentation (`[PerfDiag]`) for account card collapse/expand and activity subtree materialization to aid Human QA latency analysis.
+
+---
+
 ## [0.2.1-preview.17] - 2026-09-23
 
 ### Added
