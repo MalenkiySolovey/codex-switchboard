@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-preview.17] - 2026-09-23
+
+### Added
+- **API Model Inventory & Per-Profile Catalog Isolation:** Introduced dynamic per-profile API model inventories with deterministic 16-hex SHA-256 fingerprint hashing. Catalogs are now immutably isolated under `%LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fp>\<inventory-hash>\models.json`.
+- **Effective Model Descriptor Resolver:** Added domain service `EffectiveModelDescriptorResolver` that safely intersects discovered model facts, route capabilities (including Modelflare Grok 4.6 tool-use exclusions), runtime capabilities, and user overrides.
+- **Signed Catalog Modelflare Endpoints:** Updated maintainer-signed `providers.catalog.json` (version 4) with official `modelflare.dev` and `api.modelflare.dev` endpoint definitions and detached ECDSA P-256 signature verification.
+- **UX Separation for Model Discovery vs Compatibility Inference:** Distinct UI controls for "Refresh models" (`GET /models`, non-billable, zero quota consumption) and "Check Codex compatibility" (inference probe, marked with explicit quota usage notice).
+
+### Fixed
+- **Account Activity & Quota Provenance Repair:** Restored full fidelity of account usage cards including lifetime tokens, daily streak metrics, activity mini-bars, and reset credit countdowns without risking profile corruption or overwriting valid cached snapshots.
+- **Startup Render Deferral (`x:Load`):** Optimized visual tree creation in `ShellView.xaml` using deferred loading (`x:Load`) on collapsed account card details and activity panels, cutting cold-start XAML layout overhead.
+
+---
+
 ## [0.2.1-preview.16] - 2026-09-23
 
 ### Fixed
