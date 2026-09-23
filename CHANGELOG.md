@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1-preview.16] - 2026-09-23
+
+### Fixed
+- **Production Runtime Authority Requalification:** All runtime qualification tests—including model catalog validation (`debug models`), single-active provider-block retention, and thread fork persistence—are qualified directly against the resolved production Codex binary (`80f78947ad880e6e\codex.exe`, `codex-cli 0.155.0-alpha.16.3`) rather than stale unversioned paths.
+- **Production Binary Precedence Regression Protection:** Enhanced `CodexRuntimeResolver` testability and introduced comprehensive regression tests verifying that `CodexRuntimeResolver`, `CodexModelCatalogService`, and `CodexThreadHandoffService` strictly prioritize the versioned production binary over unversioned installer stubs.
+- **Live Empirical Confirmation of Single-Active Provider Retention:** Empirically verified against the live production runtime that historical provider blocks are NOT required to read or fork existing threads (`thread/read` and `thread/fork` both PASS with 0 historical provider blocks). The single-active Switchboard provider block policy from preview.15 is 100% verified and retained.
+
+---
+
 ## [0.2.1-preview.15] - 2026-09-23
 
 ### Fixed

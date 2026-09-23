@@ -63,6 +63,7 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
 
     private readonly ICodexCapabilityCache _capabilityCache;
     private readonly Func<string, (string? Version, bool? IsSupported)>? _probeInspector;
+    private readonly string? _baseBinDirectory;
 
     public CodexRuntimeResolver(
         ICodexCapabilityCache? capabilityCache = null,
@@ -70,6 +71,15 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
     {
         _capabilityCache = capabilityCache ?? new CodexSwitcher.Core.Routing.Services.CodexCapabilityCache();
         _probeInspector = probeInspector;
+    }
+
+    public CodexRuntimeResolver(
+        string? baseBinDirectory,
+        Func<string, (string? Version, bool? IsSupported)>? probeInspector = null,
+        ICodexCapabilityCache? capabilityCache = null)
+        : this(capabilityCache, probeInspector)
+    {
+        _baseBinDirectory = baseBinDirectory;
     }
 
     public CodexRuntimeInfo ResolveCurrentRuntime(string? overridePath = null)
@@ -214,8 +224,9 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
         var list = new List<CodexRuntimeCandidate>();
         try
         {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var binDir = Path.Combine(localAppData, "OpenAI", "Codex", "bin");
+            var binDir = _baseBinDirectory ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OpenAI", "Codex", "bin");
             if (!Directory.Exists(binDir))
                 return list;
 
@@ -261,12 +272,14 @@ public sealed class CodexRuntimeResolver : ICodexRuntimeResolver
         return list;
     }
 
-    private static string? GetWellKnownInstallerPath()
+    private string? GetWellKnownInstallerPath()
     {
         try
         {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "OpenAI", "Codex", "bin", "codex.exe");
+            var binDir = _baseBinDirectory ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OpenAI", "Codex", "bin");
+            return Path.Combine(binDir, "codex.exe");
         }
         catch
         {
