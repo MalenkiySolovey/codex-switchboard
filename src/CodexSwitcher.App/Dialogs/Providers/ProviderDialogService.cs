@@ -606,7 +606,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
     public async Task<EditApiProviderResult?> PromptEditApiProviderAsync(ApiProviderProfile profile, ProviderDescriptor? descriptor)
     {
-        var panel = new StackPanel { Spacing = 12, Width = 440 };
+        var panel = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
 
         var nicknameBox = new TextBox
         {
@@ -696,6 +696,50 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             compatibilityInfoBar.Message = profile.LastProbeReport?.DiagnosticSummary ?? "Previously qualified";
         }
 
+        var compatibilityConsentInfoBar = new InfoBar
+        {
+            IsOpen = true,
+            IsClosable = false,
+            Severity = InfoBarSeverity.Warning,
+            Title = "Full compatibility check",
+            Message = "This check may send requests beyond GET /models, including inference, streaming, tool, and Codex smoke-test requests. It can consume provider quota. Nothing is sent until you choose Run compatibility check.",
+        };
+        var consentProgress = new ProgressRing
+        {
+            IsActive = false,
+            Visibility = Visibility.Collapsed,
+            Width = 14,
+            Height = 14,
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        var consentRunButtonText = new TextBlock { Text = "Run compatibility check" };
+        var consentRunButton = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Children = { consentProgress, consentRunButtonText }
+            },
+        };
+        var consentCancelButton = new Button { Content = _loc.Cancel };
+        var consentActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+        };
+        consentActions.Children.Add(consentCancelButton);
+        consentActions.Children.Add(consentRunButton);
+        var compatibilityConsentPanel = new StackPanel
+        {
+            Spacing = 8,
+            Visibility = Visibility.Collapsed,
+        };
+        compatibilityConsentPanel.Children.Add(compatibilityConsentInfoBar);
+        compatibilityConsentPanel.Children.Add(consentActions);
+        var isCompatibilityProbeRunning = false;
+
         var actionsPanel = new Grid
         {
             ColumnDefinitions =
@@ -764,15 +808,6 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         actionsPanel.Children.Add(refreshButton);
         actionsPanel.Children.Add(probeButton);
 
-        var modelCombo = new ComboBox
-        {
-            Header = _loc.ModelLabel,
-            PlaceholderText = "e.g. grok-4.6, deepseek-reasoner, gpt-5.6-sol",
-            Text = profile.SelectedModel ?? string.Empty,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            IsEditable = true,
-        };
-
         var workingInventory = CloneInventory(profile.ModelInventory);
         if (workingInventory.Models.Count == 0 && profile.DiscoveredModels is { Count: > 0 })
         {
@@ -785,34 +820,6 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             workingInventory.EnsureSelectedModelMigrated(profile.SelectedModel);
         }
 
-        void PopulateModelPicker()
-        {
-            var previousModel = GetSelectedModelString();
-            modelCombo.Items.Clear();
-            var enabled = workingInventory.GetEnabledModels()
-                .Select(model => model.Slug)
-                .Where(model => !string.IsNullOrWhiteSpace(model))
-                .Distinct(StringComparer.Ordinal)
-                .ToList()
-                ?? [];
-
-            foreach (var model in enabled)
-            {
-                modelCombo.Items.Add(new ComboBoxItem { Content = model });
-            }
-
-            if (!string.IsNullOrWhiteSpace(previousModel))
-            {
-                modelCombo.Text = previousModel;
-            }
-            else if (modelCombo.Items.Count > 0)
-            {
-                modelCombo.SelectedIndex = 0;
-            }
-        }
-
-        PopulateModelPicker();
-
         var errorBar = new InfoBar
         {
             IsOpen = false,
@@ -822,26 +829,27 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
         string GetSelectedModelString()
         {
-            var txt = modelCombo.Text?.Trim();
-            if (!string.IsNullOrWhiteSpace(txt)) return txt;
-            if (modelCombo.SelectedItem is ComboBoxItem cbi && cbi.Content is string s) return s.Trim();
-            return workingInventory.SelectedModel ?? profile.SelectedModel ?? string.Empty;
+            return workingInventory.SelectedModel ?? string.Empty;
         }
 
         CodexCompatibilityLevel probedCompatibilityLevel = profile.CompatibilityLevel;
         ProviderProbeReport? probedReport = profile.LastProbeReport;
         List<string>? discoveredModelsList = profile.DiscoveredModels;
 
-        // The selected-model ComboBox intentionally contains enabled entries
-        // only. This separate, bounded ListView is the full per-profile
-        // inventory surface: it handles search, provenance, availability,
-        // enablement, default selection, and manual models without treating a
-        // large 73-model API response as a giant unfiltered ComboBox.
+        // Manage Models is the only owner of SelectedModel/default selection.
+        // Its stable row controls stay in the ListView while search and edits
+        // only change row visibility/state, preserving the current viewport.
         var inventoryFilterBox = new TextBox
         {
             PlaceholderText = "Search models",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        var invertVisibleButton = new Button
+        {
+            Content = "Invert filtered models",
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        ToolTipService.SetToolTip(invertVisibleButton, "Invert enabled state for the models matching the current filter.");
         var manualModelBox = new TextBox
         {
             PlaceholderText = "Exact model slug to add manually",
@@ -865,103 +873,158 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             MaxHeight = 250,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
+        var inventoryRows = new Dictionary<string, (ListViewItem Item, CheckBox EnabledCheck, TextBlock NameText, TextBlock DetailsText, Button DefaultButton)>(StringComparer.Ordinal);
+        ApiProviderAdvancedSettingsControlGroup? advancedSettings = null;
 
-        void RenderInventory()
+        List<ApiProviderModelItem> GetFilteredModels()
         {
             var filter = inventoryFilterBox.Text?.Trim() ?? string.Empty;
-            var visible = workingInventory.Models
+            return workingInventory.Models
                 .Where(entry => string.IsNullOrWhiteSpace(filter) ||
                     entry.Slug.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                     (entry.DisplayName?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false))
-                .OrderByDescending(entry => string.Equals(entry.Slug, workingInventory.SelectedModel, StringComparison.Ordinal))
-                .ThenBy(entry => entry.Slug, StringComparer.Ordinal)
+                .DistinctBy(entry => entry.Slug, StringComparer.Ordinal)
                 .ToList();
+        }
+
+        void SetModelEnabled(string slug, bool enabled)
+        {
+            var entry = workingInventory.Models.FirstOrDefault(model =>
+                string.Equals(model.Slug, slug, StringComparison.Ordinal));
+            if (entry is null || entry.Enabled == enabled) return;
+
+            entry.Enabled = enabled;
+            if (!enabled && string.Equals(workingInventory.SelectedModel, slug, StringComparison.Ordinal))
+            {
+                // Never silently replace a disabled default. The user must
+                // explicitly choose another enabled row before saving.
+                workingInventory.SelectedModel = null;
+            }
+
+            RenderInventory();
+            advancedSettings?.UpdateModelContextHint(GetSelectedModelString());
+        }
+
+        void AddInventoryRow(string slug)
+        {
+            var row = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+                ColumnSpacing = 8,
+                Padding = new Thickness(4, 5, 4, 5),
+            };
+
+            var enabledCheck = new CheckBox
+            {
+                Content = "Enabled",
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            enabledCheck.Checked += (_, _) => SetModelEnabled(slug, true);
+            enabledCheck.Unchecked += (_, _) => SetModelEnabled(slug, false);
+            Grid.SetColumn(enabledCheck, 0);
+            row.Children.Add(enabledCheck);
+
+            var details = new StackPanel { Spacing = 1 };
+            var nameText = new TextBlock
+            {
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            var detailsText = new TextBlock
+            {
+                FontSize = 11,
+                Opacity = 0.68,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            details.Children.Add(nameText);
+            details.Children.Add(detailsText);
+            Grid.SetColumn(details, 1);
+            row.Children.Add(details);
+
+            var setDefault = new Button
+            {
+                Padding = new Thickness(8, 3, 8, 3),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            setDefault.Click += (_, _) =>
+            {
+                var entry = workingInventory.Models.FirstOrDefault(model =>
+                    string.Equals(model.Slug, slug, StringComparison.Ordinal));
+                if (entry is null || !entry.Enabled) return;
+
+                workingInventory.SelectedModel = slug;
+                RenderInventory();
+                advancedSettings?.UpdateModelContextHint(GetSelectedModelString());
+            };
+            Grid.SetColumn(setDefault, 2);
+            row.Children.Add(setDefault);
+
+            var item = new ListViewItem
+            {
+                Content = row,
+                Padding = new Thickness(0),
+            };
+            inventoryList.Items.Add(item);
+            inventoryRows[slug] = (item, enabledCheck, nameText, detailsText, setDefault);
+        }
+
+        void RenderInventory()
+        {
+            foreach (var entry in workingInventory.Models.DistinctBy(model => model.Slug, StringComparer.Ordinal))
+            {
+                if (!inventoryRows.ContainsKey(entry.Slug)) AddInventoryRow(entry.Slug);
+            }
+
+            var visibleSlugs = GetFilteredModels()
+                .Select(entry => entry.Slug)
+                .ToHashSet(StringComparer.Ordinal);
+            invertVisibleButton.IsEnabled = visibleSlugs.Count > 0;
 
             var reported = workingInventory.Models.Count(entry => entry.Availability == ModelAvailability.Reported);
             var enabled = workingInventory.Models.Count(entry => entry.Enabled);
-            inventoryCountText.Text = $"{reported} reported · {enabled} enabled · {workingInventory.Models.Count} inventory entries";
-            inventoryList.Items.Clear();
+            var selectedModel = GetSelectedModelString();
+            var defaultText = string.IsNullOrWhiteSpace(selectedModel) ? "Default: not selected" : $"Default: {selectedModel}";
+            inventoryCountText.Text = $"{reported} reported · {enabled} enabled · {workingInventory.Models.Count} inventory entries · {defaultText}";
 
-            foreach (var modelEntry in visible)
+            foreach (var (slug, controls) in inventoryRows)
             {
-                var entry = modelEntry;
-                var row = new Grid
-                {
-                    ColumnDefinitions =
-                    {
-                        new ColumnDefinition { Width = GridLength.Auto },
-                        new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                        new ColumnDefinition { Width = GridLength.Auto },
-                    },
-                    ColumnSpacing = 8,
-                    Padding = new Thickness(4, 5, 4, 5),
-                };
+                var entry = workingInventory.Models.FirstOrDefault(model =>
+                    string.Equals(model.Slug, slug, StringComparison.Ordinal));
+                controls.Item.Visibility = entry is not null && visibleSlugs.Contains(slug)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                if (entry is null) continue;
 
-                var enabledCheck = new CheckBox
-                {
-                    Content = "Enabled",
-                    IsChecked = entry.Enabled,
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                enabledCheck.Checked += (_, _) =>
-                {
-                    entry.Enabled = true;
-                    PopulateModelPicker();
-                    RenderInventory();
-                };
-                enabledCheck.Unchecked += (_, _) =>
-                {
-                    entry.Enabled = false;
-                    PopulateModelPicker();
-                    RenderInventory();
-                };
-                Grid.SetColumn(enabledCheck, 0);
-                row.Children.Add(enabledCheck);
-
-                var details = new StackPanel { Spacing = 1 };
-                details.Children.Add(new TextBlock
-                {
-                    Text = entry.DisplayName ?? entry.Slug,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                });
-                details.Children.Add(new TextBlock
-                {
-                    Text = $"{entry.Slug} · {entry.DiscoverySource} · {entry.Availability}",
-                    FontSize = 11,
-                    Opacity = 0.68,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                });
-                Grid.SetColumn(details, 1);
-                row.Children.Add(details);
-
+                controls.EnabledCheck.IsChecked = entry.Enabled;
+                controls.NameText.Text = entry.DisplayName ?? entry.Slug;
+                controls.DetailsText.Text = $"{entry.Slug} · {entry.DiscoverySource} · {entry.Availability}";
                 var isSelected = string.Equals(entry.Slug, workingInventory.SelectedModel, StringComparison.Ordinal);
-                var setDefault = new Button
-                {
-                    Content = isSelected ? "Default" : "Use as default",
-                    IsEnabled = entry.Enabled && !isSelected,
-                    Padding = new Thickness(8, 3, 8, 3),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                setDefault.Click += (_, _) =>
-                {
-                    workingInventory.SelectedModel = entry.Slug;
-                    modelCombo.Text = entry.Slug;
-                    PopulateModelPicker();
-                    RenderInventory();
-                };
-                Grid.SetColumn(setDefault, 2);
-                row.Children.Add(setDefault);
-
-                inventoryList.Items.Add(new ListViewItem
-                {
-                    Content = row,
-                    Padding = new Thickness(0),
-                });
+                controls.DefaultButton.Content = isSelected ? "Default" : "Use as default";
+                controls.DefaultButton.IsEnabled = entry.Enabled && !isSelected;
             }
         }
 
         inventoryFilterBox.TextChanged += (_, _) => RenderInventory();
+        invertVisibleButton.Click += (_, _) =>
+        {
+            // GetFilteredModels covers the entire matching inventory, not just
+            // the realized/on-screen ListView rows; non-matching rows stay as-is.
+            foreach (var entry in GetFilteredModels()) entry.Enabled = !entry.Enabled;
+            if (!string.IsNullOrWhiteSpace(workingInventory.SelectedModel) &&
+                !workingInventory.Models.Any(entry =>
+                    entry.Enabled && string.Equals(entry.Slug, workingInventory.SelectedModel, StringComparison.Ordinal)))
+            {
+                workingInventory.SelectedModel = null;
+            }
+
+            RenderInventory();
+            advancedSettings?.UpdateModelContextHint(GetSelectedModelString());
+        };
         addManualButton.Click += (_, _) =>
         {
             var manualSlug = manualModelBox.Text?.Trim();
@@ -997,7 +1060,6 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             }
 
             manualModelBox.Text = string.Empty;
-            PopulateModelPicker();
             RenderInventory();
         };
 
@@ -1024,6 +1086,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             Opacity = 0.74,
         });
         inventoryPanel.Children.Add(inventoryFilterBox);
+        inventoryPanel.Children.Add(invertVisibleButton);
         inventoryPanel.Children.Add(manualModelPanel);
         inventoryPanel.Children.Add(inventoryCountText);
         inventoryPanel.Children.Add(inventoryList);
@@ -1090,7 +1153,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     // further enablement/manual edits atomically.
                     workingInventory = CloneInventory(persisted.ModelInventory);
                     discoveredModelsList = persisted.DiscoveredModels;
-                    PopulateModelPicker();
+                    RenderInventory();
 
                     compatibilityInfoBar.Severity = InfoBarSeverity.Success;
                     compatibilityInfoBar.Title = "Models Refreshed";
@@ -1121,8 +1184,28 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             }
         };
 
-        probeButton.Click += async (_, _) =>
+        probeButton.Click += (_, _) =>
         {
+            if (isCompatibilityProbeRunning) return;
+            compatibilityInfoBar.IsOpen = false;
+            consentRunButton.IsEnabled = true;
+            consentCancelButton.IsEnabled = true;
+            consentProgress.IsActive = false;
+            consentProgress.Visibility = Visibility.Collapsed;
+            consentRunButtonText.Text = "Run compatibility check";
+            compatibilityConsentPanel.Visibility = Visibility.Visible;
+        };
+
+        consentCancelButton.Click += (_, _) =>
+        {
+            if (isCompatibilityProbeRunning) return;
+            compatibilityConsentPanel.Visibility = Visibility.Collapsed;
+        };
+
+        consentRunButton.Click += async (_, _) =>
+        {
+            if (isCompatibilityProbeRunning) return;
+
             var url = baseUrlBox.Text?.Trim();
             var enteredKey = passwordBox.Password?.Trim();
             var key = !string.IsNullOrWhiteSpace(enteredKey) ? enteredKey : (_secretStore != null ? _secretStore.GetApiKey(profile.EndpointId ?? profile.Id) : null);
@@ -1147,63 +1230,71 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 return;
             }
 
+            if (_probeService is null)
+            {
+                compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                compatibilityInfoBar.Title = "Compatibility check unavailable";
+                compatibilityInfoBar.Message = "The compatibility probe service is not available.";
+                compatibilityInfoBar.IsOpen = true;
+                return;
+            }
+
+            isCompatibilityProbeRunning = true;
             probeButton.IsEnabled = false;
-            probeProgress.Visibility = Visibility.Visible;
-            probeProgress.IsActive = true;
-            probeButtonText.Text = _loc.CheckingCompatibility;
+            consentRunButton.IsEnabled = false;
+            consentCancelButton.IsEnabled = false;
+            consentProgress.Visibility = Visibility.Visible;
+            consentProgress.IsActive = true;
+            consentRunButtonText.Text = _loc.CheckingCompatibility;
             compatibilityInfoBar.IsOpen = false;
 
             try
             {
-                if (_probeService != null)
+                var report = await _probeService.ProbeCompatibilityAsync(url, key, currentModel);
+                probedReport = report;
+                probedCompatibilityLevel = report.CompatibilityLevel;
+
+                if (report.DiscoveredModelIds != null && report.DiscoveredModelIds.Count > 0)
                 {
-                    var report = await _probeService.ProbeCompatibilityAsync(url, key, currentModel);
-                    probedReport = report;
-                    probedCompatibilityLevel = report.CompatibilityLevel;
-
-                    if (report.DiscoveredModelIds != null && report.DiscoveredModelIds.Count > 0)
-                    {
-                        discoveredModelsList = report.DiscoveredModelIds;
-                        // Compatibility is explicitly separate from Refresh,
-                        // but discovered hints still use the same working
-                        // inventory that the dialog persists on Save.
-                        workingInventory.MergeDiscoveredModels(report.DiscoveredModelIds);
-                        PopulateModelPicker();
-                        RenderInventory();
-                    }
-
-                    switch (report.CompatibilityLevel)
-                    {
-                        case CodexCompatibilityLevel.CodexCompatible:
-                            compatibilityInfoBar.Severity = InfoBarSeverity.Success;
-                            compatibilityInfoBar.Title = "Codex Compatible";
-                            var searchNote = report.HostedSearchSupport.State == CapabilityEvidenceState.ProbeFailed
-                                ? " (Provider-hosted web_search unsupported; standard function calling active)"
-                                : "";
-                            compatibilityInfoBar.Message = "Endpoint verified compatible with OpenAI Codex (/responses passed)." +
-                                searchNote +
-                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
-                            break;
-                        case CodexCompatibilityLevel.PartiallyCompatible:
-                            compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
-                            compatibilityInfoBar.Title = "Partially Compatible";
-                            compatibilityInfoBar.Message = "Responses endpoint responded, but CLI smoke test or proprietary namespace tools had issues." +
-                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
-                            break;
-                        case CodexCompatibilityLevel.NotCompatible:
-                            compatibilityInfoBar.Severity = InfoBarSeverity.Error;
-                            compatibilityInfoBar.Title = "Not Compatible with Codex";
-                            compatibilityInfoBar.Message = "Not compatible with Codex: /responses is not supported. Codex Switchboard requires wire_api = 'responses'." +
-                                (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
-                            break;
-                        default:
-                            compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
-                            compatibilityInfoBar.Title = "Qualification Incomplete";
-                            compatibilityInfoBar.Message = report.DiagnosticSummary ?? "Probe completed.";
-                            break;
-                    }
-                    compatibilityInfoBar.IsOpen = true;
+                    discoveredModelsList = report.DiscoveredModelIds;
+                    // Compatibility is explicitly separate from Refresh,
+                    // but discovered hints still use the same working
+                    // inventory that the dialog persists on Save.
+                    workingInventory.MergeDiscoveredModels(report.DiscoveredModelIds);
+                    RenderInventory();
                 }
+
+                switch (report.CompatibilityLevel)
+                {
+                    case CodexCompatibilityLevel.CodexCompatible:
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Success;
+                        compatibilityInfoBar.Title = "Codex Compatible";
+                        var searchNote = report.HostedSearchSupport.State == CapabilityEvidenceState.ProbeFailed
+                            ? " (Provider-hosted web_search unsupported; standard function calling active)"
+                            : "";
+                        compatibilityInfoBar.Message = "Endpoint verified compatible with OpenAI Codex (/responses passed)." +
+                            searchNote +
+                            (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                        break;
+                    case CodexCompatibilityLevel.PartiallyCompatible:
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Warning;
+                        compatibilityInfoBar.Title = "Partially Compatible";
+                        compatibilityInfoBar.Message = "Responses endpoint responded, but CLI smoke test or proprietary namespace tools had issues." +
+                            (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                        break;
+                    case CodexCompatibilityLevel.NotCompatible:
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Error;
+                        compatibilityInfoBar.Title = "Not Compatible with Codex";
+                        compatibilityInfoBar.Message = "Not compatible with Codex: /responses is not supported. Codex Switchboard requires wire_api = 'responses'." +
+                            (!string.IsNullOrWhiteSpace(report.DiagnosticSummary) ? $" {report.DiagnosticSummary}" : "");
+                        break;
+                    default:
+                        compatibilityInfoBar.Severity = InfoBarSeverity.Informational;
+                        compatibilityInfoBar.Title = "Qualification Incomplete";
+                        compatibilityInfoBar.Message = report.DiagnosticSummary ?? "Probe completed.";
+                        break;
+                }
+                compatibilityInfoBar.IsOpen = true;
             }
             catch (Exception ex)
             {
@@ -1214,10 +1305,14 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             }
             finally
             {
+                isCompatibilityProbeRunning = false;
                 probeButton.IsEnabled = true;
-                probeProgress.Visibility = Visibility.Collapsed;
-                probeProgress.IsActive = false;
-                probeButtonText.Text = _loc.CheckCodexCompatibility;
+                consentProgress.Visibility = Visibility.Collapsed;
+                consentProgress.IsActive = false;
+                consentRunButtonText.Text = "Run compatibility check";
+                consentRunButton.IsEnabled = true;
+                consentCancelButton.IsEnabled = true;
+                compatibilityConsentPanel.Visibility = Visibility.Collapsed;
             }
         };
 
@@ -1227,23 +1322,28 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(passwordBox);
         panel.Children.Add(actionsPanel);
+        panel.Children.Add(compatibilityConsentPanel);
         panel.Children.Add(compatibilityInfoBar);
-        panel.Children.Add(modelCombo);
         panel.Children.Add(inventoryExpander);
 
-        var advanced = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc, _metadataResolver);
-        advanced.AttachTo(panel);
-
-        modelCombo.SelectionChanged += (_, _) => advanced.UpdateModelContextHint(GetSelectedModelString());
-        modelCombo.TextSubmitted += (_, _) => advanced.UpdateModelContextHint(GetSelectedModelString());
-        advanced.UpdateModelContextHint(GetSelectedModelString());
+        advancedSettings = new ApiProviderAdvancedSettingsControlGroup(profile.ModelOverrides, profile.TransportOverrides, _loc, _metadataResolver);
+        advancedSettings.AttachTo(panel);
+        advancedSettings.UpdateModelContextHint(GetSelectedModelString());
 
         panel.Children.Add(errorBar);
+
+        var rootSize = XamlRoot.Size;
+        var availableWidth = rootSize.Width > 0 ? rootSize.Width : 1024;
+        var widthMargin = availableWidth >= 760 ? 96 : 48;
+        var dialogWidth = Math.Max(320, Math.Min(880, availableWidth - widthMargin));
+        var availableHeight = rootSize.Height > 0 ? rootSize.Height : 800;
 
         var scrollViewer = new ScrollViewer
         {
             Content = panel,
-            MaxHeight = 560,
+            Width = Math.Max(280, dialogWidth - 64),
+            Padding = new Thickness(0, 0, 16, 0),
+            MaxHeight = Math.Max(320, Math.Min(760, availableHeight - 80)),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
@@ -1256,6 +1356,9 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             CloseButtonText = _loc.Cancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
+            Width = dialogWidth,
+            MinWidth = Math.Min(680, dialogWidth),
+            MaxWidth = dialogWidth,
         };
 
         CodexModelOverrides? extractedModel = null;
@@ -1281,7 +1384,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var selModel = GetSelectedModelString();
             if (string.IsNullOrWhiteSpace(selModel))
             {
-                errorBar.Title = "Select an enabled model before saving this API profile.";
+                errorBar.Title = "Choose a default from Manage models before saving this API profile.";
                 errorBar.IsOpen = true;
                 args.Cancel = true;
                 return;
@@ -1291,27 +1394,21 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 string.Equals(entry.Slug, selModel, StringComparison.Ordinal));
             if (selectedInventoryItem is null)
             {
-                // A typed exact slug is a deliberate manual model entry.
-                selectedInventoryItem = new ApiProviderModelItem
-                {
-                    Slug = selModel,
-                    DisplayName = ModelDisplayName.FromSlug(selModel),
-                    Enabled = true,
-                    DiscoverySource = ModelDiscoverySource.Manual,
-                    Availability = ModelAvailability.Unknown,
-                };
-                workingInventory.Models.Add(selectedInventoryItem);
+                errorBar.Title = "Choose a default from Manage models before saving this API profile.";
+                errorBar.IsOpen = true;
+                args.Cancel = true;
+                return;
             }
             if (!selectedInventoryItem.Enabled)
             {
-                errorBar.Title = "Select an enabled model before saving this API profile.";
+                errorBar.Title = "The default model is disabled. Choose an enabled model from Manage models.";
                 errorBar.IsOpen = true;
                 args.Cancel = true;
                 return;
             }
             workingInventory.SelectedModel = selModel;
 
-            var (m, t, err) = advanced.ValidateAndExtract(_loc, selModel);
+            var (m, t, err) = advancedSettings!.ValidateAndExtract(_loc, selModel);
             if (err != null)
             {
                 errorBar.Title = err;

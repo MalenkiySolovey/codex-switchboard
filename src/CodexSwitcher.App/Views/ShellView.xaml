@@ -272,7 +272,7 @@
                                         <Border Grid.Column="0" Width="44" Height="44"
                                                 CornerRadius="{StaticResource AvatarCornerRadius}"
                                                 Background="{ThemeResource BrandGradientBrush}" VerticalAlignment="Center">
-                                            <TextBlock Text="{x:Bind Initials}" FontWeight="Bold" FontSize="16"
+                                            <TextBlock Text="{x:Bind Initials, Mode=OneWay}" FontWeight="Bold" FontSize="16"
                                                        Foreground="{ThemeResource BrandOnAccentBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         </Border>
@@ -280,9 +280,9 @@
                                         <!-- Col 1: Name, Email/Plan, Badges -->
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" FontSize="16"
+                                                <TextBlock Text="{x:Bind DisplayName, Mode=OneWay}" FontWeight="SemiBold" FontSize="16"
                                                            TextTrimming="CharacterEllipsis" MaxWidth="240"
-                                                           ToolTipService.ToolTip="{x:Bind DisplayName}"
+                                                           ToolTipService.ToolTip="{x:Bind DisplayName, Mode=OneWay}"
                                                            VerticalAlignment="Center" />
                                                 <!-- Health status badge -->
                                                 <Border Style="{StaticResource StatusBadgeBorderStyle}"
