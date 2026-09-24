@@ -224,7 +224,13 @@ public sealed class ApiProviderModelInventory
     {
         if (string.IsNullOrWhiteSpace(selectedModel)) return;
 
-        SelectedModel ??= selectedModel;
+        // Empty values can exist in older inventories even when the profile's
+        // selected model is still valid. Treat blank as missing so the profile
+        // default is restored without normalizing the exact model slug.
+        if (string.IsNullOrWhiteSpace(SelectedModel))
+        {
+            SelectedModel = selectedModel;
+        }
 
         var existing = Models.FirstOrDefault(m => string.Equals(m.Slug, selectedModel, StringComparison.Ordinal));
         if (existing == null)

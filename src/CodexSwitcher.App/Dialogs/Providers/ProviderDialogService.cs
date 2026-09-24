@@ -7,6 +7,7 @@ using CodexSwitcher.Core.Common.Enums;
 using CodexSwitcher.Core.Common.Environment;
 using CodexSwitcher.Core.Common.Errors;
 using CodexSwitcher.Core.Common.Lifecycle;
+using CodexSwitcher.Core.Common.Layout;
 using CodexSwitcher.Core.Common.Logging;
 using CodexSwitcher.Core.Common.Storage;
 using CodexSwitcher.Core.Common.Time;
@@ -813,12 +814,10 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         {
             workingInventory.MergeDiscoveredModels(profile.DiscoveredModels);
         }
-        workingInventory.SelectedModel ??= profile.SelectedModel;
-        if (!string.IsNullOrWhiteSpace(profile.SelectedModel) &&
-            !workingInventory.Models.Any(entry => string.Equals(entry.Slug, profile.SelectedModel, StringComparison.Ordinal)))
-        {
-            workingInventory.EnsureSelectedModelMigrated(profile.SelectedModel);
-        }
+        // The persisted profile remains the compatibility source when an
+        // inventory has a null/blank SelectedModel. The migration helper
+        // preserves exact slugs and any nonblank inventory selection.
+        workingInventory.EnsureSelectedModelMigrated(profile.SelectedModel);
 
         var errorBar = new InfoBar
         {
@@ -865,6 +864,13 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             FontSize = 12,
             Opacity = 0.72,
             TextWrapping = TextWrapping.Wrap,
+        };
+        var defaultValidationBar = new InfoBar
+        {
+            IsOpen = false,
+            IsClosable = false,
+            Severity = InfoBarSeverity.Error,
+            Message = "Select an enabled default model before saving.",
         };
         var inventoryList = new ListView
         {
@@ -933,13 +939,13 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var nameText = new TextBlock
             {
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.Wrap,
             };
             var detailsText = new TextBlock
             {
                 FontSize = 11,
                 Opacity = 0.68,
-                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.Wrap,
             };
             details.Children.Add(nameText);
             details.Children.Add(detailsText);
@@ -968,6 +974,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             {
                 Content = row,
                 Padding = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
             };
             inventoryList.Items.Add(item);
             inventoryRows[slug] = (item, enabledCheck, nameText, detailsText, setDefault);
@@ -990,6 +997,11 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var selectedModel = GetSelectedModelString();
             var defaultText = string.IsNullOrWhiteSpace(selectedModel) ? "Default: not selected" : $"Default: {selectedModel}";
             inventoryCountText.Text = $"{reported} reported · {enabled} enabled · {workingInventory.Models.Count} inventory entries · {defaultText}";
+            if (!string.IsNullOrWhiteSpace(selectedModel) && workingInventory.Models.Any(entry =>
+                    entry.Enabled && string.Equals(entry.Slug, selectedModel, StringComparison.Ordinal)))
+            {
+                defaultValidationBar.IsOpen = false;
+            }
 
             foreach (var (slug, controls) in inventoryRows)
             {
@@ -1089,6 +1101,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         inventoryPanel.Children.Add(invertVisibleButton);
         inventoryPanel.Children.Add(manualModelPanel);
         inventoryPanel.Children.Add(inventoryCountText);
+        inventoryPanel.Children.Add(defaultValidationBar);
         inventoryPanel.Children.Add(inventoryList);
         var inventoryExpander = new Expander
         {
@@ -1098,6 +1111,23 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
+
+        void ShowGeneralValidation(string message, Control? focusTarget = null)
+        {
+            errorBar.Title = message;
+            errorBar.IsOpen = true;
+            errorBar.StartBringIntoView();
+            focusTarget?.Focus(FocusState.Programmatic);
+        }
+
+        void ShowDefaultValidation()
+        {
+            defaultValidationBar.IsOpen = true;
+            inventoryExpander.IsExpanded = true;
+            defaultValidationBar.StartBringIntoView();
+            inventoryFilterBox.Focus(FocusState.Programmatic);
+        }
+
         RenderInventory();
 
         refreshButton.Click += async (_, _) =>
@@ -1321,6 +1351,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(passwordBox);
+        panel.Children.Add(errorBar);
         panel.Children.Add(actionsPanel);
         panel.Children.Add(compatibilityConsentPanel);
         panel.Children.Add(compatibilityInfoBar);
@@ -1330,20 +1361,15 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         advancedSettings.AttachTo(panel);
         advancedSettings.UpdateModelContextHint(GetSelectedModelString());
 
-        panel.Children.Add(errorBar);
-
         var rootSize = XamlRoot.Size;
-        var availableWidth = rootSize.Width > 0 ? rootSize.Width : 1024;
-        var widthMargin = availableWidth >= 760 ? 96 : 48;
-        var dialogWidth = Math.Max(320, Math.Min(880, availableWidth - widthMargin));
-        var availableHeight = rootSize.Height > 0 ? rootSize.Height : 800;
+        var layout = SafeModalLayoutCalculator.Calculate(rootSize.Width, rootSize.Height);
 
         var scrollViewer = new ScrollViewer
         {
             Content = panel,
-            Width = Math.Max(280, dialogWidth - 64),
-            Padding = new Thickness(0, 0, 16, 0),
-            MaxHeight = Math.Max(320, Math.Min(760, availableHeight - 80)),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(0, 0, 24, 0),
+            MaxHeight = layout.ContentMaxHeight,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
@@ -1356,10 +1382,16 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             CloseButtonText = _loc.Cancel,
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = XamlRoot,
-            Width = dialogWidth,
-            MinWidth = Math.Min(680, dialogWidth),
-            MaxWidth = dialogWidth,
         };
+
+        // Windows App SDK 2.2.1 Generic.xaml caps the template's internal
+        // BackgroundElement at ThemeResource ContentDialogMaxWidth (548 DIPs).
+        // ContentDialog.Width/MaxWidth alone cannot expand that template part.
+        // Keep the override local so other app dialogs retain the standard size.
+        dialog.Resources["ContentDialogMinWidth"] = layout.MinWidth;
+        dialog.Resources["ContentDialogMaxWidth"] = layout.Width;
+        dialog.Resources["ContentDialogMinHeight"] = Math.Min(184, layout.MaxHeight);
+        dialog.Resources["ContentDialogMaxHeight"] = layout.MaxHeight;
 
         CodexModelOverrides? extractedModel = null;
         ApiProviderTransportOverrides? extractedTransport = null;
@@ -1368,15 +1400,13 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         {
             if (string.IsNullOrWhiteSpace(nicknameBox.Text))
             {
-                errorBar.Title = "Name is required.";
-                errorBar.IsOpen = true;
+                ShowGeneralValidation("Name is required.", nicknameBox);
                 args.Cancel = true;
                 return;
             }
             if (string.IsNullOrWhiteSpace(baseUrlBox.Text) || !Uri.TryCreate(baseUrlBox.Text.Trim(), UriKind.Absolute, out _))
             {
-                errorBar.Title = "Valid Base URL is required.";
-                errorBar.IsOpen = true;
+                ShowGeneralValidation("Valid Base URL is required.", baseUrlBox);
                 args.Cancel = true;
                 return;
             }
@@ -1384,8 +1414,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var selModel = GetSelectedModelString();
             if (string.IsNullOrWhiteSpace(selModel))
             {
-                errorBar.Title = "Choose a default from Manage models before saving this API profile.";
-                errorBar.IsOpen = true;
+                ShowDefaultValidation();
                 args.Cancel = true;
                 return;
             }
@@ -1394,15 +1423,14 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 string.Equals(entry.Slug, selModel, StringComparison.Ordinal));
             if (selectedInventoryItem is null)
             {
-                errorBar.Title = "Choose a default from Manage models before saving this API profile.";
-                errorBar.IsOpen = true;
+                ShowDefaultValidation();
                 args.Cancel = true;
                 return;
             }
             if (!selectedInventoryItem.Enabled)
             {
-                errorBar.Title = "The default model is disabled. Choose an enabled model from Manage models.";
-                errorBar.IsOpen = true;
+                workingInventory.SelectedModel = null;
+                ShowDefaultValidation();
                 args.Cancel = true;
                 return;
             }
@@ -1411,8 +1439,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             var (m, t, err) = advancedSettings!.ValidateAndExtract(_loc, selModel);
             if (err != null)
             {
-                errorBar.Title = err;
-                errorBar.IsOpen = true;
+                ShowGeneralValidation(err, advancedSettings.Expander);
                 args.Cancel = true;
                 return;
             }

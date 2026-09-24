@@ -134,6 +134,31 @@ public sealed class EffectiveModelDescriptorResolverTests
     }
 
     [Fact]
+    public void ApiProviderModelInventory_EnsureSelectedModelMigrated_RestoresProfileDefaultWhenInventoryValueIsBlank()
+    {
+        var inventory = new ApiProviderModelInventory
+        {
+            SelectedModel = "",
+            Models =
+            [
+                new ApiProviderModelItem
+                {
+                    Slug = "deepseek-v4.1-flash:free",
+                    DisplayName = "DeepSeek Free",
+                    Enabled = true,
+                    DiscoverySource = ModelDiscoverySource.Discovered,
+                }
+            ],
+        };
+
+        inventory.EnsureSelectedModelMigrated("deepseek-v4.1-flash:free");
+
+        Assert.Equal("deepseek-v4.1-flash:free", inventory.SelectedModel);
+        Assert.Single(inventory.Models);
+        Assert.True(inventory.Models[0].Enabled);
+    }
+
+    [Fact]
     public void ApiProviderModelInventory_ComputeInventoryHash_DeterministicAndDifferentiates()
     {
         var inv1 = new ApiProviderModelInventory();
