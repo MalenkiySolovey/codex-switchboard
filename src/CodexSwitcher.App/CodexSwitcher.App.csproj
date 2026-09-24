@@ -19,10 +19,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <Version>0.2.1-preview.18</Version>
+    <Version>0.2.1</Version>
     <AssemblyVersion>0.2.1.0</AssemblyVersion>
     <FileVersion>0.2.1.0</FileVersion>
-    <InformationalVersion>0.2.1-preview.18</InformationalVersion>
+    <InformationalVersion>0.2.1</InformationalVersion>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
   </PropertyGroup>
 

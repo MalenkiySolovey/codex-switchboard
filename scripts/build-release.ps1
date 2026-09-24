@@ -4,21 +4,36 @@
 # ==============================================================================
 [CmdletBinding()]
 param(
-    [string]$Version = "0.2.1-preview.18",
+    [string]$Version = "0.2.1",
     [switch]$SkipTests = $false,
     [switch]$PublicRelease = $false
 )
 
 $ErrorActionPreference = "Stop"
 
+if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+    throw "Version '$Version' is not a valid release version."
+}
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $DistDir = Join-Path $RepoRoot "dist"
-$StagingDir = Join-Path $DistDir "staging"
+$ReleaseDir = Join-Path $DistDir "v$Version"
+$StagingDir = Join-Path $ReleaseDir ("staging-" + [Guid]::NewGuid().ToString("N"))
 $ZipName = "CodexSwitchboard-$Version-win-x64.zip"
-$ZipPath = Join-Path $DistDir $ZipName
-$SumsPath = Join-Path $DistDir "SHA256SUMS.txt"
-$ManifestPath = Join-Path $DistDir "manifest-sha256.txt"
+$ZipPath = Join-Path $ReleaseDir $ZipName
+$SumsPath = Join-Path $ReleaseDir "SHA256SUMS.txt"
+$ManifestPath = Join-Path $ReleaseDir "manifest-sha256.txt"
 $SanitizerScript = Join-Path $RepoRoot "eng\quality\Invoke-ReleaseSanitizer.ps1"
+
+$resolvedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+$resolvedDistDir = [System.IO.Path]::GetFullPath($DistDir)
+$resolvedReleaseDir = [System.IO.Path]::GetFullPath($ReleaseDir)
+$resolvedStagingDir = [System.IO.Path]::GetFullPath($StagingDir)
+if (-not $resolvedDistDir.StartsWith($resolvedRepoRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+    -not $resolvedReleaseDir.StartsWith($resolvedDistDir.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase) -or
+    -not $resolvedStagingDir.StartsWith($resolvedReleaseDir.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Release output paths must stay under the repository dist directory."
+}
 
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host " Building Codex Switchboard v$Version (win-x64)" -ForegroundColor Cyan
@@ -38,12 +53,10 @@ if ($PublicRelease) {
     Write-Host "Publication Gate: PRIVATE_UPSTREAM_PUBLICATION_RIGHTS = USER_CONFIRMATION_REQUIRED" -ForegroundColor Yellow
 }
 
-# 1. Clean previous dist
-if (Test-Path $DistDir) {
-    Write-Host "[1/8] Cleaning dist directory..." -ForegroundColor Yellow
-    Remove-Item -Path $DistDir -Recurse -Force
-}
+# 1. Create an isolated versioned output directory without deleting previous artifacts
+Write-Host "[1/8] Preparing versioned output directory..." -ForegroundColor Yellow
 New-Item -Path $DistDir -ItemType Directory -Force | Out-Null
+New-Item -Path $ReleaseDir -ItemType Directory -Force | Out-Null
 New-Item -Path $StagingDir -ItemType Directory -Force | Out-Null
 
 # 2. Restore and build solution
@@ -201,7 +214,9 @@ foreach ($file in $stagedFiles) {
 [System.IO.File]::WriteAllLines($ManifestPath, $manifestLines, [System.Text.Encoding]::UTF8)
 
 # Clean temporary staging directory
-Remove-Item -Path $StagingDir -Recurse -Force
+if (Test-Path -LiteralPath $StagingDir) {
+    Remove-Item -LiteralPath $resolvedStagingDir -Recurse -Force
+}
 
 $zipItem = Get-Item $ZipPath
 $zipSizeMb = [math]::Round($zipItem.Length / 1MB, 2)

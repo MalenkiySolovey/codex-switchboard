@@ -4,7 +4,7 @@
 # ==============================================================================
 [CmdletBinding()]
 param(
-    [string]$Version = "0.2.1-preview.18",
+    [string]$Version = "0.2.1",
     [switch]$SkipPackaging = $false
 )
 

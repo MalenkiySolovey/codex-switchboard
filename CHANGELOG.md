@@ -7,88 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.1-preview.18] - 2026-09-23
-
-### Fixed
-- **Content-Addressed API Model Catalog Identity & Collision Guard:** Model catalog directories under `%LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fp>\<content-fingerprint>\models.json` are now strictly content-addressed based on the canonical serialized `models.json` payload in memory (SHA-256, 16-hex). Any change to emitted catalog fields (context window, overrides, tool policies, enabled set, display name) deterministically generates a distinct directory. Existing catalog files are verified against the computed hash upon reuse; any mismatch triggers a hard corruption failure (`InvalidOperationException`). Non-emitted metadata (`LastSeenAt`, discovery timestamps) preserves catalog stability without churn.
-- **Server Account Activity & Daily Bucket Semantics Invariance:** Enforced that server-provided streak metrics (`CurrentStreakDays`, `LongestStreakDays`) remain strictly authoritative and are displayed directly without local recomputation or fabrication. Daily usage bucket `startDate` fields are parsed strictly as calendar-date labels (`DateOnly`) without UTC/local timezone transformations, preventing cross-midnight day shifts across timezones.
-- **Model Discovery Truthful Wording & UI Inventory Integration:** Updated discovery wording to "Models reported by this API via GET /models. No inference request / does not consume model inference tokens." Wired model discovery directly into the profile model inventory to merge and persist discovered models while preserving manual model additions.
-- **ListView Diagnostics (`[PerfDiag]`):** Added lightweight local stopwatch instrumentation (`[PerfDiag]`) for account card collapse/expand and activity subtree materialization to aid Human QA latency analysis.
-
----
-
-## [0.2.1-preview.17] - 2026-09-23
+## [0.2.1] - 2026-09-24
 
 ### Added
-- **API Model Inventory & Per-Profile Catalog Isolation:** Introduced dynamic per-profile API model inventories with deterministic 16-hex SHA-256 fingerprint hashing. Catalogs are now immutably isolated under `%LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fp>\<inventory-hash>\models.json`.
-- **Effective Model Descriptor Resolver:** Added domain service `EffectiveModelDescriptorResolver` that safely intersects discovered model facts, route capabilities (including Modelflare Grok 4.6 tool-use exclusions), runtime capabilities, and user overrides.
-- **Signed Catalog Modelflare Endpoints:** Updated maintainer-signed `providers.catalog.json` (version 4) with official `modelflare.dev` and `api.modelflare.dev` endpoint definitions and detached ECDSA P-256 signature verification.
-- **UX Separation for Model Discovery vs Compatibility Inference:** Distinct UI controls for "Refresh models" (`GET /models`, non-billable, zero quota consumption) and "Check Codex compatibility" (inference probe, marked with explicit quota usage notice).
+- API providers now have profile-specific model inventories and catalogs. Discover models, enable or disable them, set a default, and keep manually added models.
+- Continue Chat can create a persistent copy on the exact destination provider and model. New continuations are labeled with `[copy]` so they are easy to distinguish from the source.
+- API model configuration supports per-model context and reasoning settings.
 
-### Fixed
-- **Account Activity & Quota Provenance Repair:** Restored full fidelity of account usage cards including lifetime tokens, daily streak metrics, activity mini-bars, and reset credit countdowns without risking profile corruption or overwriting valid cached snapshots.
-- **Startup Render Deferral (`x:Load`):** Optimized visual tree creation in `ShellView.xaml` using deferred loading (`x:Load`) on collapsed account card details and activity panels, cutting cold-start XAML layout overhead.
+### Improved
+- More reliable account and provider switching, profile persistence and recovery, and preservation of user-owned Codex configuration.
+- Clearer account usage and activity information, including live-versus-cached provenance, reset details, and streak data.
+- Faster startup and shutdown through deferred UI and bounded process lifecycle work.
+- Improved provider editing, model management, routing status, and validation.
+- Keep the API model default consistent across Manage Models, provider cards, saved profiles, and active routing; cards reflect saved changes immediately.
+- Corrected API-provider editor sizing and centering across display scales, with wrapped content and a persistent Save action.
 
----
+### Добавлено
+- Для каждого API-провайдера теперь ведётся отдельный список моделей и создаётся собственный каталог. Модели можно обновлять, включать и отключать, назначать моделью по умолчанию и добавлять вручную.
+- Continue Chat создаёт сохранённую копию беседы на точно выбранном провайдере и модели. Новое продолжение помечается `[copy]`, чтобы отличать его от исходной беседы.
+- Для моделей API-провайдеров доступны индивидуальные настройки контекста и рассуждений.
 
-## [0.2.1-preview.16] - 2026-09-23
-
-### Fixed
-- **Production Runtime Authority Requalification:** All runtime qualification tests—including model catalog validation (`debug models`), single-active provider-block retention, and thread fork persistence—are qualified directly against the resolved production Codex binary (`80f78947ad880e6e\codex.exe`, `codex-cli 0.155.0-alpha.16.3`) rather than stale unversioned paths.
-- **Production Binary Precedence Regression Protection:** Enhanced `CodexRuntimeResolver` testability and introduced comprehensive regression tests verifying that `CodexRuntimeResolver`, `CodexModelCatalogService`, and `CodexThreadHandoffService` strictly prioritize the versioned production binary over unversioned installer stubs.
-- **Live Empirical Confirmation of Single-Active Provider Retention:** Empirically verified against the live production runtime that historical provider blocks are NOT required to read or fork existing threads (`thread/read` and `thread/fork` both PASS with 0 historical provider blocks). The single-active Switchboard provider block policy from preview.15 is 100% verified and retained.
-
----
-
-## [0.2.1-preview.15] - 2026-09-23
-
-### Fixed
-- **Value-Agnostic Key Provenance & External Mutation Detection:** Replaced all hardcoded magic value heuristics (`500000`, `xhigh`, model prefixes) with an explicit `ManagedKeyProvenance` tracking model in `SwitchboardRoutingBaseline`. User-owned custom settings (including custom models, reasoning efforts, and 500k context windows) are fully preserved when returning to ChatGPT or switching targets. Switchboard-managed keys are cleaned up based strictly on recorded provenance and catalog evidence. External edits to managed keys are detected and safely handled via `EXTERNAL_EDIT_CONFLICT`.
-- **Switchboard Provider-Block Single-Active Retention Policy:** Empirically verified against `codex-cli` and enforced in `CodexRoutingConfigStore` that returning to ChatGPT leaves zero `[model_providers.switchboard_*]` blocks in `config.toml`, while activating an API target leaves strictly one active Switchboard provider block. Historical threads continue to be forkable and readable without legacy provider blocks. User-defined custom provider tables (`openrouter`, `routercheap`, `hejuapi`) are 100% untouched.
-- **Thread Persistence Model Correction & Disk Validation:** Documented and verified that thread rollouts are stored under `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl` and the SQLite state DB. `CodexThreadHandoffService.ForkThreadAsync` strictly verifies that any `thread.path` returned by the app-server physically exists on disk (`File.Exists`). Added `[ThreadHandoffDiagnostic]` and `[DesktopProcessDiagnostic]` logging for human QA while distinguishing app-server persistence from Desktop UI visibility.
-- **Production Model Catalog Validation Assurance:** Confirmed and documented that runtime catalog validation in production strictly uses `codex -c model_catalog_json="..." debug models` within an isolated `CODEX_HOME` environment, rejecting catalogs missing required schema fields.
-- **Clean Git Provenance & Package Reproducibility:** Committed preview.14 and preview.15 changes to `fix/v0.2.1-target-environment` to guarantee full traceability and build reproducibility.
-
----
-
-## [0.2.1-preview.14] - 2026-09-23
-
-### Fixed
-- **Target Environment Structural Correctness:** Introduced `CodexTargetEnvironment` and `CodexTargetEnvironmentProjector` with single semantic ownership over routing keys. Eliminates cross-target contamination and conflicting settings between ChatGPT accounts and third-party API providers.
-- **ChatGPT Account Target Separation:** Enforced `CatalogMode = BuiltInOpenAi` for ChatGPT accounts. Custom `model_catalog_json`, synthetic models, reasoning overrides, and token window overrides are strictly removed when routing to ChatGPT, leaving official built-in catalog control intact.
-- **API Target Managed Catalog Scoping:** Profile-scoped catalog generation isolated under `%LOCALAPPDATA%\CodexSwitchboard\catalogs\<profile-id>\<runtime-fingerprint>\models.json`. Completely eliminated merging bundled OpenAI models into custom catalogs, preventing model leakage and catalog corruption.
-- **Config Ownership Ledger & Poisoned Baseline Purging:** Enhanced `SwitchboardRoutingBaseline` to track semantic ownership (`SwitchboardOwned` vs `UserBaseline`). Implemented `PurgePoisonedBaselines()` to automatically detect and purge contaminated values previously recorded into baseline state.
-- **Config Hygiene & Orphan Block Cleanup:** Automatically audits and purges dead Switchboard provider blocks (`[model_providers.switchboard_*]`) with zero active profiles while strictly preserving user-defined custom provider tables (`openrouter`, `routercheap`, `hejuapi`), comments, plugins, and MCP configurations.
-- **Continue Chat Combined Transaction & Desktop Visibility:** Integrated atomic handoff sequence: close Desktop -> apply target config projection -> temporary app-server creates thread with explicit `ephemeral = false` -> verify read-back persistence -> `thread/name/set` -> shutdown app-server -> launch Desktop. Guarantees newly created forked and fresh threads are written to disk before Desktop starts, resolving thread invisibility in Codex Desktop.
-
----
-
-## [0.2.1-preview.13] - 2026-09-23
-
-### Fixed
-- **Continue Chat Target Model Propagation:** Fixed cross-provider and intra-provider thread continuation where destination models were not reliably applied. Thread forks now explicitly propagate target `modelProvider` and exact target `model` (e.g. `deepseek-v4.1-flash:free` -> `deepseek-v4.1-flash`) without suffix stripping or premature fallback to source models.
-- **Authoritative Target Identity Enforcement:** Enforced postcondition verification on `ThreadForkResponse`. Mismatches in returned `modelProvider` or `model` immediately fail the fork transaction to prevent creating corrupted or misrouted sessions.
-- **Read-Back Persistence Verification:** Added pre-success verification requiring positive read-back of newly created fork IDs via `thread/read` or all-provider `thread/list` (`modelProviders: []`) before confirming continuation success.
-- **Protocol Compliance for Thread Naming:** Replaced obsolete `thread/setName` RPC calls with the official `thread/name/set` method. Thread renaming is strictly non-fatal best-effort and executes only after thread persistence is verified.
-- **RequiresFreshThread Safety Boundary:** Integrated tool compatibility assessment on Continue Chat handoff. When source threads contain historical tool calls (e.g. hosted web search or custom apply_patch) incompatible with the target provider policy, unsafe replay is blocked and the user is offered a clean Fresh Chat initialization (`thread/start`).
-- **All-Provider Thread Discovery & Pagination:** Configured `thread/list` with explicit `modelProviders: []` and bounded cursor pagination (`nextCursor`) to discover history across all configured providers without silent truncation.
-- **Routing Switch Order Invariant:** Enforced that Switchboard routing transactions execute and verify active before the fork transaction is sent, preventing orphan threads and stale routing context.
-- **Performance Boundary Preserved:** Thread listing and compatibility evaluations remain strictly on-demand (lazy) within the Continue Chat workflow, preserving all preview.12 startup and shutdown performance optimizations.
-
----
-
-## [0.2.1-preview.12] - 2026-09-22
-
-### Performance & Stabilization (Startup & Shutdown)
-- **High-Resolution Monotonic Instrumentation:** Added zero-overhead monotonic milestone profiling (`T0..T15` for startup and `S0..S16` for shutdown) with sensitive data redaction.
-- **Optimized Generic Host Composition:** Restricted reflection-heavy container validation (`ValidateOnBuild` and `ValidateScopes`) to development and CI test suites, cutting cold/warm host initialization time.
-- **Deferred Provider Catalog Loading:** Eliminated blocking cryptographic ECDSA signature verification and JSON parsing from the startup critical path (`T6..T8`), loading on first access to the API Providers tab or routing inspection.
-- **Optimized Accounts Reconcile & Vault Audit:** Removed redundant synchronous duplicate profile reconciliations during startup and deferred orphan vault blob detection to background execution.
-- **XAML Visual Tree Reduction:** Added `x:Load` deferred realization for Tab 1 (API Providers) to avoid materializing non-active tab UI subtrees during initial startup.
-- **Instantaneous Window Hide on Shutdown:** Intercepted `AppWindow.Closing` to hide the window immediately (< 1 ms user-perceived responsiveness) while executing bounded, graceful background cleanup.
-- **Bounded Coordinated Shutdown:** Tightened child process termination and host stop timeouts to 250ms with prompt cancellation tokens.
-- **ReadyToRun (R2R) Deployment:** Enabled `-p:PublishReadyToRun=true` in Release packaging, reducing median warm startup to ~1230 ms and cold startup to ~1211 ms (> 21% improvement over baseline) and trimming artifact footprint.
-- **Automated Performance & Lifecycle Suite:** Added automated benchmark harness and regression tests verifying all startup/shutdown invariants.
+### Улучшено
+- Повышена надёжность переключения аккаунтов и провайдеров, сохранения и восстановления профилей; настройки Codex, принадлежащие пользователю, лучше защищены от изменений.
+- Информация об использовании и активности аккаунтов стала точнее: показываются источник данных (актуальные или кэшированные), сведения о сбросе лимитов и серии активности.
+- Ускорены запуск и завершение приложения благодаря отложенной загрузке интерфейса и ограниченному по времени управлению процессами.
+- Улучшены редактирование провайдеров, управление моделями, отображение маршрутизации и проверка введённых данных.
+- Модель по умолчанию синхронизирована между Manage Models, карточкой провайдера, сохранённым профилем и активной маршрутизацией; карточка обновляется сразу после сохранения.
+- Исправлены размеры и центрирование редактора API-провайдера при масштабировании экрана, перенос текста и закреплённая кнопка Save.
 
 ---
 
