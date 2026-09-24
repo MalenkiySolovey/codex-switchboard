@@ -93,7 +93,7 @@ public sealed partial class ActiveTargetPresentationCoordinator : ObservableObje
         if (activeTarget is ActiveTarget.Api apiTarget)
         {
             IsRoutingActiveToApi = true;
-            ActiveTargetSummary = $"{apiTarget.Profile.Nickname} ({apiTarget.Profile.SelectedModel})";
+            ActiveTargetSummary = $"{apiTarget.Profile.Nickname} ({apiTarget.Profile.GetEffectiveSelectedModel()})";
             ActiveTargetCredentialSlot = activeProfile?.DisplayName ?? _loc.NoManaged;
         }
         else

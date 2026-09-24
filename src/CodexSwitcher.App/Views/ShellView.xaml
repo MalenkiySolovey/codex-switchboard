@@ -973,7 +973,7 @@
                                         <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="16" VerticalAlignment="Center">
                                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                 <TextBlock Text="Model:" FontSize="12" FontWeight="SemiBold" Opacity="0.7" />
-                                                <TextBlock Text="{x:Bind SelectedModel}" FontSize="12" FontWeight="Medium" />
+                                                <TextBlock Text="{x:Bind SelectedModel, Mode=OneWay}" FontSize="12" FontWeight="Medium" />
                                             </StackPanel>
 
                                             <!-- Refresh models button or model status -->

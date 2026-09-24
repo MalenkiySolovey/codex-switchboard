@@ -51,6 +51,11 @@ public sealed class ApiProviderStore : IApiProviderStore
         lock (_sync)
         {
             var profiles = LoadInternal();
+            if (NormalizeModelSelections(profiles))
+            {
+                SaveInternal(profiles, ApiProviderSaveIntent.NormalUpdate);
+            }
+
             if (_secretStore is not null)
             {
                 foreach (var profile in profiles)
@@ -184,6 +189,8 @@ public sealed class ApiProviderStore : IApiProviderStore
 
     private void SaveInternal(List<ApiProviderProfile> profiles, ApiProviderSaveIntent intent)
     {
+        NormalizeModelSelections(profiles);
+
         // 1. Verificação de unicidade de IDs
         var uniqueIds = new HashSet<Guid>();
         foreach (var p in profiles)
@@ -227,6 +234,19 @@ public sealed class ApiProviderStore : IApiProviderStore
 
         // 5. Rotação / expurgo de backups antigos
         PruneBackupsUnderLock();
+    }
+
+    private static bool NormalizeModelSelections(IEnumerable<ApiProviderProfile> profiles)
+    {
+        var changed = false;
+        foreach (var profile in profiles)
+        {
+            // Do not short-circuit: every profile must migrate its legacy
+            // projection before the full collection is persisted or returned.
+            changed |= profile.NormalizeSelectedModel();
+        }
+
+        return changed;
     }
 
     private int GetCurrentProfileCountUnderLock()

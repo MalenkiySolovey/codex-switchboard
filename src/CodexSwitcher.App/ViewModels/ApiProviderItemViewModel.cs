@@ -223,7 +223,7 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
 
         DisplayName = profile.DisplayName;
         BaseUrl = profile.BaseUrl;
-        SelectedModel = profile.SelectedModel ?? string.Empty;
+        SelectedModel = profile.GetEffectiveSelectedModel() ?? string.Empty;
         KeyPreview = profile.KeyPreview;
         Status = profile.Status;
         RoutePoolLabel = profile.RoutePoolLabel;
@@ -246,7 +246,7 @@ public sealed partial class ApiProviderItemViewModel : ObservableObject
 
         DisplayName = updated.DisplayName;
         BaseUrl = updated.BaseUrl;
-        SelectedModel = updated.SelectedModel ?? string.Empty;
+        SelectedModel = updated.GetEffectiveSelectedModel() ?? string.Empty;
         KeyPreview = updated.KeyPreview;
         Status = updated.Status;
         RoutePoolLabel = updated.RoutePoolLabel;

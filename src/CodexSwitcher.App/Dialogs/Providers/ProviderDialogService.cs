@@ -56,8 +56,13 @@ using System.Threading.Tasks;
 using CodexSwitcher.App.Dialogs.Common;
 using CodexSwitcher.App.Dialogs.Shared;
 using CodexSwitcher.App.Localization;
+using CodexSwitcher.App.Support;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using System.Runtime.InteropServices;
+using Windows.Graphics;
 
 namespace CodexSwitcher.App.Dialogs.Providers;
 
@@ -66,6 +71,8 @@ namespace CodexSwitcher.App.Dialogs.Providers;
 /// </summary>
 public sealed class ProviderDialogService : CommonDialogService, IProviderDialogService
 {
+    private const int GwlHwndParent = -8;
+
     private readonly AppPaths _paths;
     private readonly CodexSwitcher.Core.Providers.Contracts.ICodexModelMetadataResolver _metadataResolver;
     private readonly IProviderCompatibilityProbeService? _probeService;
@@ -607,7 +614,14 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
     public async Task<EditApiProviderResult?> PromptEditApiProviderAsync(ApiProviderProfile profile, ProviderDescriptor? descriptor)
     {
-        var panel = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var panel = new StackPanel { Spacing = 10, HorizontalAlignment = HorizontalAlignment.Stretch };
+        panel.Children.Add(new TextBlock
+        {
+            Text = _loc.EditProviderDialogTitle,
+            FontSize = 22,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 2),
+        });
 
         var nicknameBox = new TextBox
         {
@@ -618,8 +632,8 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
         var routePoolLabelBox = new TextBox
         {
-            Header = "Route Pool Label (Optional)",
-            PlaceholderText = "e.g. grok-award 0.01x, grok-stable 0.11x",
+            Header = _loc.RoutePoolLabelOptional,
+            PlaceholderText = _loc.RoutePoolLabelPlaceholder,
             Text = profile.RoutePoolLabel ?? string.Empty,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
@@ -667,10 +681,17 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
         var passwordBox = new PasswordBox
         {
-            Header = $"{_loc.ApiKeyLabel} (Leave blank to keep current key)",
+            Header = _loc.ApiKeyLabel,
             PlaceholderText = profile.KeyPreview,
             IsPasswordRevealButtonEnabled = true,
             HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var passwordHint = new TextBlock
+        {
+            Text = _loc.ApiKeyKeepCurrentHint,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11,
+            Opacity = 0.72,
         };
 
         var compatibilityInfoBar = new InfoBar
@@ -764,17 +785,29 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         {
             Text = _loc.RefreshModels,
             FontSize = 11,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            MaxLines = 2,
         };
+        var refreshButtonContent = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+            ColumnSpacing = 6,
+        };
+        Grid.SetColumn(refreshProgress, 0);
+        Grid.SetColumn(refreshButtonText, 1);
+        refreshButtonContent.Children.Add(refreshProgress);
+        refreshButtonContent.Children.Add(refreshButtonText);
         var refreshButton = new Button
         {
-            Content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Children = { refreshProgress, refreshButtonText }
-            },
+            Content = refreshButtonContent,
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinWidth = 0,
         };
         ToolTipService.SetToolTip(refreshButton, _loc.ReadOnlyDiscoveryNote);
         Grid.SetColumn(refreshButton, 0);
@@ -791,17 +824,29 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         {
             Text = _loc.CheckCodexCompatibility,
             FontSize = 11,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            MaxLines = 2,
         };
+        var probeButtonContent = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+            ColumnSpacing = 6,
+        };
+        Grid.SetColumn(probeProgress, 0);
+        Grid.SetColumn(probeButtonText, 1);
+        probeButtonContent.Children.Add(probeProgress);
+        probeButtonContent.Children.Add(probeButtonText);
         var probeButton = new Button
         {
-            Content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Children = { probeProgress, probeButtonText }
-            },
+            Content = probeButtonContent,
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinWidth = 0,
         };
         ToolTipService.SetToolTip(probeButton, _loc.InferenceProbeNote);
         Grid.SetColumn(probeButton, 1);
@@ -809,15 +854,12 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         actionsPanel.Children.Add(refreshButton);
         actionsPanel.Children.Add(probeButton);
 
+        profile.NormalizeSelectedModel();
         var workingInventory = CloneInventory(profile.ModelInventory);
         if (workingInventory.Models.Count == 0 && profile.DiscoveredModels is { Count: > 0 })
         {
             workingInventory.MergeDiscoveredModels(profile.DiscoveredModels);
         }
-        // The persisted profile remains the compatibility source when an
-        // inventory has a null/blank SelectedModel. The migration helper
-        // preserves exact slugs and any nonblank inventory selection.
-        workingInventory.EnsureSelectedModelMigrated(profile.SelectedModel);
 
         var errorBar = new InfoBar
         {
@@ -840,23 +882,23 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         // only change row visibility/state, preserving the current viewport.
         var inventoryFilterBox = new TextBox
         {
-            PlaceholderText = "Search models",
+            PlaceholderText = _loc.SearchModels,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var invertVisibleButton = new Button
         {
-            Content = "Invert filtered models",
+            Content = _loc.InvertFilteredModels,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        ToolTipService.SetToolTip(invertVisibleButton, "Invert enabled state for the models matching the current filter.");
+        ToolTipService.SetToolTip(invertVisibleButton, _loc.InvertFilteredModelsTooltip);
         var manualModelBox = new TextBox
         {
-            PlaceholderText = "Exact model slug to add manually",
+            PlaceholderText = _loc.ExactModelSlugPlaceholder,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var addManualButton = new Button
         {
-            Content = "Add manual model",
+            Content = _loc.AddManualModel,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var inventoryCountText = new TextBlock
@@ -1092,7 +1134,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         var inventoryPanel = new StackPanel { Spacing = 8, Padding = new Thickness(2) };
         inventoryPanel.Children.Add(new TextBlock
         {
-            Text = "Manage discovered and manual models. Refresh preserves manual entries; unreported discovered entries remain visible as NotReported.",
+            Text = _loc.ManageModelsDescription,
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
             Opacity = 0.74,
@@ -1105,7 +1147,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         inventoryPanel.Children.Add(inventoryList);
         var inventoryExpander = new Expander
         {
-            Header = "Manage models",
+            Header = _loc.ManageModels,
             Content = inventoryPanel,
             IsExpanded = workingInventory.Models.Count > 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -1181,6 +1223,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                     // The dialog keeps an isolated working copy. The card
                     // receives this same result event; Save later commits any
                     // further enablement/manual edits atomically.
+                    persisted.NormalizeSelectedModel();
                     workingInventory = CloneInventory(persisted.ModelInventory);
                     discoveredModelsList = persisted.DiscoveredModels;
                     RenderInventory();
@@ -1351,6 +1394,7 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         panel.Children.Add(routeCombo);
         panel.Children.Add(baseUrlBox);
         panel.Children.Add(passwordBox);
+        panel.Children.Add(passwordHint);
         panel.Children.Add(errorBar);
         panel.Children.Add(actionsPanel);
         panel.Children.Add(compatibilityConsentPanel);
@@ -1363,51 +1407,175 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
 
         var rootSize = XamlRoot.Size;
         var layout = SafeModalLayoutCalculator.Calculate(rootSize.Width, rootSize.Height);
+        var ownerHandle = Host.WindowHandle;
+        AppWindow? ownerAppWindow = null;
+        RectInt32 workArea = default;
+        var rasterizationScale = Host.XamlRoot.RasterizationScale;
+        if (!double.IsFinite(rasterizationScale) || rasterizationScale <= 0)
+        {
+            rasterizationScale = 1;
+        }
+
+        var maxEditorWidth = Math.Min(layout.Width, 820);
+        var maxEditorHeight = Math.Min(layout.MaxHeight, 860);
+        if (ownerHandle != IntPtr.Zero)
+        {
+            var ownerId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(ownerHandle);
+            ownerAppWindow = AppWindow.GetFromWindowId(ownerId);
+            workArea = DisplayArea.GetFromWindowId(ownerId, DisplayAreaFallback.Nearest).WorkArea;
+
+            // XAML layout uses effective pixels (DIPs), while AppWindow and
+            // DisplayArea use screen pixels. Keep the bounds in DIPs until
+            // the final Resize call to avoid shrinking and misplacing the
+            // editor on high-DPI displays.
+            var workAreaWidthDip = workArea.Width / rasterizationScale;
+            var workAreaHeightDip = workArea.Height / rasterizationScale;
+            var ownerWidthDip = ownerAppWindow.Size.Width / rasterizationScale;
+            var ownerHeightDip = ownerAppWindow.Size.Height / rasterizationScale;
+            maxEditorWidth = Math.Min(maxEditorWidth,
+                Math.Min(workAreaWidthDip - 48, ownerWidthDip - 48));
+            maxEditorHeight = Math.Min(maxEditorHeight,
+                Math.Min(workAreaHeightDip - 48, ownerHeightDip - 48));
+        }
+
+        var editorWidth = Math.Max(1, maxEditorWidth);
+        var editorHeight = Math.Max(1, maxEditorHeight);
 
         var scrollViewer = new ScrollViewer
         {
             Content = panel,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(0, 0, 24, 0),
-            MaxHeight = layout.ContentMaxHeight,
+            Padding = new Thickness(24, 16, 24, 16),
+            MaxHeight = Math.Min(layout.ContentMaxHeight, Math.Max(180, editorHeight - 128)),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
 
-        var dialog = new ContentDialog
+        var editorContent = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto },
+            },
+        };
+        editorContent.Children.Add(scrollViewer);
+
+        var buttons = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+            ColumnSpacing = 12,
+        };
+        var saveButton = new Button
+        {
+            Content = _loc.Save,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinWidth = 0,
+            Height = 40,
+            Background = Brushes.Resource("BrandAccentBrush"),
+            Foreground = Brushes.Resource("BrandOnAccentBrush"),
+        };
+        var cancelButton = new Button
+        {
+            Content = _loc.Cancel,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Height = 40,
+        };
+        Grid.SetColumn(cancelButton, 1);
+        buttons.Children.Add(saveButton);
+        buttons.Children.Add(cancelButton);
+
+        var footer = new Border
+        {
+            Padding = new Thickness(24, 14, 24, 18),
+            Background = Brushes.Resource("LayerFillColorAltBrush"),
+            Child = buttons,
+        };
+        Grid.SetRow(footer, 1);
+        editorContent.Children.Add(footer);
+
+        var editorSurface = new Border
+        {
+            Background = Brushes.Resource("LayerFillColorDefaultBrush"),
+            Child = editorContent,
+        };
+        void ConstrainEditorContentWidth()
+        {
+            // A vertical StackPanel inside ScrollViewer can otherwise measure
+            // children at their natural width and let long text/buttons escape
+            // the editor viewport instead of wrapping.
+            var availableWidth = scrollViewer.ActualWidth -
+                scrollViewer.Padding.Left -
+                scrollViewer.Padding.Right -
+                18;
+            if (double.IsFinite(availableWidth) && availableWidth > 0)
+            {
+                panel.Width = availableWidth;
+            }
+        }
+        scrollViewer.SizeChanged += (_, _) => ConstrainEditorContentWidth();
+        editorSurface.SizeChanged += (_, _) => ConstrainEditorContentWidth();
+        panel.Width = Math.Max(1, editorWidth - scrollViewer.Padding.Left - scrollViewer.Padding.Right - 18);
+        if (CodexSwitcher.App.App.MainWindowInstance?.Content is FrameworkElement hostContent)
+        {
+            editorSurface.RequestedTheme = hostContent.RequestedTheme;
+        }
+
+        var editorWindow = new Window
         {
             Title = _loc.EditProviderDialogTitle,
-            Content = scrollViewer,
-            PrimaryButtonText = _loc.Save,
-            CloseButtonText = _loc.Cancel,
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot,
+            Content = editorSurface,
         };
-
-        // Windows App SDK 2.2.1 Generic.xaml caps the template's internal
-        // BackgroundElement at ThemeResource ContentDialogMaxWidth (548 DIPs).
-        // ContentDialog.Width/MaxWidth alone cannot expand that template part.
-        // Keep the override local so other app dialogs retain the standard size.
-        dialog.Resources["ContentDialogMinWidth"] = layout.MinWidth;
-        dialog.Resources["ContentDialogMaxWidth"] = layout.Width;
-        dialog.Resources["ContentDialogMinHeight"] = Math.Min(184, layout.MaxHeight);
-        dialog.Resources["ContentDialogMaxHeight"] = layout.MaxHeight;
+        var editorTitleBar = AppWindow.GetFromWindowId(
+            Microsoft.UI.Win32Interop.GetWindowIdFromWindow(WinRT.Interop.WindowNative.GetWindowHandle(editorWindow))).TitleBar;
+        if (Brushes.Resource("LayerFillColorDefaultBrush") is SolidColorBrush titleBarBackground &&
+            Brushes.Resource("TextFillColorPrimaryBrush") is SolidColorBrush titleBarForeground)
+        {
+            var titleBarHover = Brushes.Resource("LayerFillColorAltBrush") is SolidColorBrush hoverBackground
+                ? hoverBackground.Color
+                : titleBarBackground.Color;
+            editorTitleBar.BackgroundColor = titleBarBackground.Color;
+            editorTitleBar.ForegroundColor = titleBarForeground.Color;
+            editorTitleBar.InactiveBackgroundColor = titleBarBackground.Color;
+            editorTitleBar.InactiveForegroundColor = titleBarForeground.Color;
+            editorTitleBar.ButtonBackgroundColor = titleBarBackground.Color;
+            editorTitleBar.ButtonForegroundColor = titleBarForeground.Color;
+            editorTitleBar.ButtonInactiveBackgroundColor = titleBarBackground.Color;
+            editorTitleBar.ButtonInactiveForegroundColor = titleBarForeground.Color;
+            editorTitleBar.ButtonHoverBackgroundColor = titleBarHover;
+            editorTitleBar.ButtonHoverForegroundColor = titleBarForeground.Color;
+            editorTitleBar.ButtonPressedBackgroundColor = titleBarHover;
+            editorTitleBar.ButtonPressedForegroundColor = titleBarForeground.Color;
+        }
+        cancelButton.Click += (_, _) => editorWindow.Close();
+        editorContent.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Escape)
+            {
+                editorWindow.Close();
+                args.Handled = true;
+            }
+        };
 
         CodexModelOverrides? extractedModel = null;
         ApiProviderTransportOverrides? extractedTransport = null;
+        var isSaved = false;
+        var windowClosed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        dialog.PrimaryButtonClick += (s, args) =>
+        saveButton.Click += (_, _) =>
         {
             if (string.IsNullOrWhiteSpace(nicknameBox.Text))
             {
                 ShowGeneralValidation("Name is required.", nicknameBox);
-                args.Cancel = true;
                 return;
             }
             if (string.IsNullOrWhiteSpace(baseUrlBox.Text) || !Uri.TryCreate(baseUrlBox.Text.Trim(), UriKind.Absolute, out _))
             {
                 ShowGeneralValidation("Valid Base URL is required.", baseUrlBox);
-                args.Cancel = true;
                 return;
             }
 
@@ -1415,7 +1583,6 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             if (string.IsNullOrWhiteSpace(selModel))
             {
                 ShowDefaultValidation();
-                args.Cancel = true;
                 return;
             }
 
@@ -1424,14 +1591,12 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             if (selectedInventoryItem is null)
             {
                 ShowDefaultValidation();
-                args.Cancel = true;
                 return;
             }
             if (!selectedInventoryItem.Enabled)
             {
                 workingInventory.SelectedModel = null;
                 ShowDefaultValidation();
-                args.Cancel = true;
                 return;
             }
             workingInventory.SelectedModel = selModel;
@@ -1440,7 +1605,6 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
             if (err != null)
             {
                 ShowGeneralValidation(err, advancedSettings.Expander);
-                args.Cancel = true;
                 return;
             }
 
@@ -1456,10 +1620,58 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
                 profile.KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey);
                 profile.Status = ApiProviderProfileStatus.Active;
             }
+
+            isSaved = true;
+            editorWindow.Close();
         };
 
-        var res = await dialog.ShowAsync();
-        if (res == ContentDialogResult.Primary)
+        editorWindow.Closed += (_, _) => windowClosed.TrySetResult(isSaved);
+
+        var ownerWasEnabled = ownerHandle != IntPtr.Zero && IsWindowEnabled(ownerHandle);
+        try
+        {
+            var editorHandle = WinRT.Interop.WindowNative.GetWindowHandle(editorWindow);
+            if (ownerHandle != IntPtr.Zero)
+            {
+                _ = SetWindowLongPtrW(editorHandle, GwlHwndParent, ownerHandle);
+            }
+
+            var editorWindowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(editorHandle);
+            var appWindow = AppWindow.GetFromWindowId(editorWindowId);
+            var editorWidthPixels = (int)Math.Round(editorWidth * rasterizationScale);
+            var editorHeightPixels = (int)Math.Round(editorHeight * rasterizationScale);
+            appWindow.Resize(new SizeInt32(editorWidthPixels, editorHeightPixels));
+
+            if (appWindow.Presenter is OverlappedPresenter presenter)
+            {
+                presenter.IsResizable = false;
+                presenter.IsMaximizable = false;
+            }
+
+            if (ownerAppWindow is not null)
+            {
+                var x = ownerAppWindow.Position.X + (ownerAppWindow.Size.Width - appWindow.Size.Width) / 2;
+                var y = ownerAppWindow.Position.Y + (ownerAppWindow.Size.Height - appWindow.Size.Height) / 2;
+                var screenMargin = (int)Math.Round(24 * rasterizationScale);
+                var minX = workArea.X + screenMargin;
+                var minY = workArea.Y + screenMargin;
+                var maxX = workArea.X + workArea.Width - appWindow.Size.Width - screenMargin;
+                var maxY = workArea.Y + workArea.Height - appWindow.Size.Height - screenMargin;
+                if (maxX >= minX) x = Math.Clamp(x, minX, maxX);
+                if (maxY >= minY) y = Math.Clamp(y, minY, maxY);
+                appWindow.Move(new PointInt32(x, y));
+                if (ownerWasEnabled) _ = EnableWindow(ownerHandle, false);
+            }
+
+            editorWindow.Activate();
+            await windowClosed.Task;
+        }
+        finally
+        {
+            if (ownerWasEnabled) _ = EnableWindow(ownerHandle, true);
+        }
+
+        if (isSaved)
         {
             var routeTag = (routeCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? profile.SelectedRouteId ?? string.Empty;
             return new EditApiProviderResult
@@ -1480,6 +1692,17 @@ public sealed class ProviderDialogService : CommonDialogService, IProviderDialog
         }
         return null;
     }
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtrW(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnableWindow(IntPtr hWnd, [MarshalAs(UnmanagedType.Bool)] bool bEnable);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowEnabled(IntPtr hWnd);
 
     public async Task<string?> PromptRotateApiKeyAsync(string providerDisplayName)
     {

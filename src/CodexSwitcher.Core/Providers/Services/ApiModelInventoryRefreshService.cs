@@ -179,13 +179,13 @@ public sealed class ApiModelInventoryRefreshService : IApiModelInventoryRefreshS
             profile.StableCodexProviderId,
             StringComparison.OrdinalIgnoreCase);
 
+        profile.NormalizeSelectedModel();
         profile.ModelInventory ??= new ApiProviderModelInventory();
-        // A legacy SelectedModel represents an explicit user selection even
-        // when preview.18 had not yet materialized an inventory. Migrate it
-        // before merging discovery so a temporarily unreported selected model
-        // remains a manual NotReported entry instead of disappearing.
+        // The inventory owns selection; normalization migrates a legacy-only
+        // profile before discovery while preserving an existing inventory
+        // selection that differs from the compatibility projection.
         profile.ModelInventory.EnsureSelectedModelMigrated(
-            profile.SelectedModel,
+            profile.GetEffectiveSelectedModel(),
             displayName: null,
             contextWindow: profile.ModelOverrides?.ContextWindowTokens,
             overrides: profile.ModelOverrides);
@@ -193,7 +193,7 @@ public sealed class ApiModelInventoryRefreshService : IApiModelInventoryRefreshS
         var merge = profile.ModelInventory.MergeDiscoveredModels(discovery.Models, observedAt);
         NormalizeProfileDerivedDisplayNames(profile);
         profile.DiscoveredModels = discovery.Models.Distinct(StringComparer.Ordinal).ToList();
-        profile.ModelInventory.SelectedModel ??= profile.SelectedModel;
+        profile.NormalizeSelectedModel();
 
         var routeKey = !string.IsNullOrWhiteSpace(profile.SelectedRouteId)
             ? profile.SelectedRouteId
@@ -259,7 +259,7 @@ public sealed class ApiModelInventoryRefreshService : IApiModelInventoryRefreshS
                 var trace = switchResult.DiagnosticTrace;
                 if (trace?.ActiveModelListVerified != true ||
                     !string.Equals(postRouting.ModelProvider, profile.StableCodexProviderId, StringComparison.Ordinal) ||
-                    !string.Equals(postRouting.Model, profile.SelectedModel, StringComparison.Ordinal) ||
+                    !string.Equals(postRouting.Model, profile.GetEffectiveSelectedModel(), StringComparison.Ordinal) ||
                     string.IsNullOrWhiteSpace(postRouting.ModelCatalogJson))
                 {
                     _profiles.Save(original);
@@ -416,14 +416,15 @@ public sealed class ApiModelInventoryRefreshService : IApiModelInventoryRefreshS
 
     private static bool TryValidateSelectedModel(ApiProviderProfile profile, out string error)
     {
-        if (string.IsNullOrWhiteSpace(profile.SelectedModel))
+        var selectedModel = profile.GetEffectiveSelectedModel();
+        if (string.IsNullOrWhiteSpace(selectedModel))
         {
             error = "Select an enabled model before activating this API profile.";
             return false;
         }
 
         var selected = profile.ModelInventory?.Models.FirstOrDefault(m =>
-            string.Equals(m.Slug, profile.SelectedModel, StringComparison.Ordinal));
+            string.Equals(m.Slug, selectedModel, StringComparison.Ordinal));
         if (selected is null || !selected.Enabled)
         {
             error = "Select an enabled model before activating this API profile.";
@@ -508,7 +509,7 @@ public sealed class ApiModelInventoryRefreshService : IApiModelInventoryRefreshS
             Nickname = source.Nickname,
             BaseUrl = source.BaseUrl,
             SelectedRouteId = source.SelectedRouteId,
-            SelectedModel = source.SelectedModel,
+            SelectedModel = source.GetEffectiveSelectedModel(),
             WireApi = source.WireApi,
             KeyPreview = source.KeyPreview,
             Status = source.Status,

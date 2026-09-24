@@ -103,7 +103,7 @@ public sealed class ApiEndpointProfile
                 {
                     ProfileId = p.Id,
                     StableCodexProviderId = p.StableCodexProviderId,
-                    ModelId = p.SelectedModel ?? string.Empty,
+                    ModelId = p.GetEffectiveSelectedModel() ?? string.Empty,
                     DisplayName = p.Nickname,
                     KeyPreview = p.KeyPreview,
                     Status = p.Status,

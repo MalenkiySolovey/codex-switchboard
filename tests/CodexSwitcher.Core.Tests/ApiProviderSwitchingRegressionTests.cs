@@ -335,6 +335,61 @@ public sealed class ApiProviderSwitchingRegressionTests
     }
 
     [Fact]
+    public async Task InventorySelectedModel_WinsOverLegacyProjectionWhenActivatingProfile()
+    {
+        using var env = new TestEnvironment();
+        env.SetInitialConfig("openai", "gpt-5.6-sol");
+
+        var endpointId = Guid.NewGuid();
+        var modelId = Guid.NewGuid();
+        var profile = new ApiProviderProfile
+        {
+            Id = modelId,
+            EndpointId = endpointId,
+            CatalogProviderId = "router-cheap",
+            StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(modelId),
+            Nickname = "Router.Cheap",
+            BaseUrl = "https://router.cheap/v1",
+            SelectedModel = "gpt-5.6-sol",
+            ModelInventory = new ApiProviderModelInventory
+            {
+                SelectedModel = "gpt-6-luna",
+                Models =
+                [
+                    new ApiProviderModelItem
+                    {
+                        Slug = "gpt-5.6-sol",
+                        Enabled = true,
+                        DiscoverySource = ModelDiscoverySource.Discovered,
+                        Availability = ModelAvailability.Reported,
+                    },
+                    new ApiProviderModelItem
+                    {
+                        Slug = "gpt-6-luna",
+                        Enabled = true,
+                        DiscoverySource = ModelDiscoverySource.Discovered,
+                        Availability = ModelAvailability.Reported,
+                    },
+                ],
+            },
+        };
+        env.ApiStore.Save(profile);
+        env.SecretStore.SaveApiKey(endpointId, "router-cheap-key");
+
+        var result = await env.Facade.SwitchToApiProviderAsync(modelId, DefaultOpts);
+
+        Assert.Equal(TargetSwitchOutcome.Success, result.Outcome);
+        Assert.NotNull(result.DiagnosticTrace);
+        Assert.Equal("gpt-6-luna", result.DiagnosticTrace.EffectiveModel);
+        Assert.Equal("gpt-6-luna", env.RoutingStore.ReadRoutingState(env.Paths.Codex.ConfigTomlPath).Model);
+
+        var reloaded = env.ApiStore.GetById(modelId);
+        Assert.NotNull(reloaded);
+        Assert.Equal("gpt-6-luna", reloaded.ModelInventory!.SelectedModel);
+        Assert.Equal("gpt-6-luna", reloaded.SelectedModel);
+    }
+
+    [Fact]
     public void CatalogService_DefaultBundledModels_ValidModernSchema()
     {
         using var temp = new TempDir();

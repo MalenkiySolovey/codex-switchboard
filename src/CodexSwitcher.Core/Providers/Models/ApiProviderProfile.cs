@@ -64,7 +64,10 @@ public sealed class ApiProviderProfile
     /// <summary>Selected route ID from catalog (e.g. "primary", "reserve") or "custom".</summary>
     public string? SelectedRouteId { get; set; }
 
-    /// <summary>Selected model ID (e.g. "gpt-5.6-sol").</summary>
+    /// <summary>
+    /// Backward-compatible selected-model projection for older profile data.
+    /// <see cref="ApiProviderModelInventory.SelectedModel"/> is authoritative.
+    /// </summary>
     public string? SelectedModel { get; set; }
 
     /// <summary>Wire API protocol for Codex inference (strictly "responses").</summary>
@@ -106,6 +109,77 @@ public sealed class ApiProviderProfile
     /// <summary>Full model inventory (discovered and manual entries) with enablement flags.</summary>
     public ApiProviderModelInventory? ModelInventory { get; set; }
 
+    /// <summary>
+    /// Resolves the one effective selected model. The inventory owns the value;
+    /// the legacy profile field is consulted only while migrating old profiles.
+    /// Model slugs are returned verbatim and are never normalized.
+    /// </summary>
+    public string? GetEffectiveSelectedModel()
+    {
+        if (ModelInventory is not null)
+        {
+            return string.IsNullOrWhiteSpace(ModelInventory.SelectedModel)
+                ? null
+                : ModelInventory.SelectedModel;
+        }
+
+        return string.IsNullOrWhiteSpace(SelectedModel) ? null : SelectedModel;
+    }
+
+    /// <summary>
+    /// Migrates a legacy selection when the inventory has none, then keeps the
+    /// serialized compatibility projection synchronized from the inventory.
+    /// Returns true when persistent model-selection state changed.
+    /// </summary>
+    public bool NormalizeSelectedModel()
+    {
+        var previousInventorySelection = ModelInventory?.SelectedModel;
+        var previousProjection = SelectedModel;
+        // The compatibility projection is read only during migration when the
+        // inventory has no selection. Normal runtime resolution never lets a
+        // stale legacy value override an existing inventory.
+        var effective = !string.IsNullOrWhiteSpace(previousInventorySelection)
+            ? previousInventorySelection
+            : string.IsNullOrWhiteSpace(previousProjection) ? null : previousProjection;
+
+        if (!string.IsNullOrWhiteSpace(effective))
+        {
+            ModelInventory ??= new ApiProviderModelInventory();
+            ModelInventory.EnsureSelectedModelMigrated(effective, overrides: ModelOverrides);
+            ModelInventory.SelectedModel = effective;
+        }
+        else if (ModelInventory is not null)
+        {
+            ModelInventory.SelectedModel = null;
+        }
+
+        SelectedModel = effective;
+        return !string.Equals(previousInventorySelection, ModelInventory?.SelectedModel, StringComparison.Ordinal)
+            || !string.Equals(previousProjection, SelectedModel, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Changes the selected model through the authoritative inventory while
+    /// synchronizing the legacy serialized projection.
+    /// </summary>
+    public void SetSelectedModel(string? selectedModel)
+    {
+        if (ModelInventory is null && string.IsNullOrWhiteSpace(selectedModel))
+        {
+            SelectedModel = selectedModel;
+            return;
+        }
+
+        ModelInventory ??= new ApiProviderModelInventory();
+        ModelInventory.SelectedModel = selectedModel;
+        SelectedModel = selectedModel;
+
+        if (!string.IsNullOrWhiteSpace(selectedModel))
+        {
+            ModelInventory.EnsureSelectedModelMigrated(selectedModel, overrides: ModelOverrides);
+        }
+    }
+
     /// <summary>Latest overall qualification level for OpenAI Codex.</summary>
     public CodexCompatibilityLevel CompatibilityLevel { get; set; } = CodexCompatibilityLevel.Unknown;
 
@@ -115,7 +189,7 @@ public sealed class ApiProviderProfile
     /// <summary>User-facing display name.</summary>
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(Nickname) ? Nickname :
-        !string.IsNullOrWhiteSpace(SelectedModel) ? $"{SelectedModel} ({Id.ToString()[..8]})" :
+        !string.IsNullOrWhiteSpace(GetEffectiveSelectedModel()) ? $"{GetEffectiveSelectedModel()} ({Id.ToString()[..8]})" :
         $"API Provider {Id.ToString()[..8]}";
 
     public static string GenerateStableCodexProviderId(Guid id) =>

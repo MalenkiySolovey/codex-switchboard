@@ -294,7 +294,6 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(id),
             BaseUrl = result.BaseUrl,
             SelectedRouteId = result.SelectedRouteId,
-            SelectedModel = result.SelectedModel,
             KeyPreview = ApiProviderProfile.ComputeKeyPreview(result.ApiKey),
             Status = string.IsNullOrWhiteSpace(result.ApiKey) ? ApiProviderProfileStatus.CredentialMissing : ApiProviderProfileStatus.Active,
             CreatedAt = _clock.UtcNow,
@@ -307,6 +306,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             LastProbeReport = result.LastProbeReport,
         };
 
+        profile.SetSelectedModel(result.SelectedModel);
         ApplyDiscoveredModelsToInventory(profile, result.DiscoveredModels, _clock.UtcNow);
 
         if (!string.IsNullOrWhiteSpace(result.ApiKey))
@@ -343,23 +343,24 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         TargetStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private async Task SwitchToApiProviderInternalAsync(ApiProviderProfile profile)
+    private async Task<TargetSwitchResult?> SwitchToApiProviderInternalAsync(ApiProviderProfile profile)
     {
+        TargetSwitchResult? result = null;
         await RunBusyAsync(Loc.BusySwitching(profile.Nickname), async () =>
         {
             try
             {
-                var res = await _targetSwitchService.SwitchToApiProviderAsync(
+                result = await _targetSwitchService.SwitchToApiProviderAsync(
                     profile.Id,
                     SwitchExecutionOptions.From(_settings));
 
-                if (res.Outcome is TargetSwitchOutcome.Success or TargetSwitchOutcome.SuccessWithReopenWarning)
+                if (result.Outcome is TargetSwitchOutcome.Success or TargetSwitchOutcome.SuccessWithReopenWarning or TargetSwitchOutcome.NoOp)
                 {
                     ShowInfo(Loc.SwitchedTitle, Loc.SwitchedMsg(profile.Nickname), InfoBarSeverity.Success);
                 }
                 else
                 {
-                    var msg = !string.IsNullOrWhiteSpace(res.Message) ? res.Message : Loc.SwitchFailedMsg;
+                    var msg = !string.IsNullOrWhiteSpace(result.Message) ? result.Message : Loc.SwitchFailedMsg;
                     ShowInfo(Loc.SwitchFailedTitle, msg, InfoBarSeverity.Error);
                 }
             }
@@ -368,6 +369,8 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                 ShowInfo(Loc.SwitchFailedTitle, ex.Message, InfoBarSeverity.Error);
             }
         });
+
+        return result;
     }
 
     [RelayCommand]
@@ -429,13 +432,13 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
     {
         if (item is null) return;
 
+        var previousProfile = CloneProviderProfile(item.Profile);
         var result = await _ui.PromptEditApiProviderAsync(item.Profile, item.Descriptor);
         if (result is null) return;
 
         item.Profile.Nickname = result.Nickname;
         item.Profile.BaseUrl = result.BaseUrl;
         item.Profile.SelectedRouteId = result.SelectedRouteId;
-        item.Profile.SelectedModel = result.SelectedModel;
         item.Profile.ModelOverrides = result.ModelOverrides;
         item.Profile.TransportOverrides = result.TransportOverrides;
         item.Profile.RoutePoolLabel = result.RoutePoolLabel;
@@ -450,15 +453,23 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         }
         if (result.CompatibilityLevel != CodexCompatibilityLevel.Unknown) item.Profile.CompatibilityLevel = result.CompatibilityLevel;
         if (result.LastProbeReport != null) item.Profile.LastProbeReport = result.LastProbeReport;
+        item.Profile.SetSelectedModel(result.ModelInventory is not null
+            ? result.ModelInventory.SelectedModel
+            : result.SelectedModel);
 
         _apiProviderStore.Save(item.Profile);
         item.UpdateProfile(item.Profile, item.Descriptor, item.HasSecret, item.IsTargetActive);
 
         if (item.IsTargetActive)
         {
-            await _targetSwitchService.SwitchToApiProviderAsync(
-                item.Profile.Id,
-                SwitchExecutionOptions.From(_settings));
+            var switchResult = await SwitchToApiProviderInternalAsync(item.Profile);
+            if (switchResult?.Outcome is not (TargetSwitchOutcome.Success or TargetSwitchOutcome.SuccessWithReopenWarning or TargetSwitchOutcome.NoOp))
+            {
+                _apiProviderStore.Save(previousProfile);
+                item.UpdateProfile(previousProfile, item.Descriptor, item.HasSecret, isTargetActive: true);
+                TargetStateChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
         }
 
         TargetStateChanged?.Invoke(this, EventArgs.Empty);
@@ -860,7 +871,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
 
     private static bool TryGetEnabledSelectedModel(ApiProviderProfile profile, out string model)
     {
-        model = profile.SelectedModel ?? string.Empty;
+        model = profile.GetEffectiveSelectedModel() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(model))
         {
             return false;
@@ -910,7 +921,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         profile.DiscoveredModels = models.Distinct(StringComparer.Ordinal).ToList();
         profile.ModelInventory ??= new ApiProviderModelInventory();
         profile.ModelInventory.MergeDiscoveredModels(profile.DiscoveredModels, observedAt);
-        profile.ModelInventory.SelectedModel ??= profile.SelectedModel;
+        profile.NormalizeSelectedModel();
     }
 
     private static ApiProviderModelInventory CloneModelInventory(ApiProviderModelInventory? source)
@@ -952,6 +963,38 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         };
     }
 
+    private static ApiProviderProfile CloneProviderProfile(ApiProviderProfile source)
+    {
+        var clone = new ApiProviderProfile
+        {
+            Id = source.Id,
+            CatalogProviderId = source.CatalogProviderId,
+            StableCodexProviderId = source.StableCodexProviderId,
+            Nickname = source.Nickname,
+            BaseUrl = source.BaseUrl,
+            SelectedRouteId = source.SelectedRouteId,
+            SelectedModel = source.GetEffectiveSelectedModel(),
+            WireApi = source.WireApi,
+            KeyPreview = source.KeyPreview,
+            Status = source.Status,
+            CreatedAt = source.CreatedAt,
+            LastSwitchedAt = source.LastSwitchedAt,
+            SortOrder = source.SortOrder,
+            ModelOverrides = source.ModelOverrides,
+            TransportOverrides = source.TransportOverrides,
+            EndpointId = source.EndpointId,
+            ProviderPresetId = source.ProviderPresetId,
+            RoutePoolLabel = source.RoutePoolLabel,
+            DiscoveredModels = source.DiscoveredModels is null ? null : new List<string>(source.DiscoveredModels),
+            ModelInventory = source.ModelInventory is null ? null : CloneModelInventory(source.ModelInventory),
+            CompatibilityLevel = source.CompatibilityLevel,
+            LastProbeReport = source.LastProbeReport,
+        };
+
+        clone.NormalizeSelectedModel();
+        return clone;
+    }
+
     [RelayCommand]
     public void CloneProfile(ApiProviderItemViewModel? item)
     {
@@ -968,7 +1011,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
             BaseUrl = original.BaseUrl,
             SelectedRouteId = original.SelectedRouteId,
-            SelectedModel = original.SelectedModel,
+            SelectedModel = original.GetEffectiveSelectedModel(),
             WireApi = original.WireApi,
             KeyPreview = original.KeyPreview,
             Status = original.Status,
@@ -1020,7 +1063,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
             BaseUrl = original.BaseUrl,
             SelectedRouteId = original.SelectedRouteId,
-            SelectedModel = original.SelectedModel,
+            SelectedModel = original.GetEffectiveSelectedModel(),
             WireApi = original.WireApi,
             KeyPreview = ApiProviderProfile.ComputeKeyPreview(newKey),
             Status = ApiProviderProfileStatus.Active,
@@ -1059,7 +1102,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
             StableCodexProviderId = ApiProviderProfile.GenerateStableCodexProviderId(newId),
             BaseUrl = original.BaseUrl,
             SelectedRouteId = original.SelectedRouteId,
-            SelectedModel = original.SelectedModel,
+            SelectedModel = original.GetEffectiveSelectedModel(),
             WireApi = original.WireApi,
             KeyPreview = original.KeyPreview,
             Status = item.HasSecret ? ApiProviderProfileStatus.Active : ApiProviderProfileStatus.CredentialMissing,
@@ -1084,18 +1127,20 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
         candidate.Nickname = result.Nickname;
         candidate.BaseUrl = result.BaseUrl;
         candidate.SelectedRouteId = result.SelectedRouteId;
-        candidate.SelectedModel = result.SelectedModel;
         candidate.ModelOverrides = result.ModelOverrides;
         candidate.TransportOverrides = result.TransportOverrides;
         candidate.RoutePoolLabel = result.RoutePoolLabel;
         if (result.ModelInventory is not null) candidate.ModelInventory = result.ModelInventory;
+        candidate.SetSelectedModel(result.ModelInventory is not null
+            ? result.ModelInventory.SelectedModel
+            : result.SelectedModel);
         if (result.DiscoveredModels != null) candidate.DiscoveredModels = result.DiscoveredModels;
         if (result.CompatibilityLevel != CodexCompatibilityLevel.Unknown) candidate.CompatibilityLevel = result.CompatibilityLevel;
         if (result.LastProbeReport != null) candidate.LastProbeReport = result.LastProbeReport;
 
         _apiProviderStore.Save(candidate);
         TargetStateChanged?.Invoke(this, EventArgs.Empty);
-        ShowInfo("Model Added", $"Added '{candidate.SelectedModel}' under '{candidate.Nickname}'.", InfoBarSeverity.Success);
+        ShowInfo("Model Added", $"Added '{candidate.GetEffectiveSelectedModel()}' under '{candidate.Nickname}'.", InfoBarSeverity.Success);
     }
 
     [RelayCommand]
@@ -1125,7 +1170,7 @@ public sealed partial class ApiProvidersViewModel : ObservableObject, IDisposabl
                     var report = await _probeService.ProbeCompatibilityAsync(
                         item.Profile.BaseUrl,
                         key,
-                        item.Profile.SelectedModel ?? "gpt-5.6-sol");
+                        item.Profile.GetEffectiveSelectedModel() ?? "gpt-5.6-sol");
 
                     item.Profile.LastProbeReport = report;
                     item.Profile.CompatibilityLevel = report.CompatibilityLevel;

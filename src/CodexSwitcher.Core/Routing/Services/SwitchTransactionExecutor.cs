@@ -156,7 +156,7 @@ public sealed class SwitchTransactionExecutor : ISwitchTransactionExecutor
     {
         var targetProfile = apiPlan.TargetProfile;
         var options = apiPlan.Options;
-        var model = targetProfile.SelectedModel;
+        var model = targetProfile.GetEffectiveSelectedModel();
 
         if (string.IsNullOrWhiteSpace(model))
         {

@@ -36,7 +36,9 @@ public sealed class EffectiveModelDescriptorResolver : IEffectiveModelDescriptor
 
         var slug = !string.IsNullOrWhiteSpace(modelItem.Slug)
             ? modelItem.Slug
-            : (!string.IsNullOrWhiteSpace(profile.SelectedModel) ? profile.SelectedModel : "default-model");
+            : (!string.IsNullOrWhiteSpace(profile.GetEffectiveSelectedModel())
+                ? profile.GetEffectiveSelectedModel()!
+                : "default-model");
 
         // The endpoint/profile nickname identifies credentials and routing,
         // never the model itself. Keep a provider-reported inventory display

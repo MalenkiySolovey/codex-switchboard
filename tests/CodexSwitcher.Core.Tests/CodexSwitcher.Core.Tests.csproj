@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodexSwitcher.Core\CodexSwitcher.Core.csproj" />
     <ProjectReference Include="..\..\src\CodexSwitcher.Infra\CodexSwitcher.Infra.csproj" />
+    <ProjectReference Include="..\..\src\CodexSwitcher.App\CodexSwitcher.App.csproj" />
     <ProjectReference Include="..\..\tools\CodexSwitcher.CatalogSigner\CodexSwitcher.CatalogSigner.csproj" />
   </ItemGroup>
 

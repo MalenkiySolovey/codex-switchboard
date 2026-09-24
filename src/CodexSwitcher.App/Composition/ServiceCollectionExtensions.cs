@@ -259,7 +259,7 @@ public static class ServiceCollectionExtensions
             paths.CatalogSigPath,
             paths.CatalogPreviousPath,
             paths.LocalCatalogPath,
-            "0.2.0"));
+            "0.2.1"));
 
         services.AddSingleton<ProviderCatalogService>();
         services.AddSingleton<IProviderCatalogService>(sp => sp.GetRequiredService<ProviderCatalogService>());

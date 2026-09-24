@@ -527,11 +527,23 @@ public sealed class Strings
     public string RotateKeyDialogTitle => S("Substituir Chave de API", "Replace API Key");
     public string ProviderLabel => S("Provedor", "Provider");
     public string ApiKeyLabel => S("Chave de API", "API Key");
+    public string ApiKeyKeepCurrentHint => S("Deixe em branco para manter a chave atual.", "Leave blank to keep the current key.");
     public string NameLabel => S("Nome / Rótulo", "Name / Label");
     public string ModelLabel => S("Modelo", "Model");
     public string BaseUrlLabel => S("URL Base", "Base URL");
     public string SaveAndSwitch => S("Salvar e alternar", "Save and switch");
     public string SaveOnly => S("Salvar", "Save");
+    public string RoutePoolLabelOptional => S("Rótulo do pool de rotas (opcional)", "Route pool label (optional)");
+    public string RoutePoolLabelPlaceholder => S("Ex.: default ou grok-award", "e.g. default or grok-award");
+    public string ManageModels => S("Gerenciar modelos", "Manage models");
+    public string ManageModelsDescription => S(
+        "Atualizar preserva modelos manuais; modelos ausentes continuam na lista.",
+        "Refresh keeps manual models; missing models stay listed.");
+    public string SearchModels => S("Pesquisar modelos", "Search models");
+    public string InvertFilteredModels => S("Inverter modelos filtrados", "Invert filtered models");
+    public string InvertFilteredModelsTooltip => S("Inverte o estado dos modelos correspondentes ao filtro atual.", "Invert enabled state for models matching the current filter.");
+    public string ExactModelSlugPlaceholder => S("Slug exato do modelo para adicionar manualmente", "Exact model slug to add manually");
+    public string AddManualModel => S("Adicionar modelo manual", "Add manual model");
     public string ThreadPickerTitle => S("Continuar conversa", "Continue conversation");
     public string ThreadPickerSubtitle => S("Escolha uma conversa do Codex para bifurcar com segurança.", "Choose a Codex conversation to fork safely.");
     public string SourceThread => S("Conversa de origem", "Source conversation");

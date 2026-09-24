@@ -191,13 +191,12 @@ public sealed class CodexModelCatalogService : ICodexModelCatalogService
     {
         ArgumentNullException.ThrowIfNull(profile);
 
+        var selectedModel = profile.GetEffectiveSelectedModel();
         var slug = !string.IsNullOrWhiteSpace(modelSlug)
             ? modelSlug
-            : (!string.IsNullOrWhiteSpace(profile.SelectedModel)
-                ? profile.SelectedModel
-                : (!string.IsNullOrWhiteSpace(profile.ModelInventory?.SelectedModel)
-                    ? profile.ModelInventory.SelectedModel
-                    : profile.ModelInventory?.GetEnabledModels().FirstOrDefault()?.Slug));
+            : (!string.IsNullOrWhiteSpace(selectedModel)
+                ? selectedModel
+                : profile.ModelInventory?.GetEnabledModels().FirstOrDefault()?.Slug);
 
         if (string.IsNullOrWhiteSpace(slug))
         {
