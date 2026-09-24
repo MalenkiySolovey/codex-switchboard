@@ -61,7 +61,7 @@ New-Item -Path $StagingDir -ItemType Directory -Force | Out-Null
 
 # 2. Restore and build solution
 Write-Host "[2/8] Restoring and building CodexSwitcher.slnx in Release mode..." -ForegroundColor Yellow
-dotnet restore "$RepoRoot\CodexSwitcher.slnx" --locked-mode
+dotnet restore "$RepoRoot\CodexSwitcher.slnx" --locked-mode -p:Configuration=Release
 if ($LASTEXITCODE -ne 0) { throw "Locked restore failed with exit code $LASTEXITCODE" }
 
 dotnet build "$RepoRoot\CodexSwitcher.slnx" -c Release --no-restore

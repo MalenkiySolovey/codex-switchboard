@@ -62,7 +62,10 @@ Run-Gate "SDK Toolchain Verification (global.json)" {
 
 # --- GATE 2: Locked Dependency Restore ---
 Run-Gate "Locked Dependency Restore (--locked-mode)" {
-    & dotnet restore $SolutionPath --locked-mode
+    # Restore with the same configuration used by the release build. The app enables
+    # PublishReadyToRun in Release, which requires the Crossgen2 runtime package to
+    # be present before the subsequent --no-restore build runs in a clean CI cache.
+    & dotnet restore $SolutionPath --locked-mode -p:Configuration=Release
     if ($LASTEXITCODE -ne 0) {
         throw "Locked restore failed with exit code $LASTEXITCODE."
     }
