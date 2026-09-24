@@ -8,7 +8,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D6?logo=windows)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)
 ![UI](https://img.shields.io/badge/UI-WinUI%203%20Fluent-2E9BFF)
-![Tests](https://img.shields.io/badge/tests-900%2B%20passing-3DDC84)
+![Tests](https://img.shields.io/badge/tests-938%20passing-3DDC84)
 ![Architecture](https://img.shields.io/badge/architecture-x64-blue)
 ![Release](https://img.shields.io/badge/release-v0.2.1-brightgreen)
 
@@ -79,6 +79,20 @@ Codex Switchboard solves both challenges:
 - **Zero-Write Invariant:** Background quota polling and telemetry queries never modify or lock `%USERPROFILE%\.codex\auth.json`.
 - **Sandbox Isolation:** Spawns headless `codex app-server --listen stdio://` child processes within dedicated, isolated working directories (`CODEX_HOME`), completely decoupled from your primary coding environment.
 - **Process Lifecycle Management:** Automatic timeout guards and graceful shutdown ensure no orphaned background processes remain.
+
+### Profile-Scoped API Providers & Model Inventories
+- **Custom Provider Profiles:** Add and manage OpenAI Responses-compatible API providers with credentials encrypted at rest via Windows DPAPI (`CurrentUser`).
+- **Dynamic Model Discovery:** Automatically query provider `/v1/models` endpoints to discover supported models using the profile's encrypted bearer credentials.
+- **Granular Model Management:** Enable or disable individual models, register custom model identifiers, and select a persistent default model for inference.
+- **Per-Model Context & Reasoning Controls:** Configure per-model context window limits (up to 1,000,000 tokens), reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`), and thinking parameters.
+- **Content-Addressed Dynamic Catalogs:** Automatically compiles immutable, collision-resistant provider catalogs with 16-hex `SHA-256` fingerprints.
+- **Dual-Layer Compatibility Engine:** Validates third-party Responses tool-calling and enforces model-specific tool exclusion policies (e.g. Modelflare Grok routing).
+
+### Cross-Provider Conversation Continuation (Continue Chat)
+- **Target-Model Forking:** Fork any existing Codex conversation thread via `thread/fork` directly into a chosen target provider and model.
+- **Persistent Copy Labeling:** Forked conversations are automatically labeled with `[copy]` (e.g., `Project Refactor [copy]`) to easily distinguish them from original threads in the Codex UI and thread switcher.
+- **Verified SQLite Safety:** Preserves conversation threads safely on disk without directly mutating or risking corruption of Codex's internal databases.
+- **Canonical Runtime Resolution:** Resolves the canonical `codex.exe` executable path even if `codex` is absent from system `PATH`.
 
 ### Catalog-Driven API Providers
 - **HeJu API / JuAPI:** Registered OpenAI-compatible provider support with separate **Global** and **Hong Kong** routes.
@@ -209,7 +223,7 @@ Pre-built Windows x64 binaries are available under [GitHub Releases](../../relea
 - [.NET 10 SDK (x64)](https://dotnet.microsoft.com/download/dotnet/10.0) pinned via `global.json` (`10.0.102` with `latestPatch`).
 
 ### 1. Developer Verification (Single Command)
-Run all repository quality gates (locked restore, format check, dependency vulnerability audit, release build with warnings as errors, and full 653+ test suite):
+Run all repository quality gates (locked restore, format check, dependency vulnerability audit, release build with warnings as errors, and full 938-test suite):
 ```powershell
 powershell -ExecutionPolicy Bypass -File eng/quality/verify.ps1
 ```
@@ -226,7 +240,7 @@ dotnet restore CodexSwitcher.slnx --locked-mode
 # Build solution in Release configuration
 dotnet build CodexSwitcher.slnx -c Release --no-restore
 
-# Run the complete offline test suite (653 tests)
+# Run the complete offline test suite (938 tests)
 dotnet test CodexSwitcher.slnx -c Release --no-build --no-restore
 ```
 
